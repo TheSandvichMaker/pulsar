@@ -103,7 +103,7 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                     u32 end_sample_position = begin_sample_position + samples_to_mix;
                     for (u32 sample_index = begin_sample_position; sample_index < end_sample_position; sample_index++) {
                         for (u32 channel = 0; channel < sound->channel_count; channel++) {
-                            f32 sample_value = (f32)sound->samples[channel][sample_index];
+                            f32 sample_value = (f32)(sound->samples + sound->sample_count*channel)[sample_index];
                             *dest[channel]++ += volume.e[channel]*sample_value;
                         }
                     }

@@ -52,4 +52,10 @@ typedef int64_t s64;
 #define NULL 0
 #endif
 
+inline u32 safe_truncate_u64u32(u64 source) {
+    assert(source <= UINT32_MAX);
+    u32 result = cast(u32) source;
+    return result;
+}
+
 #endif /* WIN32_MAIN_H */

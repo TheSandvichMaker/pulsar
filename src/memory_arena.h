@@ -18,6 +18,7 @@ inline void initialize_arena(MemoryArena* arena, size_t size, void* base_ptr) {
     arena->size = size;
     arena->base_ptr = (u8*)base_ptr;
     arena->used = 0;
+    arena->temp_count = 0;
 }
 
 enum ArenaPushFlags {
@@ -97,6 +98,12 @@ inline size_t get_effective_size_for(MemoryArena* arena, size_t size, ArenaPushP
 inline b32 arena_has_room_for(MemoryArena* arena, size_t size, ArenaPushParams params = default_arena_params()) {
     size_t effective_size = get_effective_size_for(arena, size, params);
     b32 result = (arena->used + effective_size) <= arena->size;
+    return result;
+}
+
+inline void* get_next_allocation_location(MemoryArena* arena, size_t align = 4) {
+    size_t align_offset = get_alignment_offset(arena, align);
+    void* result = cast(void*) (arena->base_ptr + arena->used + align_offset);
     return result;
 }
 
