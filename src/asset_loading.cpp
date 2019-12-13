@@ -1,6 +1,6 @@
 /*
  * @TODO:
- * Handle audio more flexibly, don't enforce stereo or 48khz.
+ * Support a larger amount of formats
  */
 
 internal void* load_bitmap(size_t size, void* memory, u32* out_width, u32* out_height) {
@@ -133,9 +133,9 @@ internal s16* load_wav(size_t size, void* memory, u32* out_channel_count, u32* o
             switch (get_type(iter)) {
                 case WaveChunkID_fmt: {
                     WaveFmt* fmt = (WaveFmt*)get_chunk_data(iter);
-                    assert(fmt->format_tag == 1); // NOTE: We only support PCM
+                    assert(fmt->format_tag == 1);
                     assert(fmt->num_channels == 2);
-                    assert(fmt->samples_per_sec == 48000); // hmm!!
+                    assert(fmt->samples_per_sec == 48000);
                     assert(fmt->bits_per_sample == 16);
                     assert(fmt->block_align == sizeof(u16)*fmt->num_channels);
                     channel_count = fmt->num_channels;

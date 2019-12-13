@@ -43,9 +43,55 @@ struct GameSoundOutputBuffer {
     s16* samples;
 };
 
-struct GameInput {
-    int dummy;
+struct GameButtonState {
+    b32 is_down;
+    u32 half_transition_count;
 };
+
+enum GameInputMouseButton {
+    PlatformMouseButton_Left,
+    PlatformMouseButton_Middle,
+    PlatformMouseButton_Right,
+    PlatformMouseButton_Extended0,
+    PlatformMouseButton_Extended1,
+    PlatformMouseButton_Count,
+};
+
+#define MAX_CONTROLLER_COUNT 5
+struct GameController {
+    b32 is_connected;
+
+    union {
+        GameButtonState buttons[4];
+        struct {
+            GameButtonState move_up;
+            GameButtonState move_down;
+            GameButtonState move_left;
+            GameButtonState move_right;
+        };
+    };
+};
+
+#define PLATFORM_KEYBOARD_CONTROLLER 0
+
+struct GameInput {
+    b32 in_focus, focus_changed;
+    f32 frame_dt;
+
+    GameController controllers[MAX_CONTROLLER_COUNT];
+
+    u32 mouse_x, mouse_y, mouse_z;
+    GameButtonState mouse_buttons[PlatformMouseButton_Count];
+
+    GameButtonState debug_fkeys[13];
+
+    b32 quit_requested;
+};
+
+inline GameController* get_controller(GameInput* input, u32 controller_index) {
+    assert(controller_index < ARRAY_COUNT(input->controllers));
+    return input->controllers + controller_index;
+}
 
 #define GAME_UPDATE_AND_RENDER(name) void name(GameMemory* memory, GameInput* input, u32 width, u32 height)
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);

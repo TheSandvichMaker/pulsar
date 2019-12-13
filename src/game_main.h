@@ -23,6 +23,9 @@ struct GameState {
     Sound* test_sound;
     Image* test_image;
 
+    v2 p1;
+    v2 p2;
+
     u32 sound_timer;
 };
 

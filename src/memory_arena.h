@@ -78,8 +78,8 @@ inline size_t get_arena_size_remaining(MemoryArena* arena, ArenaPushParams param
     return result;
 }
 
-#define ZERO_STRUCT(instance) zero_size(sizeof(instance), &(instance))
-#define ZERO_ARRAY(count, pointer) zero_size(count*sizeof((pointer)[0]), pointer)
+#define zero_struct(instance) zero_size(sizeof(instance), &(instance))
+#define zero_array(count, pointer) zero_size(count*sizeof((pointer)[0]), pointer)
 inline void* zero_size(size_t size, void* ptr) {
     // TODO: Check this for performance
     u8* byte = (u8*)ptr;

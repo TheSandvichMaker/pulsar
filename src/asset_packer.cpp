@@ -54,14 +54,25 @@ internal void add_asset(AssetID type, char* file_name) {
     asset_desc->data_type = data_type;
 }
 
+internal void add_sound(AssetID type, char* file_name) {
+    add_asset(type, file_name);
+}
+
+internal void add_image(AssetID type, char* file_name, f32 align_x = 0.5f, f32 align_y = 0.5f) {
+    add_asset(type, file_name);
+    PackedImage* image = &asset_catalog[type].image;
+    image->center_point_x = align_x;
+    image->center_point_y = align_y;
+}
+
 int main(int argument_count, char** arguments) {
 #define MEMORY_POOL_SIZE GIGABYTES(1)
     void* memory_pool = malloc(MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
-    add_asset(Asset_TestMusic, "test_music.wav");
-    add_asset(Asset_TestSound, "test_sound.wav");
-    add_asset(Asset_TestImage, "test_bitmap.bmp");
+    add_sound(Asset_TestMusic, "test_music.wav");
+    add_sound(Asset_TestSound, "test_sound.wav");
+    add_image(Asset_TestImage, "test_bitmap.bmp");
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'a', 'k', 'f');
@@ -82,7 +93,7 @@ int main(int argument_count, char** arguments) {
             AssetDescription* asset_desc = assets_to_load + asset_index;
             PackedAsset* packed = asset_catalog + asset_index;
 
-            packed->data_offset = ftell(out);
+            packed->data_offset = ftell(out) - header.asset_data;
 
             TemporaryMemory temp_mem = begin_temporary_memory(&global_arena);
 
@@ -124,9 +135,6 @@ int main(int argument_count, char** arguments) {
                     packed->type = AssetType_Image;
                     packed->image.w = w;
                     packed->image.h = h;
-                    // @TODO: Allow alignment specification
-                    packed->image.center_point_x = 0.5f;
-                    packed->image.center_point_y = 0.5f;
 
                     u32 bitmap_size = w*h*sizeof(u32);
                     fwrite(pixels, bitmap_size, 1, out);

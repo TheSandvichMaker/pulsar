@@ -32,6 +32,8 @@ global OpenGLInfo opengl_info;
 #include "game_main.cpp"
 
 global b32 running;
+global b32 in_focus;
+global b32 focus_changed;
 
 internal PLATFORM_ALLOCATE_MEMORY(win32_allocate_memory) {
     void* result = VirtualAlloc(NULL, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
@@ -255,6 +257,15 @@ internal void win32_toggle_fullscreen(HWND window) {
     }
 }
 
+internal void win32_process_keyboard_message(GameButtonState* new_state, b32 is_down) {
+    if (in_focus) {
+        if (new_state->is_down != is_down) {
+            new_state->is_down = is_down;
+            new_state->half_transition_count++;
+        }
+    }
+}
+
 LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param) {
     LRESULT result = NULL;
 
@@ -277,7 +288,7 @@ LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LP
     return result;
 }
 
-internal void win32_handle_remaining_messages() {
+internal void win32_handle_remaining_messages(GameInput* input) {
     MSG message;
     while (PeekMessageA(&message, NULL, NULL, NULL, PM_REMOVE)) {
         switch (message.message) {
@@ -302,11 +313,28 @@ internal void win32_handle_remaining_messages() {
                         running = false;
                     } break;
 
+                    case VK_F1:  { win32_process_keyboard_message(&input->debug_fkeys[1],  is_down); } break;
+                    case VK_F2:  { win32_process_keyboard_message(&input->debug_fkeys[2],  is_down); } break;
+                    case VK_F3:  { win32_process_keyboard_message(&input->debug_fkeys[3],  is_down); } break;
                     case VK_F4: {
+                        win32_process_keyboard_message(&input->debug_fkeys[4], is_down);
                         if (alt_is_down) {
-                            running = false;
+                            input->quit_requested = true;
                         }
                     } break;
+                    case VK_F5:  { win32_process_keyboard_message(&input->debug_fkeys[5],  is_down); } break;
+                    case VK_F6:  { win32_process_keyboard_message(&input->debug_fkeys[6],  is_down); } break;
+                    case VK_F7:  { win32_process_keyboard_message(&input->debug_fkeys[7],  is_down); } break;
+                    case VK_F8:  { win32_process_keyboard_message(&input->debug_fkeys[8],  is_down); } break;
+                    case VK_F9:  { win32_process_keyboard_message(&input->debug_fkeys[9],  is_down); } break;
+                    case VK_F10: { win32_process_keyboard_message(&input->debug_fkeys[10], is_down); } break;
+                    case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
+                    case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
+
+                    case 'W': case VK_UP: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_up, is_down); } break;
+                    case 'A': case VK_LEFT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_left, is_down); } break;
+                    case 'S': case VK_DOWN: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_down, is_down); } break;
+                    case 'D': case VK_RIGHT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_right, is_down); } break;
 
                     case VK_RETURN: {
                         if (is_down && alt_is_down) {
@@ -317,6 +345,24 @@ internal void win32_handle_remaining_messages() {
                     } break;
                 }
             } break;
+
+#if 0
+            @TODO: This seems like a lot of work when the GetKeyState version works just as well.
+            case WM_LBUTTONDOWN:
+            case WM_LBUTTONUP:
+            case WM_RBUTTONDOWN:
+            case WM_RBUTTONUP:
+            case WM_MBUTTONDOWN:
+            case WM_MBUTTONUP: {
+                u32 mk_code = (u32)message.wParam;
+
+                case MK_LBUTTON: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Left], is_down); } break;
+                case MK_RBUTTON: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Right], is_down); } break;
+                case MK_MBUTTON: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Middle], is_down); } break;
+                case MK_XBUTTON1: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Extended0], is_down); } break;
+                case MK_XBUTTON2: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Extended1], is_down); } break;
+            } break;
+#endif
 
             default: {
                 TranslateMessage(&message);
@@ -395,27 +441,71 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.allocate = win32_allocate_memory;
             game_memory.platform_api.deallocate = win32_deallocate_memory;
 
-            GameInput game_input = {};
+            GameInput old_input_ = {};
+            GameInput new_input_ = {};
+            GameInput* old_input = &old_input_;
+            GameInput* new_input = &new_input_;
 
             running = true;
             while (running) {
-                win32_handle_remaining_messages();
-
                 RECT window_rect;
-                GetWindowRect(window, &window_rect);
+                GetClientRect(window, &window_rect);
 
                 u32 width = window_rect.right - window_rect.left;
                 u32 height = window_rect.bottom - window_rect.top;
 
-                glViewport(0, 0, width, height);
-                glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT);
+                //
+                // Input
+                //
 
-                // opengl_set_screenspace(width, height);
-                // opengl_texture(cast(GLuint) test_bitmap.handle, vec2(0, 0), vec2(width / 2, height / 2), vec4(1, 1, 1, 1));
+                b32 new_in_focus = (GetForegroundWindow() == window);
+                focus_changed = new_in_focus != in_focus;
+                in_focus = new_in_focus;
 
-                game_update_and_render(&game_memory, &game_input, width, height);
+                new_input->frame_dt = 1.0f / game_update_rate;
+                new_input->in_focus = in_focus;
+                new_input->focus_changed = focus_changed;
 
+                GameController* old_keyboard_controller = get_controller(old_input, PLATFORM_KEYBOARD_CONTROLLER);
+                GameController* new_keyboard_controller = get_controller(new_input, PLATFORM_KEYBOARD_CONTROLLER);
+                new_keyboard_controller->is_connected = true;
+                for (u32 button_index = 0; button_index < ARRAY_COUNT(new_keyboard_controller->buttons); button_index++) {
+                    new_keyboard_controller->buttons[button_index].is_down = old_keyboard_controller->buttons[button_index].is_down;
+                    new_keyboard_controller->buttons[button_index].half_transition_count = 0;
+                }
+
+                POINT mouse_position;
+                GetCursorPos(&mouse_position);
+                ScreenToClient(window, &mouse_position);
+                new_input->mouse_x = mouse_position.x;
+                new_input->mouse_y = (height - 1) - mouse_position.y;
+                new_input->mouse_z = 0; // @TODO: Mousewheel support
+
+                DWORD win32_button_id[PlatformMouseButton_Count] = {
+                    VK_LBUTTON,
+                    VK_MBUTTON,
+                    VK_RBUTTON,
+                    VK_XBUTTON1,
+                    VK_XBUTTON2,
+                };
+
+                for (u32 button_index = 0; button_index < ARRAY_COUNT(new_input->mouse_buttons); button_index++) {
+                    new_input->mouse_buttons[button_index].is_down = old_input->mouse_buttons[button_index].is_down;
+                    new_input->mouse_buttons[button_index].half_transition_count = 0;
+
+                    win32_process_keyboard_message(&new_input->mouse_buttons[button_index], (GetKeyState(win32_button_id[button_index]) & (1 << 15)) != 0);
+                }
+
+                win32_handle_remaining_messages(new_input);
+
+                //
+                // Game Update and Render
+                //
+
+                game_update_and_render(&game_memory, new_input, width, height);
+
+                //
+                // Game Sound
                 //
 
                 DWORD play_cursor, write_cursor;
@@ -464,11 +554,20 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 }
 
                 //
+                // VBlank
+                // @TODO: Handle frame timing when vsync is not available / enabled.
+                //
 
                 SwapBuffers(window_dc);
+
+                //
+
+                GameInput* temp = new_input;
+                new_input = old_input;
+                old_input = temp;
             }
         } else {
-            // @TODO: Do something about the fact window creation failed?
+            // @TODO: Some kind of logging?
             INVALID_CODE_PATH;
         }
     }

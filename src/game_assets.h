@@ -18,6 +18,7 @@ struct Image {
 };
 
 struct Asset {
+    AssetType type;
     union {
         Sound sound;
         Image image;

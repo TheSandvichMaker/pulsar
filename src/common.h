@@ -49,7 +49,11 @@ typedef int64_t s64;
 #define TERABYTES(num) (GIGABYTES(num) * 1024)
 
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL ((void*)0)
+#else
 #define NULL 0
+#endif
 #endif
 
 inline u32 safe_truncate_u64u32(u64 source) {

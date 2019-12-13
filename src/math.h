@@ -731,6 +731,14 @@ inline f32 dot(v3 a, v3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+inline v3 cross(v3 a, v3 b) {
+    return vec3(
+        a.y*b.z - a.z*b.y,
+        a.z*b.x - a.x*b.z,
+        a.x*b.y - a.y*b.x
+    );
+}
+
 inline v3 reflect(v3 a, v3 b) {
     return a - 2.0f * dot(a, b) * b;
 }

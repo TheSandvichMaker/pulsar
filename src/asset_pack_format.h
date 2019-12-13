@@ -33,6 +33,18 @@ struct PackedAsset {
     };
 };
 
+#define ASSET_PACK_CODE(a, b, c, d) (((u32)(a) << 0) | ((u32)(b) << 8) | ((u32)(c) << 16) | ((u32)(d) << 24))
+struct AssetPackHeader {
+    u32 magic_value;
+
+#define ASSET_PACK_VERSION 0
+    u32 version;
+
+    u32 asset_count;
+    u32 asset_catalog; // @Note: indexed into by AssetType, so the values of AssetType must be in sync with the file.
+    u32 asset_data;
+};
+
 /*
    ------------------
    magic_value: APK_CODE('a', 'p', 'k', 'f')
@@ -71,17 +83,5 @@ struct PackedAsset {
     [ data for TestSound ]
     [ data for TestImage ]
 */
-
-#define ASSET_PACK_CODE(a, b, c, d) (((u32)(a) << 0) | ((u32)(b) << 8) | ((u32)(c) << 16) | ((u32)(d) << 24))
-struct AssetPackHeader {
-    u32 magic_value;
-
-#define ASSET_PACK_VERSION 0
-    u32 version;
-
-    u32 asset_count;
-    u32 asset_catalog; // @Note: indexed into by AssetType, so the values of AssetType must be in sync with the file.
-    u32 asset_data;
-};
 
 #endif /* ASSET_PACK_FORMAT_H */
