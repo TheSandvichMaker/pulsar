@@ -11,43 +11,50 @@ inline void opengl_set_screenspace(u32 width, u32 height) {
     glLoadMatrixf(projection_matrix);
 }
 
-inline void opengl_rectangle(v2 min_p, v2 max_p, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
+inline void opengl_rectangle(v2 min_p, v2 x_axis, v2 y_axis, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(0, 0)) {
     glBegin(GL_TRIANGLES);
 
     glColor4f(color.r, color.g, color.b, color.a);
 
+    v2 min_x_min_y = min_p;
+    v2 min_x_max_y = min_p + y_axis;
+    v2 max_x_min_y = min_p + x_axis;
+    v2 max_x_max_y = min_p + x_axis + y_axis;
+
     // NOTE: Lower triangle
     glTexCoord2f(min_uv.x, min_uv.y);
-    glVertex2f(min_p.x, min_p.y);
+    glVertex2fv(min_x_min_y.e);
     glTexCoord2f(max_uv.x, min_uv.y);
-    glVertex2f(max_p.x, min_p.y);
+    glVertex2fv(max_x_min_y.e);
     glTexCoord2f(max_uv.x, max_uv.y);
-    glVertex2f(max_p.x, max_p.y);
+    glVertex2fv(max_x_max_y.e);
 
     // NOTE: Upper triangle
     glTexCoord2f(min_uv.x, min_uv.y);
-    glVertex2f(min_p.x, min_p.y);
+    glVertex2fv(min_x_min_y.e);
     glTexCoord2f(max_uv.x, max_uv.y);
-    glVertex2f(max_p.x, max_p.y);
+    glVertex2fv(max_x_max_y.e);
     glTexCoord2f(min_uv.x, max_uv.y);
-    glVertex2f(min_p.x, max_p.y);
+    glVertex2fv(min_x_max_y.e);
 
     glEnd();
 }
 
 inline void opengl_rectangle(Rect2 rect, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
-    opengl_rectangle(get_min_corner(rect), get_max_corner(rect), color, min_uv, max_uv);
+    v2 dim = get_dim(rect);
+    opengl_rectangle(get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
 }
 
-inline void opengl_texture(GLuint handle, v2 min_p, v2 max_p, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
+inline void opengl_texture(GLuint handle, v2 min_p, v2 x_axis, v2 y_axis, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, handle);
-    opengl_rectangle(min_p, max_p, color, min_uv, max_uv);
+    opengl_rectangle(min_p, x_axis, y_axis, color, min_uv, max_uv);
     glDisable(GL_TEXTURE_2D);
 }
 
 inline void opengl_texture(GLuint handle, Rect2 rect, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
-    opengl_texture(handle, get_min_corner(rect), get_max_corner(rect), color, min_uv, max_uv);
+    v2 dim = get_dim(rect);
+    opengl_texture(handle, get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
 }
 
 inline GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* pixels) {
@@ -66,8 +73,8 @@ inline GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* p
         pixels
     );
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);

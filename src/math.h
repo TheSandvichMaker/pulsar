@@ -421,6 +421,16 @@ inline v2 arm2(f32 angle) {
     return result;
 }
 
+inline v2 rotate(v2 v, v2 cos_sin) {
+    v2 result = vec2(v.x*cos_sin.x - v.y*cos_sin.y, v.x*cos_sin.y + v.y*cos_sin.x);
+    return result;
+}
+
+inline v2 rotate_clockwise(v2 v, v2 cos_sin) {
+    v2 result = vec2(v.x*cos_sin.x + v.y*cos_sin.y, -v.x*cos_sin.y + v.y*cos_sin.x);
+    return result;
+}
+
 //
 // NOTE: Rect2
 //

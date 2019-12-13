@@ -86,6 +86,7 @@ int main(int argument_count, char** arguments) {
 
     FILE* out = fopen("assets.pak", "wb");
     if (out) {
+        fprintf(stderr, "Writing header (v: %d, ac: %d)\n", header.version, header.asset_count);
         fwrite(&header, sizeof(header), 1, out);
         fseek(out, header.asset_data, SEEK_SET);
 

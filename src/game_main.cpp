@@ -6,61 +6,67 @@
 #include "game_assets.cpp"
 #include "audio_mixer.cpp"
 
-enum ShapeType {
-    Shape_Circle,
-    Shape_Polygon,
-};
-
-struct Shape2D {
-    ShapeType type;
-    union {
-        f32 radius;
-        struct {
-            size_t vert_count;
-            v2* vertices;
-        };
-    };
-};
-
-inline void draw_shape(Shape2D shape, v2 offset, v4 color = vec4(1, 1, 1, 1)) {
+inline void draw_shape(Transform2D transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
     glBegin(GL_LINE_LOOP);
     glColor4fv(color.e);
 
-    for (u32 vertex_index = 0; vertex_index < shape->vert_count; vertex_index++) {
-        v2 v = shape->vertices[vertex_index] + offset;
-        glVertex2fv(v.e);
+    u32 circle_quality = 32;
+
+    switch (shape.type) {
+        case Shape_Polygon: {
+            for (u32 vertex_index = 0; vertex_index < shape.vert_count; vertex_index++) {
+                v2 v = rotate(transform.scale*shape.vertices[vertex_index], transform.rotation_arm) + transform.offset;
+                glVertex2fv(v.e);
+            }
+        } break;
+
+        case Shape_Circle: {
+            for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / cast(f32) circle_quality)) {
+                v2 v = rotate(transform.scale*vec2(sin(segment_angle), cos(segment_angle))*shape.radius, transform.rotation_arm) + transform.offset;
+                glVertex2fv(v.e);
+            }
+        } break;
     }
 
     glEnd();
 }
 
 inline v2 get_furthest_point_along(Shape2D s, v2 dir) {
-    v2 best_point = vec2(0, 0);
+    v2 result = vec2(0, 0);
 
-    if (s.vert_count > 0) {
-        f32 best_dist = dot(s.vertices[0], dir);
-        best_point = s.vertices[0];
-        for (u32 vertex_index = 1; vertex_index < s.vert_count; vertex_index++) {
-            v2 vertex = s.vertices[vertex_index];
-            f32 dist_along_dir = dot(vertex, dir);
-            if (dist_along_dir > best_dist) {
-                best_point = vertex;
-                best_dist = dist_along_dir;
+    switch (s.type) {
+        case Shape_Polygon: {
+            if (s.vert_count > 0) {
+                f32 best_dist = dot(s.vertices[0], dir);
+                result = s.vertices[0];
+                for (u32 vertex_index = 1; vertex_index < s.vert_count; vertex_index++) {
+                    v2 vertex = s.vertices[vertex_index];
+                    f32 dist_along_dir = dot(vertex, dir);
+                    if (dist_along_dir > best_dist) {
+                        result = vertex;
+                        best_dist = dist_along_dir;
+                    }
+                }
             }
-        }
+        } break;
+
+        case Shape_Circle: {
+            result = normalize_or_zero(dir)*s.radius;
+        } break;
     }
 
-    return best_point;
+    return result;
 }
 
-inline v2 support(Shape2D s1, Shape2D s2, v2 dir) {
-    v2 a = get_furthest_point_along(s1, dir);
-    v2 b = get_furthest_point_along(s2, -dir);
+inline v2 support(Transform2D s1_t, Shape2D s1, Transform2D s2_t, Shape2D s2, v2 dir) {
+    v2 a = s1_t.offset + rotate(s1_t.scale*get_furthest_point_along(s1,  rotate_clockwise(dir, s1_t.rotation_arm)), s1_t.rotation_arm);
+    v2 b = s2_t.offset + rotate(s2_t.scale*get_furthest_point_along(s2, -rotate_clockwise(dir, s2_t.rotation_arm)), s2_t.rotation_arm);
     v2 ab = a - b;
     return ab;
 }
 
 inline v2 triple_product(v2 a, v2 b, v2 c) {
+    // @TODO: Work through the proof that this equals AxBxC
     v2 result = b*dot(c, a) - a*(dot(c, b));
     return result;
 }
@@ -103,28 +109,24 @@ inline b32 gjk_do_simplex(u32* pc, v2* p, v2* d) {
     }
 
     return result;
+#undef same_direction
 }
 
-inline b32 gjk_intersect(Shape2D s1, Shape2D s2) {
+inline b32 gjk_intersect(Transform2D s1_t, Shape2D s1, Transform2D s2_t, Shape2D s2) {
     b32 result = false;
 
     u32 pc = 0;
     v2 p[3] = {};
-    v2 s = support(s1, s2, vec2(0, 1));
+    v2 s = support(s1_t, s1, s2_t, s2, vec2(0, 1));
 
     p[pc++] = s;
     v2 d = -s;
     for (;;) {
-        v2 a = support(s1, s2, d);
+        v2 a = support(s1_t, s1, s2_t, s2, d);
         if (dot(a, d) <= 0) {
             break;
         }
         p[pc++] = a;
-
-        Shape2D simplex;
-        simplex.vert_count = pc;
-        simplex.vertices = p;
-        draw_shape(simplex, s1.vertices[0]);
 
         if (gjk_do_simplex(&pc, p, &d)) {
             result = true;
@@ -144,7 +146,7 @@ inline void draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     Shape2D arrow;
     arrow.vert_count = ARRAY_COUNT(arrow_verts);
     arrow.vertices = arrow_verts;
-    draw_shape(arrow, vec2(0, 0), color);
+    draw_shape(default_transform2d(), arrow, color);
 }
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -177,28 +179,31 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         memory->initialized = true;
     }
 
-    v4 color = vec4(1, 1, 1, 1);
-
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
-    game_state->p2 = mouse_p;
-    if (input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-        color = vec4(0, 1, 0, 1);
-    }
 
+    Entity* player = &game_state->player;
     GameController* keyboard = get_controller(input, PLATFORM_KEYBOARD_CONTROLLER);
     if (keyboard->is_connected) {
         if (keyboard->move_left.is_down) {
-            game_state->p1.x -= 2.0f;
+            // player->p.x -= 2.0f;
+            player->rotation -= TAU_32/100.0f;
         }
         if (keyboard->move_right.is_down) {
-            game_state->p1.x += 2.0f;
+            // player->p.x += 2.0f;
+            player->rotation += TAU_32/100.0f;
         }
+        v2 x_axis = vec2(cos(player->rotation), sin(player->rotation));
+        v2 y_axis = perpendicular(x_axis);
         if (keyboard->move_down.is_down) {
-            game_state->p1.y -= 2.0f;
+            player->p -= 2.0f*y_axis;
         }
         if (keyboard->move_up.is_down) {
-            game_state->p1.y += 2.0f;
+            player->p += 2.0f*y_axis;
         }
+    }
+
+    if (player->rotation > PI_32) {
+        player->rotation -= TAU_32;
     }
 
     glViewport(0, 0, width, height);
@@ -210,52 +215,35 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     opengl_set_screenspace(width, height);
 
-    v2 offsets[2] = { game_state->p1, game_state->p2 };
+    v2 vertices[] = { { -1.0f, -1.0f }, { 1.0f, -1.0f }, { 0.0f, 1.0f } };
+    Shape2D shape = polygon(ARRAY_COUNT(vertices), vertices);
 
-    v2 vertices[2][4] = {
-        { { 0.0f, 0.0f }, { 50.0f, 0.0f }, { 60.0f, 100.0f }, { -60.0f, 100.0f } },
-        { { 0.0f, 0.0f }, { 20.0f, 0.0f }, { 80.0f, 20.0f }, { -60.0f, 50.0f } },
-    };
+    Transform2D transform = default_transform2d();
+    transform.offset = vec2(512, 512);
+    transform.scale = 100.0f;
+    transform.rotation_arm = arm2(game_state->rotation);
 
-    Shape2D shapes[2];
-    shapes[0].vert_count = 4;
-    shapes[0].vertices = vertices[0];
-    shapes[1].vert_count = 4;
-    shapes[1].vertices = vertices[1];
+    Transform2D player_transform = default_transform2d();
+    player_transform.offset = player->p;
+    player_transform.scale = 50.0f;
+    player_transform.rotation_arm = arm2(player->rotation);
 
-    v2 test_dir = mouse_p - game_state->p1;
-    v2 best_p = game_state->p1 + get_furthest_point_along(shapes[0], test_dir);
+    game_state->rotation += input->frame_dt;
 
-    draw_arrow(game_state->p1, mouse_p, vec4(1, 1, 0, 1));
-
-    v2 a = 10.0f*vec2(-4, -3);
-    v2 b = 10.0f*vec2(-1, 5);
-    v2 ab = b - a;
-    v2 ao = -a;
-    v2 perp = ao*length_sq(ab) - ab*dot(ab, ao);
-
-    draw_arrow(mouse_p + a, mouse_p + b, vec4(1, 0, 0, 1));
-    draw_arrow(mouse_p + 0.5f*(b+a), mouse_p + 0.5f*(b+a) + 100.0f*normalize_or_zero(perp), vec4(0, 1, 0, 1));
-
-    opengl_rectangle(best_p - vec2(8, 8), best_p + vec2(8, 8), vec4(0, 1, 0, 1));
-
-    for (u32 shape_index = 0; shape_index < 2; shape_index++) {
-        Shape2D* shape = shapes + shape_index;
-        v2 offset = offsets[shape_index];
-
-        for (u32 vert_index = 0; vert_index < shape->vert_count; vert_index++) {
-            shape->vertices[vert_index] += offset;
-        }
-
+    v4 color = vec4(1, 0, 0, 1);
+    if (gjk_intersect(transform, shape, player_transform, shape)) {
+        color = vec4(0, 1, 0, 1);
     }
 
-    v4 col = vec4(1, 0, 0, 1);
-    if (gjk_intersect(shapes[0], shapes[1])) {
-        col = vec4(0, 1, 0, 1);
-    }
+    draw_shape(transform, shape, color);
+    draw_shape(player_transform, shape, color);
 
-    draw_shape(shapes[0], vec2(0, 0), col);
-    draw_shape(shapes[1], vec2(0, 0), col);
+    v2 x_axis = vec2(cos(player->rotation), sin(player->rotation));
+    v2 y_axis = perpendicular(x_axis);
+    v2 min_p = -(x_axis*cast(f32) game_state->test_image->w + y_axis*cast(f32) game_state->test_image->h)*game_state->test_image->center_point;
+    x_axis *= cast(f32) game_state->test_image->w;
+    y_axis *= cast(f32) game_state->test_image->h;
+    opengl_texture(cast(GLuint) game_state->test_image->handle, player->p + min_p, x_axis, y_axis, vec4(1, 1, 1, 1));
 
     glDisable(GL_BLEND);
 
