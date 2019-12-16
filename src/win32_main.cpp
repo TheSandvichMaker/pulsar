@@ -331,10 +331,15 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                     case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
                     case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
 
-                    case 'W': case VK_UP: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_up, is_down); } break;
-                    case 'A': case VK_LEFT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_left, is_down); } break;
-                    case 'S': case VK_DOWN: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_down, is_down); } break;
-                    case 'D': case VK_RIGHT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_right, is_down); } break;
+                    case 'W': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_up, is_down); } break;
+                    case 'A': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_left, is_down); } break;
+                    case 'S': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_down, is_down); } break;
+                    case 'D': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_right, is_down); } break;
+
+                    case VK_UP: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_up, is_down); } break;
+                    case VK_LEFT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_left, is_down); } break;
+                    case VK_DOWN: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_down, is_down); } break;
+                    case VK_RIGHT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_right, is_down); } break;
 
                     case VK_RETURN: {
                         if (is_down && alt_is_down) {

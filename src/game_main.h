@@ -1,6 +1,14 @@
 #ifndef GAME_MAIN_H
 #define GAME_MAIN_H
 
+/* REFERENCES:
+ * HANDMADE HERO (@TODO: List the stuff directly used from handmade hero):
+ *     https://handmadehero.org/
+ * GJK:
+ *     https://caseymuratori.com/blog_0003
+ *     http://www.dyn4j.org/2010/04/gjk-gilbert-johnson-keerthi/
+ */
+
 #include "common.h"
 #include "memory_arena.h"
 #include "platform_bridge.h"
@@ -33,27 +41,30 @@ enum ShapeType {
 
 struct Shape2D {
     ShapeType type;
+    v2 sweep;
     union {
         f32 radius;
         struct {
-            size_t vert_count;
+            u32 vert_count;
             v2* vertices;
         };
     };
 };
 
-inline Shape2D polygon(size_t vert_count, v2* vertices) {
-    Shape2D result;
+inline Shape2D polygon(u32 vert_count, v2* vertices, v2 sweep = vec2(0, 0)) {
+    Shape2D result = {};
     result.type = Shape_Polygon;
     result.vert_count = vert_count;
     result.vertices = vertices;
+    result.sweep = sweep;
     return result;
 }
 
-inline Shape2D circle(f32 radius) {
-    Shape2D result;
+inline Shape2D circle(f32 radius, v2 sweep = vec2(0, 0)) {
+    Shape2D result = {};
     result.type = Shape_Circle;
     result.radius = radius;
+    result.sweep = sweep;
     return result;
 }
 

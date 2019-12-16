@@ -203,6 +203,15 @@ struct Rect3 {
 };
 
 //
+//
+//
+
+inline b32 vectors_equal(v2 a, v2 b) {
+    b32 result = (a.x == b.x) && (a.y == b.y);
+    return result;
+}
+
+//
 // NOTE: v2
 //
 

@@ -62,12 +62,17 @@ struct GameController {
     b32 is_connected;
 
     union {
-        GameButtonState buttons[4];
+        GameButtonState buttons[8];
         struct {
             GameButtonState move_up;
             GameButtonState move_down;
             GameButtonState move_left;
             GameButtonState move_right;
+
+            GameButtonState action_up;
+            GameButtonState action_down;
+            GameButtonState action_left;
+            GameButtonState action_right;
         };
     };
 };
@@ -91,6 +96,16 @@ struct GameInput {
 inline GameController* get_controller(GameInput* input, u32 controller_index) {
     assert(controller_index < ARRAY_COUNT(input->controllers));
     return input->controllers + controller_index;
+}
+
+inline b32 was_pressed(GameButtonState button) {
+    b32 result = (button.half_transition_count > 1) || (button.is_down && button.half_transition_count > 0);
+    return result;
+}
+
+inline b32 was_released(GameButtonState button) {
+    b32 result = (button.half_transition_count > 1) || (!button.is_down && button.half_transition_count > 0);
+    return result;
 }
 
 #define GAME_UPDATE_AND_RENDER(name) void name(GameMemory* memory, GameInput* input, u32 width, u32 height)
