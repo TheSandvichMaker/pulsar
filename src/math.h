@@ -297,8 +297,13 @@ IMPLEMENT_VECTOR_OPERATORS(/)
 #undef IMPLEMENT_VECTOR_OPERATORS
 #undef IMPLEMENT_SCALAR_OPERATORS
 
-inline v2 perpendicular(v2 v) {
+inline v2 perp(v2 v) {
     v2 result = vec2(-v.y, v.x);
+    return result;
+}
+
+inline v2 perp_clockwise(v2 v) {
+    v2 result = vec2(v.y, -v.x);
     return result;
 }
 

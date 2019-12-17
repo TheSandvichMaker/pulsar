@@ -4,9 +4,12 @@
 /* REFERENCES:
  * HANDMADE HERO (@TODO: List the stuff directly used from handmade hero):
  *     https://handmadehero.org/
- * GJK:
+ * GJK, EPA:
  *     https://caseymuratori.com/blog_0003
  *     http://www.dyn4j.org/2010/04/gjk-gilbert-johnson-keerthi/
+ *     http://www.dyn4j.org/2010/05/epa-expanding-polytope-algorithm/
+ * Detecting the winding of a polygon:
+ *     http://paulbourke.net/geometry/polygonmesh/
  */
 
 #include "common.h"

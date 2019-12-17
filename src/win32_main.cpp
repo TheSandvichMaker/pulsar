@@ -536,7 +536,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                     DWORD target_cursor = 0;
                     if (low_latency) {
-                        assert(!"It happened!");
+                        // assert(!"It happened!");
                         target_cursor = (expected_frame_boundary_byte + expected_sound_bytes_per_frame);
                     } else {
                         target_cursor = (write_cursor + expected_sound_bytes_per_frame + sound_output.safety_bytes);
