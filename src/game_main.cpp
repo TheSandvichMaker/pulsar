@@ -6,7 +6,7 @@
 #include "game_assets.cpp"
 #include "audio_mixer.cpp"
 
-#define DEBUG_GJK_VISUALIZATION 1
+#define DEBUG_GJK_VISUALIZATION 0
 
 inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
     v2 result = vec2(0, 0);
@@ -34,8 +34,8 @@ inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
 
     result = rotate(t.scale*result, t.rotation_arm) + t.offset;
 
-    if (dot(rotate_clockwise(s.sweep, t.rotation_arm), d) > 0) {
-        result += s.sweep;
+    if (dot(rotate_clockwise(t.sweep, t.rotation_arm), d) > 0) {
+        result += t.sweep;
     }
 
     return result;
@@ -228,31 +228,31 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
         }
     }
 
+    // @TODO: Add "core shapes" GJK collision info collection for shallow
+    // intersections.
+
     if (info && result) {
         // @Note: EPA
         assert(pc == 3);
         assert(temp_arena);
 
-        // @TODO: Check if this is actually correct and works!!!!!!
         b32 simplex_wound_ccw = (((p[1].x - p[0].x)*(p[2].y - p[1].y)) - ((p[1].y - p[0].y)*(p[2].x-p[1].x))) > 0.0f;
 #if DEBUG_GJK_VISUALIZATION
-        viz_color = simplex_wound_ccw ? viz_color : vec4(0, 1, 1, 1);
+        viz_color = simplex_wound_ccw ? viz_color : vec4(1, 1, 0, 1);
 #endif
 
-        u32 iter_count = 0;
+        // @TODO: If I get to it, profile the performance difference between
+        // this linked list version and some variety of a dynamic array version
         EpaPoint* epa_p = push_array(temp_arena, 3, EpaPoint, no_clear());
         epa_p[0].p = p[0];
-        epa_p[0].next = &epa_p[1];
+        epa_p[0].next = epa_p + 1;
         epa_p[1].p = p[1];
-        epa_p[1].next = &epa_p[2];
+        epa_p[1].next = epa_p + 2;
         epa_p[2].p = p[2];
         epa_p[2].next = 0;
 
         f32 epsilon = 1.0e-3f;
         for (;;) {
-            if (iter_count > 4) {
-                int y = 0;
-            }
             EpaEdge e = epa_find_closest_edge(epa_p, simplex_wound_ccw);
             v2 s = support(t1, s1, t2, s2, e.normal);
             f32 d = dot(s, e.normal);
@@ -266,7 +266,6 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
                 new_p->next = e.point->next;
                 e.point->next = new_p;
             }
-            iter_count++;
         }
 
 #if DEBUG_GJK_VISUALIZATION
@@ -281,15 +280,15 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
     }
 
 #if DEBUG_GJK_VISUALIZATION
-    dbg_draw_minkowski_difference_with_brute_force(t1, s1, t2, s2, vec4(1, 0, 1, 1));
+    dbg_draw_minkowski_difference_with_brute_force(t1, s1, t2, s2, viz_color);
 #endif
-
 
     end_temporary_memory(temp);
 
     return result;
 }
 
+#if 0
 inline Shape2D dbg_convex_hull(Shape2D source_shape, MemoryArena* perm_arena) {
     u32 vert_count = source_shape.vert_count;
     v2* vertices = source_shape.vertices;
@@ -357,6 +356,7 @@ inline Shape2D dbg_minkowski_sum(Shape2D s1, Shape2D s2, MemoryArena* perm_arena
 
     return result;
 }
+#endif
 
 inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     v2 dir = end - start;
@@ -368,6 +368,99 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     arrow.vert_count = ARRAY_COUNT(arrow_verts);
     arrow.vertices = arrow_verts;
     dbg_draw_shape(default_transform2d(), arrow, color);
+}
+
+inline u32 add_player(GameState* game_state, v2 starting_p) {
+    assert(game_state->entity_count < ARRAY_COUNT(game_state->entities));
+
+    u32 entity_index = game_state->entity_count++;
+    Entity* entity = game_state->entities + entity_index;
+    entity->type = EntityType_Player;
+    entity->p = starting_p;
+    entity->collision = game_state->player_collision;
+    entity->color = vec4(1, 1, 1, 1);
+
+    entity->flags |= EntityFlag_Moveable|EntityFlag_Collides;
+
+    return entity_index;
+}
+
+inline u32 add_wall(GameState* game_state, Rect2 rect) {
+    assert(game_state->entity_count < ARRAY_COUNT(game_state->entities));
+
+    u32 entity_index = game_state->entity_count++;
+    Entity* entity = game_state->entities + entity_index;
+    entity->type = EntityType_Wall;
+    entity->p = get_center(rect);
+    entity->color = vec4(1, 1, 1, 1);
+
+    entity->flags |= EntityFlag_Collides;
+
+    rect = offset(rect, -entity->p);
+
+    // @TODO: Stop wasting memory on rectangular polygons
+    v2* verts = push_array(&game_state->permanent_arena, 3, v2);
+    verts[0] = { rect.min.x, rect.min.y };
+    verts[1] = { rect.max.x, rect.min.y };
+    verts[2] = { rect.max.x, rect.max.y };
+    // verts[3] = { rect.min.x, rect.max.y };
+    entity->collision = polygon(3, verts);
+
+    return entity_index;
+}
+
+inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
+    f32 air_drag = 0.5f;
+    ddp -= air_drag*entity->dp;
+
+    ddp.y -= 300.0f;
+
+    v2 delta = (0.5f*ddp*square(dt)) + entity->dp*dt;
+    entity->dp += ddp*dt;
+
+    if (entity->flags & EntityFlag_Collides) {
+        Transform2D t = default_transform2d();
+        t.offset = entity->p;
+        t.sweep = delta;
+        for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
+            Entity* test_entity = game_state->entities + entity_index;
+            if (entity != test_entity) {
+                Transform2D test_t = default_transform2d();
+                test_t.offset = test_entity->p;
+                if (test_entity->flags & EntityFlag_Collides) {
+                    u32 iteration = 0;
+                    do {
+                        CollisionInfo info;
+                        if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &info, &game_state->transient_arena)) {
+                            f32 ctheta = dot(info.vector, normalize_or_zero(delta));
+                            if (ctheta == 0) {
+                                entity->color = vec4(0, 0, 1, 1);
+                                delta = -info.vector*(info.depth+0.1f);
+                                break;
+                            } else {
+                                f32 penetration_along_delta = (info.depth+0.1f) / ctheta;
+                                v2 legal_move = delta - normalize_or_zero(delta)*penetration_along_delta;
+                                entity->p += legal_move;
+                                entity->dp = entity->dp - info.vector*dot(entity->dp, info.vector);
+                                delta = delta - legal_move;
+                                delta = delta - info.vector*dot(delta, info.vector);
+                                dbg_draw_arrow(entity->p, entity->p + 10.0f*delta, vec4(1, 0, 0, 1));
+                            }
+                        } else {
+                            break;
+                        }
+
+                        t.offset = entity->p;
+                        t.sweep = delta;
+
+                        iteration++;
+                    } while (iteration < 4 && length_sq(delta) > 0.01f);
+                }
+            }
+        }
+    }
+
+    entity->p += delta;
 }
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -394,6 +487,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             game_state->test_image->pixels
         );
 
+        v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
+        square_verts[0] = { -10.0f, 0.0f };
+        square_verts[1] = {  10.0f, 0.0f };
+        square_verts[2] = {  10.0f, 50.0f };
+        square_verts[3] = { -10.0f, 50.0f };
+        game_state->player_collision = polygon(4, square_verts);
+
+        add_player(game_state, vec2(512, 516));
+        add_wall(game_state, rect_center_dim(vec2(512, 500), vec2(256, 24)));
+
         // play_sound(&game_state->audio_mixer, game_state->test_music);
         // play_sound(&game_state->audio_mixer, game_state->test_sound);
 
@@ -401,35 +504,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
-
-    Entity* player = &game_state->player;
-    GameController* keyboard = get_controller(input, PLATFORM_KEYBOARD_CONTROLLER);
-    if (keyboard->is_connected) {
-        if (keyboard->move_left.is_down) {
-            player->rotation += TAU_32/100.0f;
-        }
-        if (keyboard->move_right.is_down) {
-            player->rotation -= TAU_32/100.0f;
-        }
-        v2 x_axis = arm2(player->rotation);
-        v2 y_axis = perp(x_axis);
-        if (keyboard->move_down.is_down) {
-            player->p -= 6.0f*y_axis;
-        }
-        if (keyboard->move_up.is_down) {
-            player->p += 6.0f*y_axis;
-        }
-        if (keyboard->action_left.is_down) {
-            game_state->rotation += TAU_32/100.0f;
-        }
-        if (keyboard->action_right.is_down) {
-            game_state->rotation -= TAU_32/100.0f;
-        }
-    }
-
-    if (player->rotation > PI_32) {
-        player->rotation -= TAU_32;
-    }
 
     glViewport(0, 0, width, height);
     glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
@@ -440,39 +514,66 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     opengl_set_screenspace(width, height);
 
-    v2 vertices[] = { vec2(-1.0f, -1.0f), vec2(1.0f, -1.0f), vec2(0.0f, 1.0f) };
-    Shape2D shape = polygon(ARRAY_COUNT(vertices), vertices);
+    for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
+        Entity* entity = game_state->entities + entity_index;
 
-    Transform2D transform = default_transform2d();
-    transform.offset = vec2(512, 512);
-    transform.scale = 100.0f;
-    transform.rotation_arm = arm2(game_state->rotation);
+        v2 ddp = {};
 
-    Transform2D player_transform = default_transform2d();
-    player_transform.offset = player->p;
-    player_transform.scale = 50.0f;
-    player_transform.rotation_arm = arm2(player->rotation);
+        switch (entity->type) {
+            case EntityType_Player: {
+                GameController* controller = &input->controller;
+                if (controller->move_left.is_down) {
+                    ddp.x -= 1.0f;
+                }
+                if (controller->move_right.is_down) {
+                    ddp.x += 1.0f;
+                }
+                if (controller->move_down.is_down) {
+                    ddp.y -= 1.0f;
+                }
 
-    Shape2D swept_shape = shape; // circle(1.0f, vec2(20.5f, 50.0f));
-    swept_shape.sweep = mouse_p - transform.offset; // vec2(100.0f, 200.0f);
+                f32 ddp_length_sq = length_sq(ddp);
+                if (ddp_length_sq > 1.0f) {
+                    ddp *= (1.0f/square_root(ddp_length_sq));
+                }
 
-    v4 color = vec4(1, 0, 0, 1);
-    CollisionInfo collision_info;
-    if (gjk_intersect(transform, swept_shape, player_transform, shape, &collision_info, &game_state->transient_arena)) {
-        color = vec4(0, 1, 0, 1);
-        player->p += collision_info.vector*collision_info.depth;
-        player_transform.offset = player->p;
+                if (was_pressed(controller->move_up)) {
+                    ddp.y += 100.0f;
+                }
+
+                ddp *= 80.0f;
+
+                // ddp = mouse_p - entity->p;
+                // dbg_draw_arrow(entity->p, entity->p + ddp, vec4(1, 0, 1, 1));
+            } break;
+
+            case EntityType_Wall: {
+
+            } break;
+
+            INVALID_DEFAULT_CASE;
+        }
+
+        if (entity->flags & EntityFlag_Moveable) {
+            move_entity(game_state, entity, ddp, input->frame_dt);
+        }
+
+        Transform2D transform = default_transform2d();
+        transform.offset = entity->p;
+        dbg_draw_shape(transform, entity->collision, entity->color);
+
+        entity->color = vec4(1, 1, 1, 1);
     }
 
-    dbg_draw_shape_with_brute_force(transform, swept_shape, color);
-    dbg_draw_shape(player_transform, shape, color);
+    // dbg_draw_shape_with_brute_force(transform, swept_shape, color);
+    // dbg_draw_shape(player_transform, shape, color);
 
-    v2 x_axis = player_transform.rotation_arm;
-    v2 y_axis = perp(x_axis);
-    v2 min_p = -(x_axis*cast(f32) game_state->test_image->w + y_axis*cast(f32) game_state->test_image->h)*game_state->test_image->center_point;
-    x_axis *= cast(f32) game_state->test_image->w;
-    y_axis *= cast(f32) game_state->test_image->h;
-    opengl_texture(cast(GLuint) game_state->test_image->handle, player->p + min_p, x_axis, y_axis, vec4(1, 1, 1, 1));
+    // v2 x_axis = player_transform.rotation_arm;
+    // v2 y_axis = perp(x_axis);
+    // v2 min_p = -(x_axis*cast(f32) game_state->test_image->w + y_axis*cast(f32) game_state->test_image->h)*game_state->test_image->center_point;
+    // x_axis *= cast(f32) game_state->test_image->w;
+    // y_axis *= cast(f32) game_state->test_image->h;
+    // opengl_texture(cast(GLuint) game_state->test_image->handle, player->p + min_p, x_axis, y_axis, vec4(1, 1, 1, 1));
 
     glDisable(GL_BLEND);
 

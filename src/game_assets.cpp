@@ -16,6 +16,7 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
             Asset* dest_asset = assets->asset_catalog + asset_index;
 
             // @Note: Not actually necessary, but nice for type safety I guess
+            // @TODO: Make asset type checking compile out in release?
             dest_asset->type = source_asset->type;
 
             switch (source_asset->type) {

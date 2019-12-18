@@ -329,8 +329,8 @@ inline f32 dot(v2 a, v2 b) {
     return a.x * b.x + a.y * b.y;
 }
 
-inline v2 reflect(v2 a, v2 b) {
-    return a - 2.0f * dot(a, b) * b;
+inline v2 reflect(v2 v, v2 n) {
+    return v - 2.0f*n*dot(v, n);
 }
 
 inline f32 length_sq(v2 v) {

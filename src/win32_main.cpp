@@ -331,15 +331,15 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                     case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
                     case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
 
-                    case 'W': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_up, is_down); } break;
-                    case 'A': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_left, is_down); } break;
-                    case 'S': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_down, is_down); } break;
-                    case 'D': { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].move_right, is_down); } break;
+                    case 'W': { win32_process_keyboard_message(&input->controller.move_up, is_down); } break;
+                    case 'A': { win32_process_keyboard_message(&input->controller.move_left, is_down); } break;
+                    case 'S': { win32_process_keyboard_message(&input->controller.move_down, is_down); } break;
+                    case 'D': { win32_process_keyboard_message(&input->controller.move_right, is_down); } break;
 
-                    case VK_UP: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_up, is_down); } break;
-                    case VK_LEFT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_left, is_down); } break;
-                    case VK_DOWN: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_down, is_down); } break;
-                    case VK_RIGHT: { win32_process_keyboard_message(&input->controllers[PLATFORM_KEYBOARD_CONTROLLER].action_right, is_down); } break;
+                    case VK_UP: { win32_process_keyboard_message(&input->controller.action_up, is_down); } break;
+                    case VK_LEFT: { win32_process_keyboard_message(&input->controller.action_left, is_down); } break;
+                    case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
+                    case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
 
                     case VK_RETURN: {
                         if (is_down && alt_is_down) {
@@ -471,12 +471,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 new_input->in_focus = in_focus;
                 new_input->focus_changed = focus_changed;
 
-                GameController* old_keyboard_controller = get_controller(old_input, PLATFORM_KEYBOARD_CONTROLLER);
-                GameController* new_keyboard_controller = get_controller(new_input, PLATFORM_KEYBOARD_CONTROLLER);
-                new_keyboard_controller->is_connected = true;
-                for (u32 button_index = 0; button_index < ARRAY_COUNT(new_keyboard_controller->buttons); button_index++) {
-                    new_keyboard_controller->buttons[button_index].is_down = old_keyboard_controller->buttons[button_index].is_down;
-                    new_keyboard_controller->buttons[button_index].half_transition_count = 0;
+                GameController* old_controller = &old_input->controller;
+                GameController* new_controller = &new_input->controller;
+                for (u32 button_index = 0; button_index < ARRAY_COUNT(new_controller->buttons); button_index++) {
+                    new_controller->buttons[button_index].is_down = old_controller->buttons[button_index].is_down;
+                    new_controller->buttons[button_index].half_transition_count = 0;
                 }
 
                 POINT mouse_position;

@@ -8,7 +8,7 @@
  *     https://caseymuratori.com/blog_0003
  *     http://www.dyn4j.org/2010/04/gjk-gilbert-johnson-keerthi/
  *     http://www.dyn4j.org/2010/05/epa-expanding-polytope-algorithm/
- * Detecting the winding of a polygon:
+ * Computing the winding of a polygon:
  *     http://paulbourke.net/geometry/polygonmesh/
  */
 
@@ -26,12 +26,12 @@
 struct Transform2D {
     v2 offset;
     v2 rotation_arm;
+    v2 sweep;
     f32 scale;
 };
 
 inline Transform2D default_transform2d() {
-    Transform2D result;
-    result.offset = vec2(0, 0);
+    Transform2D result = {};
     result.rotation_arm = vec2(1, 0);
     result.scale = 1.0f;
     return result;
@@ -44,7 +44,6 @@ enum ShapeType {
 
 struct Shape2D {
     ShapeType type;
-    v2 sweep;
     union {
         f32 radius;
         struct {
@@ -54,33 +53,44 @@ struct Shape2D {
     };
 };
 
-inline Shape2D polygon(u32 vert_count, v2* vertices, v2 sweep = vec2(0, 0)) {
+inline Shape2D polygon(u32 vert_count, v2* vertices) {
     Shape2D result = {};
     result.type = Shape_Polygon;
     result.vert_count = vert_count;
     result.vertices = vertices;
-    result.sweep = sweep;
     return result;
 }
 
-inline Shape2D circle(f32 radius, v2 sweep = vec2(0, 0)) {
+inline Shape2D circle(f32 radius) {
     Shape2D result = {};
     result.type = Shape_Circle;
     result.radius = radius;
-    result.sweep = sweep;
     return result;
 }
 
 enum EntityType {
     EntityType_Player,
+    EntityType_Wall,
+};
+
+enum EntityFlag {
+    EntityFlag_Moveable = 0x1,
+    EntityFlag_Collides = 0x2,
 };
 
 struct Entity {
     EntityType type;
     v2 p;
-    f32 rotation;
+    v2 dp;
+
+    u32 flags;
+
+    v4 color;
+
+    Shape2D collision;
 };
 
+#define MAX_ENTITY_COUNT 8192
 struct GameState {
     MemoryArena permanent_arena;
     MemoryArena transient_arena;
@@ -92,8 +102,10 @@ struct GameState {
     Sound* test_sound;
     Image* test_image;
 
-    Entity player;
-    f32 rotation;
+    u32 entity_count;
+    Entity entities[MAX_ENTITY_COUNT];
+
+    Shape2D player_collision;
 
     u32 sound_timer;
 };

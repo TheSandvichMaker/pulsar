@@ -57,10 +57,7 @@ enum GameInputMouseButton {
     PlatformMouseButton_Count,
 };
 
-#define MAX_CONTROLLER_COUNT 5
 struct GameController {
-    b32 is_connected;
-
     union {
         GameButtonState buttons[8];
         struct {
@@ -83,7 +80,7 @@ struct GameInput {
     b32 in_focus, focus_changed;
     f32 frame_dt;
 
-    GameController controllers[MAX_CONTROLLER_COUNT];
+    GameController controller;
 
     u32 mouse_x, mouse_y, mouse_z;
     GameButtonState mouse_buttons[PlatformMouseButton_Count];
@@ -92,11 +89,6 @@ struct GameInput {
 
     b32 quit_requested;
 };
-
-inline GameController* get_controller(GameInput* input, u32 controller_index) {
-    assert(controller_index < ARRAY_COUNT(input->controllers));
-    return input->controllers + controller_index;
-}
 
 inline b32 was_pressed(GameButtonState button) {
     b32 result = (button.half_transition_count > 1) || (button.is_down && button.half_transition_count > 0);
