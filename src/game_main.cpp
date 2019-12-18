@@ -410,10 +410,13 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
 }
 
 inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
-    f32 air_drag = 0.5f;
-    ddp -= air_drag*entity->dp;
+    f32 epsilon = 0.001f;
 
-    ddp.y -= 300.0f;
+    // @TODO: Some kind of relationship with real world units, get away from using pixels.
+    f32 air_resistance = 0.5f;
+    f32 gravity = 300.0f;
+    ddp -= air_resistance*entity->dp;
+    ddp.y -= gravity;
 
     v2 delta = (0.5f*ddp*square(dt)) + entity->dp*dt;
     entity->dp += ddp*dt;
@@ -422,6 +425,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
         Transform2D t = default_transform2d();
         t.offset = entity->p;
         t.sweep = delta;
+        // @TODO: Optimized spatial search of sorts?
         for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
             Entity* test_entity = game_state->entities + entity_index;
             if (entity != test_entity) {
@@ -432,19 +436,21 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                     do {
                         CollisionInfo info;
                         if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &info, &game_state->transient_arena)) {
-                            f32 ctheta = dot(info.vector, normalize_or_zero(delta));
-                            if (ctheta == 0) {
+                            f32 depth = info.depth + epsilon;
+                            f32 theta_times_length_of_delta = dot(info.vector, delta);
+                            if (theta_times_length_of_delta == 0) {
                                 entity->color = vec4(0, 0, 1, 1);
-                                delta = -info.vector*(info.depth+0.1f);
+                                delta = -info.vector*depth;
                                 break;
                             } else {
-                                f32 penetration_along_delta = (info.depth+0.1f) / ctheta;
-                                v2 legal_move = delta - normalize_or_zero(delta)*penetration_along_delta;
+                                f32 penetration_along_delta = depth / theta_times_length_of_delta;
+
+                                v2 legal_move = delta*(1.0f-penetration_along_delta);
+                                delta  = delta*penetration_along_delta;
+                                delta -= info.vector*dot(delta, info.vector);
+
                                 entity->p += legal_move;
-                                entity->dp = entity->dp - info.vector*dot(entity->dp, info.vector);
-                                delta = delta - legal_move;
-                                delta = delta - info.vector*dot(delta, info.vector);
-                                dbg_draw_arrow(entity->p, entity->p + 10.0f*delta, vec4(1, 0, 0, 1));
+                                entity->dp -= info.vector*dot(entity->dp, info.vector);
                             }
                         } else {
                             break;
@@ -454,7 +460,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                         t.sweep = delta;
 
                         iteration++;
-                    } while (iteration < 4 && length_sq(delta) > 0.01f);
+                    } while (iteration < 4 && length_sq(delta) > epsilon);
                 }
             }
         }
