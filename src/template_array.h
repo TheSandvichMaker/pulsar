@@ -73,4 +73,9 @@ inline size_t array_count_remaining(Array<T>* array) {
     return result;
 }
 
+template <typename T>
+inline void clear_array(Array<T>* array) {
+    array->count = 0;
+}
+
 #endif /* TEMPLATE_ARRAY_H */

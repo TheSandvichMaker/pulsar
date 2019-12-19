@@ -405,7 +405,7 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
     verts[1] = { rect.max.x, rect.min.y };
     verts[2] = { rect.max.x, rect.max.y };
     verts[3] = { rect.min.x, rect.max.y };
-    entity->collision = polygon(3, verts);
+    entity->collision = polygon(4, verts);
 
     return entity_index;
 }
@@ -421,10 +421,10 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
      * side, allowing very fast entities to clip through each other.
      */
 
-    f32 epsilon = 0.001f;
+    f32 epsilon = 0.01f;
 
     // @TODO: Some kind of relationship with real world units, get away from using pixels.
-    f32 air_resistance = 0.5f;
+    f32 air_resistance = 0.0f;
     f32 gravity = 300.0f;
     ddp -= air_resistance*entity->dp;
     ddp.y -= gravity;
@@ -451,7 +451,6 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
             Entity* test_entity = game_state->entities + entity_index;
             if (entity != test_entity) {
                 entity->friction_of_last_touched_surface = test_entity->surface_friction;
-
                 Transform2D test_t = transform2d(test_entity->p);
                 if (test_entity->flags & EntityFlag_Collides) {
                     test_entity->sticking_entity = 0;
@@ -558,6 +557,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         switch (entity->type) {
             case EntityType_Player: {
+                if (entity->p.x < 0.0f) {
+                    entity->p.x += width;
+                } else if (entity->p.x >= width) {
+                    entity->p.x -= width;
+                }
+                if (entity->p.y < 0.0f) {
+                    entity->p.y += height;
+                } else if (entity->p.y >= height) {
+                    entity->p.y -= height;
+                }
                 GameController* controller = &input->controller;
                 f32 move_speed = (entity->flags & EntityFlag_OnGround) ? 1000.0f : 200.0f;
                 if (controller->move_left.is_down) {
@@ -575,13 +584,13 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             } break;
 
             case EntityType_Wall: {
-                v2 movement = vec2(cos(entity->movement_t), sin(entity->movement_t));
+                v2 movement = vec2(2.0f*cos(entity->movement_t), 0.0f /* sin(entity->movement_t) */);
                 entity->p += movement;
                 entity->movement_t += input->frame_dt;
                 Entity* sticking_entity = entity->sticking_entity;
                 if (sticking_entity) {
                     sticking_entity->p += movement;
-                    sticking_entity->sticking_dp = movement;
+                    sticking_entity->sticking_dp = movement / input->frame_dt;
                 }
             } break;
 
@@ -605,8 +614,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         Entity* entity = game_state->entities + entity_index;
         assert(entity->type != EntityType_Null);
 
+        opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
         if (entity->was_on_ground && !(entity->flags & EntityFlag_OnGround)) {
-            // entity->ddp += 10000.0f*entity->sticking_dp;
+            entity->dp += entity->sticking_dp;
+            entity->sticking_dp = vec2(0, 0);
         }
 
         if (entity->flags & EntityFlag_Moveable) {

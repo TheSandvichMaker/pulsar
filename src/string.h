@@ -137,16 +137,16 @@ inline b32 strings_are_equal(char* a, char* b) {
     return result;
 }
 
-inline b32 in_range(String string, char* ptr) {
-    b32 result = (ptr >= string.data && ptr < (string.data + string.len));
+inline b32 in_range(String* string, char* ptr) {
+    b32 result = (ptr >= string->data && ptr <= (string->data + string->len));
     return result;
 }
 
-inline String substring(String source, size_t start, size_t end) {
+inline String substring(String* source, size_t start, size_t end) {
     assert(end >= start);
-    assert(end < source.len);
+    assert(end < source->len);
 
-    String result = wrap_string(end - start + 1, source.data + start);
+    String result = wrap_string(end - start + 1, source->data + start);
 
     return result;
 }
@@ -223,14 +223,36 @@ inline b32 match_string(String* string, char* substring) {
     return match;
 }
 
+inline void eat_whitespaces(String* string) {
+    while (is_whitespace(peek(string))) {
+        advance(string);
+    }
+}
+
 typedef enum StringAdvanceFlag {
     StringAdvance_StopAtNewline = 0x1,
+    StringAdvance_OnlyAdvanceIfFound = 0x2,
 } StringAdvanceFlag;
 
+inline b32 advance_to_ptr(String* string, char* target) {
+    b32 result = true;
+    if (in_range(string, target)) {
+        string->len -= target - string->data;
+        string->data = target;
+    } else {
+        result = false;
+    }
+    return result;
+}
+
 inline String advance_to(String* string, char target, u32 flags = 0) {
+    String start_string = *string;
+
+    b32 found_target = false;
     char* start = string->data;
-    while (chars_left(string) ) {
+    while (chars_left(string)) {
         if (peek(string) == target) {
+            found_target = true;
             break;
         } else if (flags & StringAdvance_StopAtNewline && is_newline(peek(string))) {
             break;
@@ -239,6 +261,10 @@ inline String advance_to(String* string, char target, u32 flags = 0) {
         }
     }
     char* end = string->data;
+
+    if (flags & StringAdvance_OnlyAdvanceIfFound) {
+        *string = start_string;
+    }
 
     String result = string_from_two_pointers(start, end);
     return result;
@@ -260,6 +286,20 @@ inline String advance_word(String* string) {
     }
 
     String result = string_from_two_pointers(start, end);
+    return result;
+}
+
+inline b32 match_word(String* source_string, char* target, String* out_word = 0) {
+    String string = *source_string;
+    String word = advance_word(&string);
+    b32 result = false;
+    if (strings_are_equal(word, target)) {
+        result = true;
+        *source_string = string;
+    }
+    if (out_word) {
+        *out_word = word;
+    }
     return result;
 }
 
