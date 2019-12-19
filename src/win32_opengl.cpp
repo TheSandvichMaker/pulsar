@@ -14,7 +14,7 @@ internal void wgl_set_pixel_format(HDC window_dc, WglInfo* wgl_info) {
             WGL_STENCIL_BITS_ARB, 8,
         };
 
-        const int number_of_extended_attributes = 1;
+        const int number_of_extended_attributes = 3;
         int attribute_list[ARRAY_COUNT(always_available_attributes) + 2*number_of_extended_attributes + 1] = {};
 
         int attribute_cursor = 0;
@@ -22,9 +22,17 @@ internal void wgl_set_pixel_format(HDC window_dc, WglInfo* wgl_info) {
             attribute_list[attribute_cursor] = always_available_attributes[attribute_cursor];
         }
 
-        if (wgl_info && wgl_info->WGL_EXT_framebuffer_sRGB) {
-            attribute_list[attribute_cursor++] = WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB;
-            attribute_list[attribute_cursor++] = GL_TRUE;
+        if (wgl_info) {
+            if (wgl_info->WGL_EXT_framebuffer_sRGB) {
+                attribute_list[attribute_cursor++] = WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB;
+                attribute_list[attribute_cursor++] = GL_TRUE;
+            }
+            if (wgl_info->WGL_ARB_multisample) {
+                attribute_list[attribute_cursor++] = WGL_SAMPLE_BUFFERS_ARB;
+                attribute_list[attribute_cursor++] = 1;
+                attribute_list[attribute_cursor++] = WGL_SAMPLES_ARB;
+                attribute_list[attribute_cursor++] = 4;
+            }
         }
         assert(attribute_list[attribute_cursor] == 0);
 
@@ -103,7 +111,8 @@ internal void wgl_load_extensions(WglInfo* info) {
 
                     String substr = wrap_string(count, at);
 #define GL_CHECK_EXTENSION(name) (strings_are_equal(substr, #name)) { info->name = true; }
-                    if GL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
+                    if      GL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
+                    else if GL_CHECK_EXTENSION(WGL_ARB_multisample)
 #undef GL_CHECK_EXTENSION
 
                     at = end;

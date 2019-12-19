@@ -3,6 +3,20 @@
 
 #include "asset_pack_format.h"
 
+#define INVALID_ASSET UINT32_MAX
+
+struct SoundID {
+    u32 value;
+};
+
+struct ImageID {
+    u32 value;
+};
+
+struct FontID {
+    u32 value;
+};
+
 struct Sound {
     u32 channel_count;
     u32 sample_count;
@@ -18,6 +32,7 @@ struct Image {
 };
 
 struct Asset {
+    char* name;
     AssetType type;
     union {
         Sound sound;
@@ -26,7 +41,9 @@ struct Asset {
 };
 
 struct Assets {
-    Asset asset_catalog[Asset_Count];
+    u32 asset_count;
+    Asset* asset_catalog;
+
     u8* asset_data;
 };
 

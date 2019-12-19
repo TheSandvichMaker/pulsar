@@ -14,7 +14,7 @@ template <typename T>
 inline Array<T> allocate_array(size_t capacity, MemoryArena* arena) {
     Array<T> array;
     array.arena = arena;
-    array.data = push_array(arena, capacity, T, alignof(T));
+    array.data = push_array(arena, capacity, T, align_no_clear(alignof(T)));
     array.capacity = capacity;
     array.count = 0;
     return array;
@@ -26,13 +26,13 @@ inline T* grow_array(Array<T>* array, size_t size) {
     if ((array->data + array->capacity) != next_allocation) {
         // NOTE: There's been an allocation that's not us since we last
         // added something. Time to "realloc"!
-        T* new_array = push_array(array->arena, array->capacity + size, T, alignof(T));
+        T* new_array = push_array(array->arena, array->capacity + size, T, align_no_clear(alignof(T)));
         for (size_t i = 0; i < array->count; i++) {
             new_array[i] = array->data[i];
         }
         array->data = new_array;
     } else {
-        push_array(array->arena, size, T, sizeof(T)); // NOTE: Grow the array in place.
+        push_array(array->arena, size, T, align_no_clear(1)); // NOTE: Grow the array in place.
     }
     array->capacity = array->capacity + size;
     return array->data + array->count;

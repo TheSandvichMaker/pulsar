@@ -52,7 +52,7 @@ inline void opengl_texture(GLuint handle, v2 min_p, v2 x_axis, v2 y_axis, v4 col
     glDisable(GL_TEXTURE_2D);
 }
 
-inline void opengl_texture(GLuint handle, Rect2 rect, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
+inline void opengl_texture(GLuint handle, Rect2 rect, v4 color = vec4(1, 1, 1, 1), v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
     v2 dim = get_dim(rect);
     opengl_texture(handle, get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
 }
@@ -85,6 +85,15 @@ inline GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* p
     return texture_handle;
 }
 
+inline void opengl_check_extension(OpenGLInfo* info, String extension) {
+#define GL_CHECK_EXTENSION(name) (strings_are_equal(extension, #name)) { info->name = true; }
+    if      GL_CHECK_EXTENSION(GL_EXT_texture_sRGB)
+    else if GL_CHECK_EXTENSION(GL_EXT_framebuffer_sRGB)
+    else if GL_CHECK_EXTENSION(GL_ARB_framebuffer_sRGB)
+    else if GL_CHECK_EXTENSION(GL_ARB_multisample)
+#undef GL_CHECK_EXTENSION
+}
+
 internal void opengl_get_info(b32 modern_context, OpenGLInfo* info) {
     info->modern_context = modern_context;
     info->vendor = (char*)glGetString(GL_VENDOR);
@@ -103,11 +112,7 @@ internal void opengl_get_info(b32 modern_context, OpenGLInfo* info) {
         glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
         for (GLint extension_index = 0; extension_index < num_extensions; extension_index++) {
             char* extension = (char*)glGetStringi(GL_EXTENSIONS, extension_index);
-#define GL_CHECK_EXTENSION(name) (strings_are_equal(extension, #name)) { info->name = true; }
-            if      GL_CHECK_EXTENSION(GL_EXT_texture_sRGB)
-            else if GL_CHECK_EXTENSION(GL_EXT_framebuffer_sRGB)
-            else if GL_CHECK_EXTENSION(GL_ARB_framebuffer_sRGB)
-#undef GL_CHECK_EXTENSION
+            opengl_check_extension(info, wrap_cstr(extension));
         }
     } else {
         char* at = info->extensions;
@@ -123,13 +128,7 @@ internal void opengl_get_info(b32 modern_context, OpenGLInfo* info) {
             }
 
             size_t count = end - at;
-
-            String substr = wrap_string(count, at);
-#define GL_CHECK_EXTENSION(name) (strings_are_equal(substr, #name)) { info->name = true; }
-            if      GL_CHECK_EXTENSION(GL_EXT_texture_sRGB)
-            else if GL_CHECK_EXTENSION(GL_EXT_framebuffer_sRGB)
-            else if GL_CHECK_EXTENSION(GL_ARB_framebuffer_sRGB)
-#undef GL_CHECK_EXTENSION
+            opengl_check_extension(info, wrap_string(count, at));
 
             at = end;
         }
@@ -143,5 +142,8 @@ internal void opengl_init(b32 modern_context, OpenGLInfo* info) {
     if ((info->GL_EXT_framebuffer_sRGB || info->GL_ARB_framebuffer_sRGB) && (info->GL_EXT_texture_sRGB)) {
         info->default_internal_texture_format = GL_SRGB8_ALPHA8;
         glEnable(GL_FRAMEBUFFER_SRGB);
+    }
+    if (info->GL_ARB_multisample) {
+        glEnable(GL_MULTISAMPLE_ARB);
     }
 }

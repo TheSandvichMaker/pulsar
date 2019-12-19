@@ -1,10 +1,15 @@
 #ifndef OPENGL_H
 #define OPENGL_H
 
-static const GLuint GL_FRAMEBUFFER_SRGB         = 0x8DB9;
-static const GLuint GL_SRGB8_ALPHA8             = 0x8C43;
-static const GLuint GL_NUM_EXTENSIONS           = 0x821D;
-static const GLuint GL_SHADING_LANGUAGE_VERSION = 0x8B8C;
+static const GLuint GL_FRAMEBUFFER_SRGB             = 0x8DB9;
+static const GLuint GL_SRGB8_ALPHA8                 = 0x8C43;
+static const GLuint GL_NUM_EXTENSIONS               = 0x821D;
+static const GLuint GL_SHADING_LANGUAGE_VERSION     = 0x8B8C;
+
+static const GLuint GL_MULTISAMPLE_ARB              = 0x809D;
+static const GLuint GL_SAMPLE_ALPHA_TO_COVERAGE_ARB = 0x809E;
+static const GLuint GL_SAMPLE_ALPHA_TO_ONE_ARB      = 0x809F;
+static const GLuint GL_SAMPLE_COVERAGE_ARB          = 0x80A0;
 
 #define GL_FUNCTION(return_type, name, ...) \
     typedef return_type WINAPI GL_FUNCTION_##name(__VA_ARGS__); \
@@ -27,6 +32,7 @@ struct OpenGLInfo {
     b32 GL_EXT_texture_sRGB;
     b32 GL_EXT_framebuffer_sRGB;
     b32 GL_ARB_framebuffer_sRGB;
+    b32 GL_ARB_multisample;
 };
 
 #endif /* OPENGL_H */

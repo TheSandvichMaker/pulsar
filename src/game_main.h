@@ -37,6 +37,13 @@ inline Transform2D default_transform2d() {
     return result;
 }
 
+inline Transform2D transform2d(v2 offset, v2 sweep = vec2(0, 0)) {
+    Transform2D result = default_transform2d();
+    result.offset = offset;
+    result.sweep = sweep;
+    return result;
+}
+
 enum ShapeType {
     Shape_Polygon,
     Shape_Circle,
@@ -69,6 +76,8 @@ inline Shape2D circle(f32 radius) {
 }
 
 enum EntityType {
+    EntityType_Null,
+
     EntityType_Player,
     EntityType_Wall,
 };
@@ -76,12 +85,24 @@ enum EntityType {
 enum EntityFlag {
     EntityFlag_Moveable = 0x1,
     EntityFlag_Collides = 0x2,
+    EntityFlag_OnGround = 0x4,
 };
 
 struct Entity {
     EntityType type;
     v2 p;
     v2 dp;
+    v2 ddp;
+
+    Entity* sticking_entity;
+    v2 sticking_dp;
+
+    b32 was_on_ground;
+
+    f32 movement_t;
+    f32 off_ground_timer;
+    f32 surface_friction;
+    f32 friction_of_last_touched_surface;
 
     u32 flags;
 

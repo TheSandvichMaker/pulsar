@@ -17,6 +17,8 @@ static const GLuint WGL_SUPPORT_OPENGL_ARB                    = 0x2010;
 static const GLuint WGL_DOUBLE_BUFFER_ARB                     = 0x2011;
 static const GLuint WGL_PIXEL_TYPE_ARB                        = 0x2013;
 static const GLuint WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB          = 0x20A9;
+static const GLuint WGL_SAMPLE_BUFFERS_ARB                    = 0x2041;
+static const GLuint WGL_SAMPLES_ARB                           = 0x2042;
 
 static const GLuint WGL_COLOR_BITS_ARB                        = 0x2014;
 static const GLuint WGL_DEPTH_BITS_ARB                        = 0x2022;
@@ -32,6 +34,7 @@ GL_FUNCTION(const char*, wglGetExtensionsStringEXT);
 
 struct WglInfo {
     b32 WGL_EXT_framebuffer_sRGB;
+    b32 WGL_ARB_multisample;
 };
 
 #endif /* WIN32_OPENGL_H */

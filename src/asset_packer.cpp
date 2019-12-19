@@ -15,24 +15,28 @@
 
 #include "asset_pack_format.h"
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include "stb_truetype.h"
+
 enum AssetDataType {
     AssetDataType_None,
     AssetDataType_Wav,
     AssetDataType_Bmp,
+    AssetDataType_Ttf,
 };
 
 struct AssetDescription {
+    char* asset_name;
     char* source_file;
     AssetDataType data_type;
+    PackedAsset asset;
 };
 
 global MemoryArena global_arena;
-global AssetDescription assets_to_load[Asset_Count];
-global PackedAsset asset_catalog[Asset_Count];
+global Array<AssetDescription> assets_to_load;
 
-internal void add_asset(AssetID type, char* file_name) {
-    assert(type < Asset_Count);
-
+internal AssetDescription* add_asset(char* asset_name, char* file_name) {
     char* extension = file_name;
     for (char* at = file_name; at[0]; at++) {
         if (at[0] && at[-1] == '.') {
@@ -45,24 +49,36 @@ internal void add_asset(AssetID type, char* file_name) {
         data_type = AssetDataType_Wav;
     } else if (strings_are_equal(extension, "bmp")) {
         data_type = AssetDataType_Bmp;
+    } else if (strings_are_equal(extension, "ttf")) {
+        data_type = AssetDataType_Ttf;
     } else {
         assert(!"Unknown extension for asset file.");
     }
 
-    AssetDescription* asset_desc = assets_to_load + type;
+    AssetDescription* asset_desc = array_add(&assets_to_load);
+    asset_desc->asset_name = asset_name;
     asset_desc->source_file = file_name;
     asset_desc->data_type = data_type;
+
+    return asset_desc;
 }
 
-internal void add_sound(AssetID type, char* file_name) {
-    add_asset(type, file_name);
+internal void add_sound(char* asset_name, char* file_name) {
+    add_asset(asset_name, file_name);
 }
 
-internal void add_image(AssetID type, char* file_name, f32 align_x = 0.5f, f32 align_y = 0.5f) {
-    add_asset(type, file_name);
-    PackedImage* image = &asset_catalog[type].image;
+internal void add_image(char* asset_name, char* file_name, f32 align_x = 0.5f, f32 align_y = 0.5f) {
+    AssetDescription* desc = add_asset(asset_name, file_name);
+    PackedImage* image = &desc->asset.image;
     image->center_point_x = align_x;
     image->center_point_y = align_y;
+}
+
+internal void add_font(char* asset_name, char* file_name) {
+    AssetDescription* desc = add_asset(asset_name, file_name);
+    PackedFont* font = &desc->asset.font;
+    font->first_codepoint = '!';
+    font->one_past_last_codepoint = '~' + 1;
 }
 
 int main(int argument_count, char** arguments) {
@@ -70,29 +86,44 @@ int main(int argument_count, char** arguments) {
     void* memory_pool = malloc(MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
-    add_sound(Asset_TestMusic, "test_music.wav");
-    add_sound(Asset_TestSound, "test_sound.wav");
-    add_image(Asset_TestImage, "test_bitmap.bmp");
+    assets_to_load = allocate_array<AssetDescription>(8, &global_arena);
+
+    add_sound("test_sound", "test_sound.wav");
+    add_sound("test_music", "test_music.wav");
+    add_image("test_image", "test_bitmap.bmp");
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'a', 'k', 'f');
     header.version = ASSET_PACK_VERSION;
-    header.asset_count = Asset_Count;
+    header.asset_count = safe_truncate_u64u32(assets_to_load.count);
 
-    u32 asset_catalog_size = Asset_Count*sizeof(PackedAsset);
+    u32 asset_catalog_size = header.asset_count*sizeof(PackedAsset);
 
     header.asset_catalog = sizeof(AssetPackHeader);
-    header.asset_data = header.asset_catalog + asset_catalog_size;
+    header.asset_name_store = header.asset_catalog + asset_catalog_size;
 
     FILE* out = fopen("assets.pak", "wb");
     if (out) {
+        fseek(out, header.asset_name_store, SEEK_SET);
+        for (u32 asset_index = 0; asset_index < assets_to_load.count; asset_index++) {
+            AssetDescription* asset_desc = assets_to_load.data + asset_index;
+            PackedAsset* packed = &asset_desc->asset;
+            packed->name_offset = ftell(out) - header.asset_name_store;
+            u32 name_length = cast(u32) cstr_length(asset_desc->asset_name) + 1; // @Note: + 1 to include the null byte.
+            fwrite(asset_desc->asset_name, name_length, 1, out);
+        }
+
+        header.asset_data = ftell(out);
+
+        fseek(out, 0, SEEK_SET);
         fprintf(stderr, "Writing header (v: %d, ac: %d)\n", header.version, header.asset_count);
         fwrite(&header, sizeof(header), 1, out);
+
         fseek(out, header.asset_data, SEEK_SET);
 
-        for (u32 asset_index = 0; asset_index < ARRAY_COUNT(asset_catalog); asset_index++) {
-            AssetDescription* asset_desc = assets_to_load + asset_index;
-            PackedAsset* packed = asset_catalog + asset_index;
+        for (u32 asset_index = 0; asset_index < assets_to_load.count; asset_index++) {
+            AssetDescription* asset_desc = assets_to_load.data + asset_index;
+            PackedAsset* packed = &asset_desc->asset;
 
             packed->data_offset = ftell(out) - header.asset_data;
 
@@ -156,7 +187,11 @@ int main(int argument_count, char** arguments) {
         }
 
         fseek(out, header.asset_catalog, SEEK_SET);
-        fwrite(asset_catalog, asset_catalog_size, 1, out);
+        for (u32 asset_index = 0; asset_index < assets_to_load.count; asset_index++) {
+            AssetDescription* asset_desc = assets_to_load.data + asset_index;
+            PackedAsset* packed = &asset_desc->asset;
+            fwrite(packed, sizeof(PackedAsset), 1, out);
+        }
     }
 
     check_arena(&global_arena);

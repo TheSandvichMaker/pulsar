@@ -4,14 +4,7 @@
 enum AssetType {
     AssetType_Image,
     AssetType_Sound,
-};
-
-enum AssetID {
-    Asset_TestMusic,
-    Asset_TestSound,
-    Asset_TestImage,
-
-    Asset_Count,
+    AssetType_Font,
 };
 
 struct PackedImage {
@@ -24,12 +17,19 @@ struct PackedSound {
     u32 sample_count;
 };
 
+struct PackedFont {
+    u32 first_codepoint;
+    u32 one_past_last_codepoint;
+};
+
 struct PackedAsset {
     u64 data_offset;
+    u32 name_offset;
     AssetType type;
     union {
         PackedSound sound;
         PackedImage image;
+        PackedFont font;
     };
 };
 
@@ -42,6 +42,7 @@ struct AssetPackHeader {
 
     u32 asset_count;
     u32 asset_catalog; // @Note: indexed into by AssetType, so the values of AssetType must be in sync with the file.
+    u32 asset_name_store;
     u32 asset_data;
 };
 
@@ -49,9 +50,10 @@ struct AssetPackHeader {
    ------------------
    magic_value: APK_CODE('a', 'p', 'k', 'f')
    version: 0
-   asset count: 3
-   asset catalog: sizeof(header)
-   data: sizeof(header) + asset_catalog * sizeof(PackedAsset)
+   asset_count: 3
+   asset_catalog: sizeof(header)
+   asset_name_store: sizeof(header) + asset_catalog
+   asset_data: sizeof(header) + asset_catalog * sizeof(PackedAsset)
    ------------------
    "test music"
    "test sound"

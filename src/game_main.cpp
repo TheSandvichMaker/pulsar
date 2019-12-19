@@ -187,7 +187,7 @@ inline EpaEdge epa_find_closest_edge(EpaPoint* p_sentinel, b32 simplex_wound_ccw
 }
 
 struct CollisionInfo {
-    v2 vector;
+    v2 vector; // @TODO: Figure out exactly what determines the direction this vector faces
     f32 depth;
 };
 
@@ -393,23 +393,34 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
     entity->type = EntityType_Wall;
     entity->p = get_center(rect);
     entity->color = vec4(1, 1, 1, 1);
+    entity->surface_friction = 5.0f;
 
     entity->flags |= EntityFlag_Collides;
 
     rect = offset(rect, -entity->p);
 
     // @TODO: Stop wasting memory on rectangular polygons
-    v2* verts = push_array(&game_state->permanent_arena, 3, v2);
+    v2* verts = push_array(&game_state->permanent_arena, 4, v2);
     verts[0] = { rect.min.x, rect.min.y };
     verts[1] = { rect.max.x, rect.min.y };
     verts[2] = { rect.max.x, rect.max.y };
-    // verts[3] = { rect.min.x, rect.max.y };
+    verts[3] = { rect.min.x, rect.max.y };
     entity->collision = polygon(3, verts);
 
     return entity_index;
 }
 
+#define MAX_COLLISION_ITERATIONS 4
 inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
+    /*
+     * @TODO: Figure out some of the cases in which the collision handling will
+     * fail, which I'm sure there are some, such as _very_ extreme velocities
+     * (which might happen in cases of frame drops if I choose to support
+     * dynamic timesteps). One suspicion I have is that if an entity penetrates
+     * deep enough into another, the collision might resolve to put it on the other
+     * side, allowing very fast entities to clip through each other.
+     */
+
     f32 epsilon = 0.001f;
 
     // @TODO: Some kind of relationship with real world units, get away from using pixels.
@@ -418,39 +429,55 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     ddp -= air_resistance*entity->dp;
     ddp.y -= gravity;
 
-    v2 delta = (0.5f*ddp*square(dt)) + entity->dp*dt;
+    if (entity->flags & EntityFlag_OnGround) {
+        ddp.x -= entity->friction_of_last_touched_surface*entity->dp.x;
+        f32 off_ground_time = 0.1f;
+        if (entity->off_ground_timer < off_ground_time) {
+            entity->off_ground_timer += dt;
+        } else {
+            entity->flags &= ~EntityFlag_OnGround;
+        }
+    }
+
+    v2 delta = 0.5f*ddp*square(dt) + entity->dp*dt;
     entity->dp += ddp*dt;
 
+    entity->friction_of_last_touched_surface = 0.0f;
+
     if (entity->flags & EntityFlag_Collides) {
-        Transform2D t = default_transform2d();
-        t.offset = entity->p;
-        t.sweep = delta;
-        // @TODO: Optimized spatial search of sorts?
+        Transform2D t = transform2d(entity->p, delta);
+        // @TODO: Optimized spatial indexing of sorts?
         for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
             Entity* test_entity = game_state->entities + entity_index;
             if (entity != test_entity) {
-                Transform2D test_t = default_transform2d();
-                test_t.offset = test_entity->p;
+                entity->friction_of_last_touched_surface = test_entity->surface_friction;
+
+                Transform2D test_t = transform2d(test_entity->p);
                 if (test_entity->flags & EntityFlag_Collides) {
+                    test_entity->sticking_entity = 0;
                     u32 iteration = 0;
                     do {
-                        CollisionInfo info;
-                        if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &info, &game_state->transient_arena)) {
-                            f32 depth = info.depth + epsilon;
-                            f32 theta_times_length_of_delta = dot(info.vector, delta);
+                        CollisionInfo collision;
+                        if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
+                            if (collision.vector.y < -0.707f) {
+                                entity->flags |= EntityFlag_OnGround;
+                                entity->off_ground_timer = 0.0f;
+                                test_entity->sticking_entity = entity;
+                            }
+                            f32 depth = collision.depth + epsilon;
+                            f32 theta_times_length_of_delta = dot(collision.vector, delta);
                             if (theta_times_length_of_delta == 0) {
-                                entity->color = vec4(0, 0, 1, 1);
-                                delta = -info.vector*depth;
+                                delta = -collision.vector*depth;
                                 break;
                             } else {
                                 f32 penetration_along_delta = depth / theta_times_length_of_delta;
 
                                 v2 legal_move = delta*(1.0f-penetration_along_delta);
-                                delta  = delta*penetration_along_delta;
-                                delta -= info.vector*dot(delta, info.vector);
+                                delta = delta*penetration_along_delta;
+                                delta -= collision.vector*dot(delta, collision.vector);
 
                                 entity->p += legal_move;
-                                entity->dp -= info.vector*dot(entity->dp, info.vector);
+                                entity->dp -= collision.vector*dot(entity->dp, collision.vector);
                             }
                         } else {
                             break;
@@ -460,7 +487,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                         t.sweep = delta;
 
                         iteration++;
-                    } while (iteration < 4 && length_sq(delta) > epsilon);
+                    } while (iteration < MAX_COLLISION_ITERATIONS && length_sq(delta) > epsilon);
                 }
             }
         }
@@ -474,6 +501,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     platform = memory->platform_api;
 
+    //
+    // Initialization
+    //
+
     GameState* game_state = cast(GameState*) memory->permanent_storage;
     if (!memory->initialized) {
         initialize_arena(&game_state->permanent_arena, memory->permanent_storage_size - sizeof(GameState), cast(u8*) memory->permanent_storage + sizeof(GameState));
@@ -482,9 +513,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
 
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pak");
-        game_state->test_music = get_sound(&game_state->assets, Asset_TestMusic);
-        game_state->test_sound = get_sound(&game_state->assets, Asset_TestSound);
-        game_state->test_image = get_image(&game_state->assets, Asset_TestImage);
+
+        game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
+        game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
+        game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
 
         game_state->test_image->handle = cast(void*) opengl_load_texture(
             &opengl_info,
@@ -494,22 +526,72 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         );
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
-        square_verts[0] = { -10.0f, 0.0f };
-        square_verts[1] = {  10.0f, 0.0f };
+        square_verts[0] = { -10.0f,  0.0f };
+        square_verts[1] = {  10.0f,  0.0f };
         square_verts[2] = {  10.0f, 50.0f };
         square_verts[3] = { -10.0f, 50.0f };
         game_state->player_collision = polygon(4, square_verts);
 
+        // @Note: I'm reserving the 0th entity index to signify the null entity.
+        game_state->entity_count = 1;
+
         add_player(game_state, vec2(512, 516));
-        add_wall(game_state, rect_center_dim(vec2(512, 500), vec2(256, 24)));
+        add_wall(game_state, rect_center_dim(vec2(512, 500), vec2(512, 24)));
 
         // play_sound(&game_state->audio_mixer, game_state->test_music);
-        // play_sound(&game_state->audio_mixer, game_state->test_sound);
 
         memory->initialized = true;
     }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
+
+    //
+    // Gameplay Logic
+    //
+
+    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
+        Entity* entity = game_state->entities + entity_index;
+        assert(entity->type != EntityType_Null);
+
+        entity->ddp = vec2(0, 0);
+        entity->was_on_ground = entity->flags & EntityFlag_OnGround;
+
+        switch (entity->type) {
+            case EntityType_Player: {
+                GameController* controller = &input->controller;
+                f32 move_speed = (entity->flags & EntityFlag_OnGround) ? 1000.0f : 200.0f;
+                if (controller->move_left.is_down) {
+                    entity->ddp.x -= move_speed;
+                }
+                if (controller->move_right.is_down) {
+                    entity->ddp.x += move_speed;
+                }
+
+                if (entity->was_on_ground && was_pressed(controller->move_up)) {
+                    play_sound(&game_state->audio_mixer, game_state->test_sound);
+                    entity->ddp.y += 10000.0f;
+                    entity->flags &= ~EntityFlag_OnGround;
+                }
+            } break;
+
+            case EntityType_Wall: {
+                v2 movement = vec2(cos(entity->movement_t), sin(entity->movement_t));
+                entity->p += movement;
+                entity->movement_t += input->frame_dt;
+                Entity* sticking_entity = entity->sticking_entity;
+                if (sticking_entity) {
+                    sticking_entity->p += movement;
+                    sticking_entity->sticking_dp = movement;
+                }
+            } break;
+
+            INVALID_DEFAULT_CASE;
+        }
+    }
+
+    //
+    // Physics & Rendering
+    //
 
     glViewport(0, 0, width, height);
     glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
@@ -519,49 +601,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     opengl_set_screenspace(width, height);
-
-    for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
+    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
+        assert(entity->type != EntityType_Null);
 
-        v2 ddp = {};
-
-        switch (entity->type) {
-            case EntityType_Player: {
-                GameController* controller = &input->controller;
-                if (controller->move_left.is_down) {
-                    ddp.x -= 1.0f;
-                }
-                if (controller->move_right.is_down) {
-                    ddp.x += 1.0f;
-                }
-                if (controller->move_down.is_down) {
-                    ddp.y -= 1.0f;
-                }
-
-                f32 ddp_length_sq = length_sq(ddp);
-                if (ddp_length_sq > 1.0f) {
-                    ddp *= (1.0f/square_root(ddp_length_sq));
-                }
-
-                if (was_pressed(controller->move_up)) {
-                    ddp.y += 100.0f;
-                }
-
-                ddp *= 80.0f;
-
-                // ddp = mouse_p - entity->p;
-                // dbg_draw_arrow(entity->p, entity->p + ddp, vec4(1, 0, 1, 1));
-            } break;
-
-            case EntityType_Wall: {
-
-            } break;
-
-            INVALID_DEFAULT_CASE;
+        if (entity->was_on_ground && !(entity->flags & EntityFlag_OnGround)) {
+            // entity->ddp += 10000.0f*entity->sticking_dp;
         }
 
         if (entity->flags & EntityFlag_Moveable) {
-            move_entity(game_state, entity, ddp, input->frame_dt);
+            move_entity(game_state, entity, entity->ddp, input->frame_dt);
         }
 
         Transform2D transform = default_transform2d();
@@ -570,16 +619,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         entity->color = vec4(1, 1, 1, 1);
     }
-
-    // dbg_draw_shape_with_brute_force(transform, swept_shape, color);
-    // dbg_draw_shape(player_transform, shape, color);
-
-    // v2 x_axis = player_transform.rotation_arm;
-    // v2 y_axis = perp(x_axis);
-    // v2 min_p = -(x_axis*cast(f32) game_state->test_image->w + y_axis*cast(f32) game_state->test_image->h)*game_state->test_image->center_point;
-    // x_axis *= cast(f32) game_state->test_image->w;
-    // y_axis *= cast(f32) game_state->test_image->h;
-    // opengl_texture(cast(GLuint) game_state->test_image->handle, player->p + min_p, x_axis, y_axis, vec4(1, 1, 1, 1));
 
     glDisable(GL_BLEND);
 
