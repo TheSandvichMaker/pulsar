@@ -1,3 +1,4 @@
-test_sound: "test_sound.wav"
-test_image: "test_bitmap.bmp" align 0.5 0.5
-test_music: "test_music.wav"
+"test_sound" : "test_sound.wav"
+"test_image" : "test_bitmap.bmp" align 0.5 0.5
+"test_music" : "test_music.wav"
+"test_font"  : "C:/Windows/Fonts/consola.ttf" size 22

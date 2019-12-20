@@ -30,8 +30,9 @@ enum AssetDataType {
 struct AssetDescription {
     char* asset_name;
     char* source_file;
-    AssetDataType data_type;
+    u32 asset_index;
     PackedAsset asset;
+    AssetDataType data_type;
 };
 
 global MemoryArena global_arena;
@@ -57,6 +58,7 @@ internal AssetDescription* add_asset(char* asset_name, char* file_name) {
     }
 
     AssetDescription* asset_desc = array_add(&assets_to_load);
+    asset_desc->asset_index = cast(u32) assets_to_load.count - 1;
     asset_desc->asset_name = asset_name;
     asset_desc->source_file = file_name;
     asset_desc->data_type = data_type;
@@ -64,22 +66,34 @@ internal AssetDescription* add_asset(char* asset_name, char* file_name) {
     return asset_desc;
 }
 
-internal void add_sound(char* asset_name, char* file_name) {
-    add_asset(asset_name, file_name);
+internal AssetDescription* add_sound(char* asset_name, char* file_name) {
+    return add_asset(asset_name, file_name);
 }
 
-internal void add_image(char* asset_name, char* file_name, f32 align_x = 0.5f, f32 align_y = 0.5f) {
+internal AssetDescription* add_image(char* asset_name, char* file_name, f32 align_x = 0.5f, f32 align_y = 0.5f) {
     AssetDescription* desc = add_asset(asset_name, file_name);
     PackedImage* image = &desc->asset.image;
     image->center_point_x = align_x;
     image->center_point_y = align_y;
+    return desc;
 }
 
-internal void add_font(char* asset_name, char* file_name) {
+internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size) {
     AssetDescription* desc = add_asset(asset_name, file_name);
     PackedFont* font = &desc->asset.font;
     font->first_codepoint = '!';
     font->one_past_last_codepoint = '~' + 1;
+    font->size = size;
+
+    EntireFile ttf = read_entire_file(file_name);
+    stbtt_fontinfo font_info;
+    stbtt_InitFont(&font_info, cast(const unsigned char*) ttf.data, stbtt_GetFontOffsetForIndex(cast(const unsigned char*) ttf.data, 0));
+    for (u32 codepoint = font->first_codepoint; codepoint < font->one_past_last_codepoint; codepoint++) {
+        
+    }
+    free(ttf.data);
+
+    return desc;
 }
 
 inline b32 expect_char(String* asset_manifest, b32* parse_success, char c, char* additional_info = 0) {
@@ -98,63 +112,81 @@ inline b32 expect_char(String* asset_manifest, b32* parse_success, char c, char*
 }
 
 int main(int argument_count, char** arguments) {
-#define MEMORY_POOL_SIZE GIGABYTES(2)
+#define MEMORY_POOL_SIZE GIGABYTES(2ul)
     void* memory_pool = malloc(MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
     String asset_manifest = read_text_file("asset_manifest.txt", &global_arena);
     assets_to_load = allocate_array<AssetDescription>(64, &global_arena); // @Note: I don't really care about efficient memory usage on this guy, so why not start with space for 64 assets.
 
+#if 0
     // @TODO: Big fat unjankification project.
     b32 parse_successful = asset_manifest.len > 0;
     if (parse_successful) {
         while (parse_successful && chars_left(&asset_manifest)) {
-            String asset_name = advance_to(&asset_manifest, ':');
-            if (expect_char(&asset_manifest, &parse_successful, ':', "after asset name")) {
-                advance_to(&asset_manifest, '"');
-                if (expect_char(&asset_manifest, &parse_successful, '"', "to start asset file path")) {
-                    advance(&asset_manifest);
-                    String file_name = advance_to(&asset_manifest, '"');
-                    if (expect_char(&asset_manifest, &parse_successful, '"', "to end asset file path")) {
+            if (expect_char(&asset_manifest, &parse_successful, '"', "to begin asset name")) {
+                advance(&asset_manifest);
+                String asset_name = advance_to(&asset_manifest, '"');
+                advance(&asset_manifest);
+                eat_whitespaces(&asset_manifest);
+                if (expect_char(&asset_manifest, &parse_successful, ':', "after asset name")) {
+                    advance_to(&asset_manifest, '"');
+                    if (expect_char(&asset_manifest, &parse_successful, '"', "to start asset file path")) {
                         advance(&asset_manifest);
-                        char* asset_name_c = push_string_and_null_terminate(&global_arena, asset_name.len, asset_name.data);
-                        char*  file_name_c = push_string_and_null_terminate(&global_arena, file_name.len, file_name.data);
-                        AssetDescription* desc = add_asset(asset_name_c, file_name_c);
-                        switch (desc->data_type) {
-                            case AssetDataType_Wav: {
-                            } break;
-                            case AssetDataType_Bmp: {
-                                PackedImage* image = &desc->asset.image;
-                                image->center_point_x = 0.5f;
-                                image->center_point_y = 0.5f;
+                        String file_name = advance_to(&asset_manifest, '"');
+                        if (expect_char(&asset_manifest, &parse_successful, '"', "to end asset file path")) {
+                            advance(&asset_manifest);
+                            char* asset_name_c = push_string_and_null_terminate(&global_arena, asset_name.len, asset_name.data);
+                            char*  file_name_c = push_string_and_null_terminate(&global_arena, file_name.len, file_name.data);
+                            AssetDescription* desc = add_asset(asset_name_c, file_name_c);
+                            switch (desc->data_type) {
+                                case AssetDataType_Wav: {
+                                } break;
+                                case AssetDataType_Bmp: {
+                                    PackedImage* image = &desc->asset.image;
+                                    image->center_point_x = 0.5f;
+                                    image->center_point_y = 0.5f;
 
-                                if (match_word(&asset_manifest, "align")) {
-                                    char* end_ptr = 0;
-                                    image->center_point_x = strtof(asset_manifest.data, &end_ptr);
-                                    if (end_ptr && asset_manifest.data != end_ptr) {
-                                        assert(advance_to_ptr(&asset_manifest, end_ptr));
-                                    } else {
-                                        parse_successful = false;
-                                        fprintf(stderr, "Asset Manifest Parse Error: Expected two valid floats after 'align'.\n");
+                                    if (match_word(&asset_manifest, "align")) {
+                                        char* end_ptr = 0;
+                                        image->center_point_x = strtof(asset_manifest.data, &end_ptr);
+                                        if (end_ptr && asset_manifest.data != end_ptr) {
+                                            assert(advance_to_ptr(&asset_manifest, end_ptr));
+                                        } else {
+                                            parse_successful = false;
+                                            fprintf(stderr, "Asset Manifest Parse Error: Expected two valid floats after 'align'.\n");
+                                        }
+                                        image->center_point_y = strtof(asset_manifest.data, &end_ptr);
+                                        if (end_ptr && asset_manifest.data != end_ptr) {
+                                            assert(advance_to_ptr(&asset_manifest, end_ptr));
+                                        } else {
+                                            parse_successful = false;
+                                            fprintf(stderr, "Asset Manifest Parse Error: Expected two valid floats after 'align'.\n");
+                                        }
                                     }
-                                    image->center_point_y = strtof(asset_manifest.data, &end_ptr);
-                                    if (end_ptr && asset_manifest.data != end_ptr) {
-                                        assert(advance_to_ptr(&asset_manifest, end_ptr));
-                                    } else {
-                                        parse_successful = false;
-                                        fprintf(stderr, "Asset Manifest Parse Error: Expected two valid floats after 'align'.\n");
-                                    }
-                                }
-                            } break;
-                            case AssetDataType_Ttf: {
-                                PackedFont* font = &desc->asset.font;
-                                font->first_codepoint = '!';
-                                font->one_past_last_codepoint = '~' + 1;
-                            } break;
+                                } break;
+                                case AssetDataType_Ttf: {
+                                    PackedFont* font = &desc->asset.font;
+                                    font->first_codepoint = '!';
+                                    font->one_past_last_codepoint = '~' + 1;
+                                    font->size = 12;
 
-                            INVALID_DEFAULT_CASE;
+                                    if (match_word(&asset_manifest, "size")) {
+                                        char* end_ptr = 0;
+                                        font->size = parse_integer(asset_manifest.data, &end_ptr);
+                                        if (end_ptr && asset_manifest.data != end_ptr) {
+                                            assert(advance_to_ptr(&asset_manifest, end_ptr));
+                                        } else {
+                                            parse_successful = false;
+                                            fprintf(stderr, "Asset Manifest Parse Error: Expected a valid integer after 'size'.\n");
+                                        }
+                                    }
+                                } break;
+
+                                INVALID_DEFAULT_CASE;
+                            }
+                            eat_whitespaces(&asset_manifest);
                         }
-                        eat_whitespaces(&asset_manifest);
                     }
                 }
             }
@@ -162,14 +194,12 @@ int main(int argument_count, char** arguments) {
     } else {
         fprintf(stderr, "Failed to open asset manifest.\n");
     }
+#endif
 
-    if (!parse_successful) {
-        fprintf(stderr, "Failed to parse asset manifest.\n");
-        clear_array(&assets_to_load);
-        add_sound("test_sound", "test_sound.wav");
-        add_sound("test_music", "test_music.wav");
-        add_image("test_image", "test_bitmap.bmp");
-    }
+    add_sound("test_sound", "test_sound.wav");
+    add_sound("test_music", "test_music.wav");
+    add_image("test_image", "test_bitmap.bmp");
+    // add_font("test_font", "C:/Windows/Fonts/consola.ttf", 22);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'a', 'k', 'f');

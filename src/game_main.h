@@ -111,10 +111,17 @@ struct Entity {
     Shape2D collision;
 };
 
+enum GameMode {
+    GameMode_Ingame,
+    GameMode_Editor,
+};
+
 #define MAX_ENTITY_COUNT 8192
 struct GameState {
     MemoryArena permanent_arena;
     MemoryArena transient_arena;
+
+    GameMode game_mode;
 
     AudioMixer audio_mixer;
     Assets assets;
@@ -122,6 +129,9 @@ struct GameState {
     Sound* test_music;
     Sound* test_sound;
     Image* test_image;
+
+    u32 level_entity_count;
+    Entity level_entities[MAX_ENTITY_COUNT];
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];

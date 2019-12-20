@@ -20,6 +20,7 @@ struct PackedSound {
 struct PackedFont {
     u32 first_codepoint;
     u32 one_past_last_codepoint;
+    u32 size;
 };
 
 struct PackedAsset {

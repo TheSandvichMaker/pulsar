@@ -46,11 +46,12 @@ inline b32 is_alphanumeric(char c) {
     return result;
 }
 
-inline s32 parse_integer(char* start) {
+inline s32 parse_integer(char* start, char** end) {
     s32 result = 0;
 
     b32 negate = false;
 
+    *end = start;
     char* end_of_number = start;
     if (start[0] == '-') {
         negate = true;
@@ -63,10 +64,16 @@ inline s32 parse_integer(char* start) {
         end_of_number++;
     }
 
+    b32 successfully_parsed_number = false;
     u32 exponent = 1;
     for (char* scan = end_of_number; (scan >= start) && (scan[0] >= '0' && scan[0] <= '9'); scan--) {
+        successfully_parsed_number = true;
         result += (scan[0] - '0') * exponent;
         exponent *= 10;
+    }
+
+    if (successfully_parsed_number) {
+        *end = end_of_number + 1;
     }
 
     if (negate) {
