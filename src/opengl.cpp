@@ -57,7 +57,7 @@ inline void opengl_texture(GLuint handle, Rect2 rect, v4 color = vec4(1, 1, 1, 1
     opengl_texture(handle, get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
 }
 
-inline GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* pixels) {
+internal GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* pixels) {
     // @TODO: Ponder different texture formats
     GLuint texture_handle;
     glGenTextures(1, &texture_handle);
@@ -83,6 +83,10 @@ inline GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* p
     glFlush();
 
     return texture_handle;
+}
+
+internal void opengl_unload_texture(GLuint handle) {
+    glDeleteTextures(1, &handle);
 }
 
 inline void opengl_check_extension(OpenGLInfo* info, String extension) {

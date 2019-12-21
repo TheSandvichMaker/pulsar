@@ -3,32 +3,38 @@
 
 #include "asset_pack_format.h"
 
-#define INVALID_ASSET UINT32_MAX
-
-struct SoundID {
-    u32 value;
-};
-
-struct ImageID {
-    u32 value;
-};
-
-struct FontID {
-    u32 value;
-};
-
 struct Sound {
-    u32 channel_count;
-    u32 sample_count;
+    union {
+        PackedSound packed_sound;
+        struct {
+            PACKED_SOUND_BODY;
+        };
+    };
+
     s16* samples;
 };
 
 struct Image {
-    u32 w, h;
-    v2 center_point;
-    void* pixels;
+    union {
+        PackedImage packed_image;
+        struct {
+            PACKED_IMAGE_BODY;
+        };
+    };
 
+    void* pixels;
     void* handle;
+};
+
+struct Font {
+    union {
+        PackedFont packed_font;
+        struct {
+            PACKED_FONT_BODY;
+        };
+    };
+
+    ImageID* glyph_table;
 };
 
 struct Asset {
@@ -37,6 +43,7 @@ struct Asset {
     union {
         Sound sound;
         Image image;
+        Font font;
     };
 };
 

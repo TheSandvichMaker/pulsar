@@ -503,6 +503,21 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     entity->p += delta;
 }
 
+internal void draw_test_text(Assets* assets, Font* font, char* text, v2 p) {
+    v2 at_p = p;
+    for (char* at = text; at[0]; at++) {
+        if (at[0] == ' ') {
+            at_p.x += 10.0f;
+        } else {
+            assert(at[0] >= cast(s32) font->first_codepoint && at[0] < cast(s32) font->one_past_last_codepoint);
+            ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
+            Image* glyph = get_image(assets, glyph_id);
+            opengl_texture(cast(GLuint) glyph->handle, rect_min_dim(at_p, vec2(glyph->w, glyph->h)));
+            at_p.x += glyph->w;
+        }
+    }
+}
+
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
@@ -524,13 +539,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
+        game_state->test_font = get_font_by_name(&game_state->assets, "test_font");
 
-        game_state->test_image->handle = cast(void*) opengl_load_texture(
-            &opengl_info,
-            game_state->test_image->w,
-            game_state->test_image->h,
-            game_state->test_image->pixels
-        );
+        ImageID glyph_id = get_glyph_id_for_codepoint(game_state->test_font, 'Q');
+        game_state->test_glyph = get_image(&game_state->assets, glyph_id);
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
         square_verts[0] = { -10.0f,  0.0f };
@@ -600,7 +612,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 } break;
 
                 case EntityType_Wall: {
-                    v2 movement = vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
+                    v2 movement = {}; // vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
                     entity->p += movement;
                     entity->dp = rcp_dt*movement;
                     entity->movement_t += dt;
@@ -631,6 +643,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
         assert(entity->type != EntityType_Null);
+
+        if (entity->type == EntityType_Player) {
+            draw_test_text(&game_state->assets, game_state->test_font, "The spice must flow.", entity->p + vec2(0, 60));
+        }
 
         opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
         if (entity->was_on_ground && !(entity->flags & EntityFlag_OnGround)) {

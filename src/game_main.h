@@ -129,6 +129,9 @@ struct GameState {
     Sound* test_music;
     Sound* test_sound;
     Image* test_image;
+    Font* test_font;
+
+    Image* test_glyph;
 
     u32 level_entity_count;
     Entity level_entities[MAX_ENTITY_COUNT];

@@ -1,26 +1,69 @@
 #ifndef ASSET_PACK_FORMAT_H
 #define ASSET_PACK_FORMAT_H
 
+#define NULL_NAME_OFFSET UINT32_MAX
+
+struct SoundID {
+    u32 value;
+};
+
+struct ImageID {
+    u32 value;
+};
+
+struct FontID {
+    u32 value;
+};
+
 enum AssetType {
+    AssetType_Unknown,
+
     AssetType_Image,
     AssetType_Sound,
     AssetType_Font,
 };
 
-struct PackedImage {
-    u32 w, h;
-    f32 center_point_x, center_point_y;
+enum PixelFormat {
+    PixelFormat_BGRA8,
+    PixelFormat_A8,
 };
+
+#define PACKED_IMAGE_BODY               \
+    PixelFormat pixel_format;           \
+    u32 w, h;                           \
+    v2 align;
+
+struct PackedImage {
+    PACKED_IMAGE_BODY;
+
+    /* Data:
+     * PixelFormat* pixels[w*h];
+     */
+};
+
+#define PACKED_SOUND_BODY \
+    u32 channel_count;    \
+    u32 sample_count;
 
 struct PackedSound {
-    u32 channel_count;
-    u32 sample_count;
+    PACKED_SOUND_BODY;
+
+    /* Data:
+     * s16* samples[channel_count];
+     */
 };
 
-struct PackedFont {
-    u32 first_codepoint;
-    u32 one_past_last_codepoint;
+#define PACKED_FONT_BODY         \
+    u32 first_codepoint;         \
+    u32 one_past_last_codepoint; \
     u32 size;
+
+struct PackedFont {
+    PACKED_FONT_BODY;
+
+    /* Data:
+     * ImageID glyph_table[one_past_last_codepoint - first_codepoint];
+     */
 };
 
 struct PackedAsset {
@@ -42,7 +85,7 @@ struct AssetPackHeader {
     u32 version;
 
     u32 asset_count;
-    u32 asset_catalog; // @Note: indexed into by AssetType, so the values of AssetType must be in sync with the file.
+    u32 asset_catalog;
     u32 asset_name_store;
     u32 asset_data;
 };
@@ -56,6 +99,7 @@ struct AssetPackHeader {
    asset_name_store: sizeof(header) + asset_catalog
    asset_data: sizeof(header) + asset_catalog * sizeof(PackedAsset)
    ------------------
+   0
    "test music"
    "test sound"
    "test image"

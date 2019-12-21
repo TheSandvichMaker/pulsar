@@ -1,7 +1,112 @@
 #ifndef PLATFORM_BRIDGE_H
 #define PLATFORM_BRIDGE_H
 
+#ifndef SND_MATH_TYPES
+#define SND_MATH_TYPES
+union v2 {
+    struct {
+        f32 x, y;
+    };
+    struct {
+        f32 u, v;
+    };
+    f32 e[2];
+};
+
+union v3 {
+    struct {
+        f32 x, y, z;
+    };
+    struct {
+        f32 r, g, b;
+    };
+    struct {
+        f32 u, v, w;
+    };
+    struct {
+        v2 xy;
+        f32 ignored0_;
+    };
+    struct {
+        f32 ignored1_;
+        v2 yz;
+    };
+    struct {
+        v2 rg;
+        f32 ignored2_;
+    };
+    struct {
+        f32 ignored3_;
+        v2 gb;
+    };
+    struct {
+        v2 uv;
+        f32 ignored4_;
+    };
+    struct {
+        f32 ignored5_;
+        v2 vw;
+    };
+    f32 e[3];
+};
+
+union v4 {
+    struct {
+        f32 x, y, z, w;
+    };
+    struct {
+        f32 r, g, b, a;
+    };
+    struct {
+        v3 xyz;
+        f32 ignored0_;
+    };
+    struct {
+        f32 ignored1_;
+        v3 yzw;
+    };
+    struct {
+        v2 xy;
+        v2 zw;
+    };
+    struct {
+        f32 ignored2_;
+        v2 yz;
+        f32 ignored3_;
+    };
+    struct {
+        v3 rgb;
+        f32 ignored4_;
+    };
+    struct {
+        f32 ignored5_;
+        v3 gba;
+    };
+    struct {
+        v2 rg;
+        v2 ba;
+    };
+    struct {
+        f32 ignored6_;
+        v2 gb;
+        f32 ignored7_;
+    };
+    f32 e[4];
+};
+
+struct Rect2 {
+    v2 min;
+    v2 max;
+};
+
+struct Rect3 {
+    v3 min;
+    v3 max;
+};
+#endif
+
 #include "file_io.h"
+#include "asset_pack_format.h"
 
 #define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name)
 typedef PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile);
@@ -15,11 +120,19 @@ typedef PLATFORM_ALLOCATE_MEMORY(PlatformAllocateMemory);
 #define PLATFORM_DEALLOCATE_MEMORY(name) void name(void* memory)
 typedef PLATFORM_DEALLOCATE_MEMORY(PlatformDeallocateMemory);
 
+#define PLATFORM_ALLOCATE_TEXTURE(name) void* name(u32 w, u32 h, void* data, PixelFormat format)
+typedef PLATFORM_ALLOCATE_TEXTURE(PlatformAllocateTexture);
+
+#define PLATFORM_DEALLOCATE_TEXTURE(name) void name(void* handle)
+typedef PLATFORM_DEALLOCATE_TEXTURE(PlatformDeallocateTexture);
+
 struct PlatformAPI {
     PlatformReadEntireFile* read_entire_file;
     PlatformWriteEntireFile* write_entire_file;
     PlatformAllocateMemory* allocate;
     PlatformDeallocateMemory* deallocate;
+    PlatformAllocateTexture* allocate_texture;
+    PlatformDeallocateTexture* deallocate_texture;
 };
 
 /*

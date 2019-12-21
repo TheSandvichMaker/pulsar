@@ -46,6 +46,16 @@ internal PLATFORM_DEALLOCATE_MEMORY(win32_deallocate_memory) {
     }
 }
 
+internal PLATFORM_ALLOCATE_TEXTURE(win32_allocate_texture) {
+    GLuint handle = opengl_load_texture(&opengl_info, w, h, data);
+    assert(sizeof(handle) <= sizeof(void*));
+    return cast(void*) handle;
+}
+
+internal PLATFORM_DEALLOCATE_TEXTURE(win32_deallocate_texture) {
+    opengl_unload_texture(cast(GLuint) handle);
+}
+
 internal PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
     EntireFile result = {};
 
@@ -445,6 +455,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.write_entire_file = win32_write_entire_file;
             game_memory.platform_api.allocate = win32_allocate_memory;
             game_memory.platform_api.deallocate = win32_deallocate_memory;
+            game_memory.platform_api.allocate_texture = win32_allocate_texture;
+            game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
 
             GameInput old_input_ = {};
             GameInput new_input_ = {};
