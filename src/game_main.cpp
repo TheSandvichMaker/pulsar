@@ -1,8 +1,5 @@
 #include "game_main.h"
 
-#include "asset_loading.h"
-#include "asset_loading.cpp"
-
 #include "game_assets.cpp"
 #include "audio_mixer.cpp"
 
@@ -52,7 +49,7 @@ inline void dbg_draw_shape(Transform2D transform, Shape2D shape, v4 color = vec4
     glBegin(GL_LINE_LOOP);
     glColor4fv(color.e);
 
-    u32 circle_quality = 32;
+    u32 circle_quality = 1024;
 
     switch (shape.type) {
         case Shape_Polygon: {
@@ -405,7 +402,7 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
     verts[1] = { rect.max.x, rect.min.y };
     verts[2] = { rect.max.x, rect.max.y };
     verts[3] = { rect.min.x, rect.max.y };
-    entity->collision = polygon(4, verts);
+    entity->collision = circle(150.0f); // polygon(4, verts);
 
     return entity_index;
 }
@@ -480,7 +477,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                                 f32 t_spent = 1.0f - penetration_along_delta;
                                 t_left -= t_spent;
 
-                                entity->p   += t_spent*delta;
+                                entity->p   += t_spent*delta - collision.vector*epsilon;
                                 entity->dp  -= collision.vector*dot(entity->dp, collision.vector);
                                 total_delta -= collision.vector*dot(total_delta, collision.vector);
                             }
@@ -512,6 +509,7 @@ internal void draw_test_text(Assets* assets, Font* font, char* text, v2 p) {
             assert(at[0] >= cast(s32) font->first_codepoint && at[0] < cast(s32) font->one_past_last_codepoint);
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             Image* glyph = get_image(assets, glyph_id);
+            v2 align = vec2(glyph->w, glyph->h)*glyph->align;
             opengl_texture(cast(GLuint) glyph->handle, rect_min_dim(at_p, vec2(glyph->w, glyph->h)));
             at_p.x += glyph->w;
         }
@@ -541,21 +539,18 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
         game_state->test_font = get_font_by_name(&game_state->assets, "test_font");
 
-        ImageID glyph_id = get_glyph_id_for_codepoint(game_state->test_font, 'Q');
-        game_state->test_glyph = get_image(&game_state->assets, glyph_id);
-
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
         square_verts[0] = { -10.0f,  0.0f };
         square_verts[1] = {  10.0f,  0.0f };
         square_verts[2] = {  10.0f, 50.0f };
         square_verts[3] = { -10.0f, 50.0f };
-        game_state->player_collision = polygon(4, square_verts);
+        game_state->player_collision = circle(50.0f); // polygon(4, square_verts);
 
         // @Note: I'm reserving the 0th entity index to signify the null entity.
         game_state->level_entity_count = 1;
 
-        add_player(game_state, vec2(512, 516));
-        add_wall(game_state, rect_center_dim(vec2(512, 500), vec2(512, 24)));
+        add_player(game_state, vec2(512, 650));
+        add_wall(game_state, rect_center_dim(vec2(512, 400), vec2(512, 24)));
 
         game_state->game_mode = GameMode_Ingame;
         for (u32 entity_index = 1; entity_index < game_state->level_entity_count; entity_index++) {
@@ -612,7 +607,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 } break;
 
                 case EntityType_Wall: {
-                    v2 movement = {}; // vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
+                    v2 movement = vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
                     entity->p += movement;
                     entity->dp = rcp_dt*movement;
                     entity->movement_t += dt;
@@ -644,18 +639,22 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         Entity* entity = game_state->entities + entity_index;
         assert(entity->type != EntityType_Null);
 
-        if (entity->type == EntityType_Player) {
-            draw_test_text(&game_state->assets, game_state->test_font, "The spice must flow.", entity->p + vec2(0, 60));
+        opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
+        if (entity->flags & EntityFlag_Moveable) {
+            move_entity(game_state, entity, entity->ddp, dt);
         }
 
-        opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
         if (entity->was_on_ground && !(entity->flags & EntityFlag_OnGround)) {
             entity->dp += entity->sticking_dp;
             entity->sticking_dp = vec2(0, 0);
         }
 
-        if (entity->flags & EntityFlag_Moveable) {
-            move_entity(game_state, entity, entity->ddp, dt);
+        if (entity->type == EntityType_Player) {
+            draw_test_text(&game_state->assets, game_state->test_font, "The spice must flow.", entity->p + vec2(0, 60));
+        }
+
+        if (entity->flags & EntityFlag_OnGround) {
+            entity->color = vec4(0, 0, 1, 1);
         }
 
         Transform2D transform = default_transform2d();

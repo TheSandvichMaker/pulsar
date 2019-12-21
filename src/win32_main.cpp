@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include "common.h"
+
 #include "memory_arena.h"
 #include "platform_bridge.h"
 

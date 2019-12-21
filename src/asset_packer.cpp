@@ -271,10 +271,10 @@ int main(int argument_count, char** arguments) {
 
                             u32 pitch = sizeof(u32)*packed_glyph->image.w;
                             u32 out_glyph_size = packed_glyph->image.h*pitch;
-                            u8* out_glyph = cast(u8*) push_size(&global_arena, , no_clear());
+                            u8* out_glyph = cast(u8*) push_size(&global_arena, out_glyph_size, no_clear());
 
                             u8* source = stb_glyph;
-                            u8* dest_row = out_glyph + packed_glyph->image.w*(packed_glyph->image.h - 1)*pitch;
+                            u8* dest_row = out_glyph + (packed_glyph->image.h - 1)*pitch;
                             for (u32 y = 0; y < packed_glyph->image.h; y++) {
                                 u32* dest_pixel = cast(u32*) dest_row;
                                 for (u32 x = 0; x < packed_glyph->image.w; x++) {

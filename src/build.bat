@@ -10,7 +10,7 @@ ECHO ----------------------------
 ECHO *** BUILDING FROM SOURCE ***
 ECHO ----------------------------
 
-REM /MT: Statically link C runtime library (goodbye 10 billion MSVCRedist versions!)
+REM /MT: Statically link C runtime library
 REM /Gm-: Disable incremental builds
 REM /Zi: Debug info
 REM /Oi: Intrinsics
@@ -28,7 +28,7 @@ set FLAGS=/nologo /Od /MTd /Gm- /Zi /Zo /Oi /GR- /EHa- /fp:fast /fp:except- ^
     /D_CRT_SECURE_NO_WARNINGS=1
 
 set LINKER_FLAGS=/opt:ref /incremental:no
-set LINKER_LIBRARIES=user32.lib gdi32.lib opengl32.lib ole32.lib
+set LINKER_LIBRARIES=user32.lib gdi32.lib opengl32.lib
 
 REM 64 bit build
 cl ..\win32_main.cpp %FLAGS% /link %LINKER_FLAGS% %LINKER_LIBRARIES%
