@@ -17,6 +17,7 @@ struct Image {
 struct Font {
     union { PackedFont packed_font; struct { BodyOf_PackedFont }; };
     ImageID* glyph_table;
+    f32* kerning_table;
 };
 
 struct Asset {

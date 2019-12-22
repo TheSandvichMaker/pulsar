@@ -44,7 +44,9 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
                 case AssetType_Font: {
                     Font* font = &dest_asset->font;
                     font->packed_font = source_asset->font;
+                    u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
                     font->glyph_table = cast(ImageID*) (assets->asset_data + source_asset->data_offset);
+                    font->kerning_table = cast(f32*) (font->glyph_table + sizeof(ImageID)*glyph_count);
                 } break;
             }
         }
@@ -162,5 +164,13 @@ inline ImageID get_glyph_id_for_codepoint(Font* font, u32 codepoint) {
     u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
     assert(codepoint >= font->first_codepoint && glyph_table_index < glyph_count);
     ImageID result = font->glyph_table[glyph_table_index];
+    return result;
+}
+
+inline f32 get_advance_for_codepoint_pair(Font* font, u32 c1, u32 c2) {
+    u32 g1 = c1 - font->first_codepoint;
+    u32 g2 = c2 - font->first_codepoint;
+    u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
+    f32 result = font->kerning_table[glyph_count*g2 + g1];
     return result;
 }

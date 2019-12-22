@@ -402,9 +402,14 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
     verts[1] = { rect.max.x, rect.min.y };
     verts[2] = { rect.max.x, rect.max.y };
     verts[3] = { rect.min.x, rect.max.y };
-    entity->collision = circle(150.0f); // polygon(4, verts);
+    entity->collision = polygon(3, verts);
 
     return entity_index;
+}
+
+inline b32 on_ground(Entity* entity) {
+    b32 result = entity->flags & EntityFlag_OnGround;
+    return result;
 }
 
 #define MAX_COLLISION_ITERATIONS 4
@@ -424,14 +429,15 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     f32 gravity = 300.0f;
     ddp.y -= gravity;
 
-    if (entity->flags & EntityFlag_OnGround) {
+    if (on_ground(entity)) {
         ddp.x -= entity->friction_of_last_touched_surface*entity->dp.x;
-        f32 off_ground_time = 0.1f;
-        if (entity->off_ground_timer < off_ground_time) {
-            entity->off_ground_timer += dt;
-        } else {
-            entity->flags &= ~EntityFlag_OnGround;
-        }
+        entity->flags &= ~EntityFlag_OnGround;
+    //     f32 off_ground_time = 0.2f;
+    //     if (entity->off_ground_timer < off_ground_time) {
+    //         entity->off_ground_timer += dt;
+    //     } else {
+    //         entity->flags &= ~EntityFlag_OnGround;
+    //     }
     }
 
     v2 total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
@@ -458,13 +464,13 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                         CollisionInfo collision;
                         if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
                             if (collision.vector.y < -0.707f) {
-                                if (!(entity->flags & EntityFlag_OnGround)) {
+                                if (!on_ground(entity)) {
                                     // !!!!!
-                                    entity->dp -= test_entity->dp;
-                                    total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
+                                    // entity->dp -= test_entity->dp;
+                                    // total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
                                     entity->flags |= EntityFlag_OnGround;
                                 }
-                                entity->off_ground_timer = 0.0f;
+                                // entity->off_ground_timer = 0.0f;
                                 test_entity->sticking_entity = entity;
                             }
                             f32 depth = collision.depth + epsilon;
@@ -477,7 +483,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                                 f32 t_spent = 1.0f - penetration_along_delta;
                                 t_left -= t_spent;
 
-                                entity->p   += t_spent*delta - collision.vector*epsilon;
+                                entity->p   += t_spent*delta;
                                 entity->dp  -= collision.vector*dot(entity->dp, collision.vector);
                                 total_delta -= collision.vector*dot(total_delta, collision.vector);
                             }
@@ -500,18 +506,72 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     entity->p += delta;
 }
 
+internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
+    u32 num_bytes = 0;
+    char* at = input_string;
+    u32 codepoint = 0;
+
+    if (at[0] == 0) {
+        // NOTE: Null termination time!
+    } else {
+        u8 utf8_mask[] = {
+            (1 << 7) - 1,
+            (1 << 5) - 1,
+            (1 << 4) - 1,
+            (1 << 3) - 1,
+        };
+        u8 utf8_matching_value[] = { 0, 0xC0, 0xE0, 0xF0 };
+        if ((*at & ~utf8_mask[0]) == utf8_matching_value[0]) {
+            num_bytes = 1;
+        } else if ((u8)(*at & ~utf8_mask[1]) == utf8_matching_value[1]) {
+            num_bytes = 2;
+        } else if ((u8)(*at & ~utf8_mask[2]) == utf8_matching_value[2]) {
+            num_bytes = 3;
+        } else if ((u8)(*at & ~utf8_mask[3]) == utf8_matching_value[3]) {
+            num_bytes = 4;
+        } else {
+            INVALID_CODE_PATH;
+        }
+
+        u32 offset = 6 * (num_bytes - 1);
+        for (u32 byte_index = 0; byte_index < num_bytes; byte_index++) {
+            if (byte_index == 0) {
+                codepoint = (*at & utf8_mask[num_bytes-1]) << offset;
+            } else {
+                if (*at != 0) {
+                    codepoint |= (*at & ((1 << 6) - 1)) << offset;
+                } else {
+                    // NOTE: You don't really want to  assert on a gibberish
+                    // bit of unicode, but it's here to draw my attention.
+                    INVALID_CODE_PATH;
+                }
+            }
+            offset -= 6;
+            at++;
+        }
+    }
+
+    *out_codepoint = codepoint;
+    return num_bytes;
+}
+
 internal void draw_test_text(Assets* assets, Font* font, char* text, v2 p) {
     v2 at_p = p;
     for (char* at = text; at[0]; at++) {
         if (at[0] == ' ') {
-            at_p.x += 10.0f;
+            at_p.x += font->whitespace_width;
         } else {
             assert(at[0] >= cast(s32) font->first_codepoint && at[0] < cast(s32) font->one_past_last_codepoint);
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             Image* glyph = get_image(assets, glyph_id);
             v2 align = vec2(glyph->w, glyph->h)*glyph->align;
-            opengl_texture(cast(GLuint) glyph->handle, rect_min_dim(at_p, vec2(glyph->w, glyph->h)));
-            at_p.x += glyph->w;
+            opengl_texture(cast(GLuint) glyph->handle, rect_min_dim(at_p - align, vec2(glyph->w, glyph->h)));
+            if (at[1] && at[1] != ' ') {
+                f32 advance = get_advance_for_codepoint_pair(font, at[0], at[1]);
+                at_p.x += advance;
+            } else {
+                at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
+            }
         }
     }
 }
@@ -537,20 +597,20 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
-        game_state->test_font = get_font_by_name(&game_state->assets, "test_font");
+        game_state->test_font = get_font_by_name(&game_state->assets, "debug_font");
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
         square_verts[0] = { -10.0f,  0.0f };
         square_verts[1] = {  10.0f,  0.0f };
         square_verts[2] = {  10.0f, 50.0f };
         square_verts[3] = { -10.0f, 50.0f };
-        game_state->player_collision = circle(50.0f); // polygon(4, square_verts);
+        game_state->player_collision = polygon(4, square_verts);
 
         // @Note: I'm reserving the 0th entity index to signify the null entity.
         game_state->level_entity_count = 1;
 
         add_player(game_state, vec2(512, 650));
-        add_wall(game_state, rect_center_dim(vec2(512, 400), vec2(512, 24)));
+        add_wall(game_state, rect_center_dim(vec2(512, 400), vec2(512, 96)));
 
         game_state->game_mode = GameMode_Ingame;
         for (u32 entity_index = 1; entity_index < game_state->level_entity_count; entity_index++) {
@@ -576,7 +636,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             assert(entity->type != EntityType_Null);
 
             entity->ddp = vec2(0, 0);
-            entity->was_on_ground = entity->flags & EntityFlag_OnGround;
+            entity->was_on_ground = on_ground(entity);
 
             switch (entity->type) {
                 case EntityType_Player: {
@@ -591,7 +651,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         entity->p.y -= height;
                     }
                     GameController* controller = &input->controller;
-                    f32 move_speed = (entity->flags & EntityFlag_OnGround) ? 1000.0f : 200.0f;
+                    f32 move_speed = entity->was_on_ground ? 1000.0f : 200.0f;
                     if (controller->move_left.is_down) {
                         entity->ddp.x -= move_speed;
                     }
@@ -644,8 +704,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             move_entity(game_state, entity, entity->ddp, dt);
         }
 
-        if (entity->was_on_ground && !(entity->flags & EntityFlag_OnGround)) {
-            entity->dp += entity->sticking_dp;
+        if (entity->was_on_ground && !on_ground(entity)) {
+            // entity->dp += entity->sticking_dp;
             entity->sticking_dp = vec2(0, 0);
         }
 
@@ -653,7 +713,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             draw_test_text(&game_state->assets, game_state->test_font, "The spice must flow.", entity->p + vec2(0, 60));
         }
 
-        if (entity->flags & EntityFlag_OnGround) {
+        if (on_ground(entity)) {
             entity->color = vec4(0, 0, 1, 1);
         }
 

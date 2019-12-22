@@ -46,13 +46,19 @@ struct PackedSound {
 #define BodyOf_PackedFont        \
     u32 first_codepoint;         \
     u32 one_past_last_codepoint; \
-    u32 size;
+    u32 size;                    \
+    f32 whitespace_width;        \
+    f32 ascent;                  \
+    f32 descent;                 \
+    f32 line_gap;
 
 struct PackedFont {
     BodyOf_PackedFont;
 
     /* Data:
-     * ImageID glyph_table[one_past_last_codepoint - first_codepoint];
+     * glyph_count = one_past_last_codepoint - first_codepoint;
+     * ImageID glyph_table[glyph_count];
+     * f32 kerning_table[glyph_count][glyph_count];
      */
 };
 

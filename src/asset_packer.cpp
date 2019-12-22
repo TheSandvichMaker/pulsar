@@ -100,21 +100,6 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
     return desc;
 }
 
-inline b32 expect_char(String* asset_manifest, b32* parse_success, char c, char* additional_info = 0) {
-    b32 result = false;
-    if (peek(asset_manifest) == c) {
-        result = true;
-    } else {
-        fprintf(stderr, "Asset Manifest Parse Error: Expected '%c'%s%s.\n",
-            c,
-            additional_info ? " " : "",
-            additional_info ? additional_info : ""
-        );
-        *parse_success = false;
-    }
-    return result;
-}
-
 int main(int argument_count, char** arguments) {
 #define MEMORY_POOL_SIZE GIGABYTES(2ul)
     void* memory_pool = malloc(MEMORY_POOL_SIZE);
@@ -123,13 +108,12 @@ int main(int argument_count, char** arguments) {
     memset(memory_pool, 0, MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
-    // String asset_manifest = read_text_file("asset_manifest.txt", &global_arena);
     asset_descriptions = allocate_array<AssetDescription>(64, &global_arena);
 
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
     add_image("test_image", "test_bitmap.bmp");
-    add_font("test_font", "C:/Windows/Fonts/consola.ttf", 22);
+    add_font("debug_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 36);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'a', 'k', 'f');
@@ -158,7 +142,7 @@ int main(int argument_count, char** arguments) {
         header.asset_data = ftell(out);
 
         fseek(out, 0, SEEK_SET);
-        fprintf(stderr, "Writing header (v: %d, ac: %d)\n", header.version, header.asset_count);
+        fprintf(stderr, "Writing header (ver: %d, assets: %d)\n", header.version, header.asset_count);
         fwrite(&header, sizeof(header), 1, out);
 
         fseek(out, header.asset_data, SEEK_SET);
@@ -204,7 +188,7 @@ int main(int argument_count, char** arguments) {
 
                         fwrite(deinterlaced_samples, sound_size, 1, out);
 
-                        fprintf(stderr, "Packed sound '%s' (ch: %d, s: %d)\n", asset_desc->source_file, packed->sound.channel_count, packed->sound.sample_count);
+                        fprintf(stderr, "Packed sound '%s' from '%s' (ch: %d, s: %d)\n", asset_desc->asset_name, asset_desc->source_file, packed->sound.channel_count, packed->sound.sample_count);
                     } break;
 
                     case AssetDataType_Bmp: {
@@ -220,7 +204,8 @@ int main(int argument_count, char** arguments) {
                         u32 bitmap_size = w*h*sizeof(u32);
                         fwrite(pixels, bitmap_size, 1, out);
 
-                        fprintf(stderr, "Packed image '%s' (w: %d, h: %d, cx: %f, cy: %f)\n",
+                        fprintf(stderr, "Packed image '%s' from '%s' (w: %d, h: %d, align: { %f, %f })\n",
+                            asset_desc->asset_name,
                             asset_desc->source_file,
                             packed->image.w, packed->image.h,
                             packed->image.align.x, packed->image.align.y
@@ -234,6 +219,19 @@ int main(int argument_count, char** arguments) {
                         stbtt_fontinfo font_info;
                         stbtt_InitFont(&font_info, ttf_source, stbtt_GetFontOffsetForIndex(ttf_source, 0));
 
+                        f32 font_scale = stbtt_ScaleForPixelHeight(&font_info, cast(f32) packed->font.size);
+
+                        s32 ascent, descent, line_gap;
+                        stbtt_GetFontVMetrics(&font_info, &ascent, &descent, &line_gap);
+
+                        f32 scaled_ascent = font_scale * cast(f32) ascent;
+                        f32 scaled_descent = font_scale * cast(f32) descent;
+                        f32 scaled_line_gap = font_scale * cast(f32) line_gap;
+
+                        packed->font.ascent = scaled_ascent;
+                        packed->font.descent = scaled_descent;
+                        packed->font.line_gap = scaled_line_gap;
+
                         // @Note: The glyphs are stored in the asset catalog
                         // immediately after the font.
                         u32 first_glyph_index = asset_desc->asset_index + 1;
@@ -244,9 +242,22 @@ int main(int argument_count, char** arguments) {
                         }
 
                         fwrite(glyph_table, sizeof(ImageID), glyph_count, out);
-                        fprintf(stderr, "Packed metadata for font '%s' (glyph count: %d)\n", asset_desc->source_file, glyph_count);
+                        fprintf(stderr, "Packed font '%s' from '%s' (glyph count: %d)\n", asset_desc->asset_name, asset_desc->source_file, glyph_count);
+
+                        u32 kerning_table_size = sizeof(f32)*glyph_count*glyph_count;
+                        f32* kerning_table = push_array(&global_arena, glyph_count*glyph_count, f32, no_clear());
+
+                        u32 kerning_table_position = ftell(out);
+                        fseek(out, kerning_table_size, SEEK_CUR);
+
+                        s32 whitespace_advance_width;
+                        stbtt_GetCodepointHMetrics(&font_info, 'M', &whitespace_advance_width, 0);
+
+                        packed->font.whitespace_width = font_scale * cast(f32) whitespace_advance_width;
 
                         for (u32 glyph_index = 0; glyph_index < glyph_count; glyph_index++) {
+                            TemporaryMemory glyph_temp = begin_temporary_memory(&global_arena);
+
                             PackedAsset* packed_glyph = asset_catalog + glyph_table[glyph_index].value;
 
                             packed_glyph->type = AssetType_Image;
@@ -254,20 +265,32 @@ int main(int argument_count, char** arguments) {
 
                             u32 codepoint = packed->font.first_codepoint + glyph_index;
 
-                            int w, h, offset_x, offset_y;
-                            u8* stb_glyph = stbtt_GetCodepointBitmap(
-                                &font_info,
-                                0, stbtt_ScaleForPixelHeight(&font_info, cast(f32) packed->font.size),
-                                codepoint,
-                                &w, &h,
-                                &offset_x, &offset_y
-                            );
+                            s32 ix0, iy0, ix1, iy1;
+                            stbtt_GetCodepointBitmapBox(&font_info, codepoint, font_scale, font_scale, &ix0, &iy0, &ix1, &iy1);
+
+                            s32 w = ix1 - ix0;
+                            s32 h = iy1 - iy0;
+                            u8* stb_glyph = cast(u8*) push_size(&global_arena, w*h, no_clear());
+
+                            stbtt_MakeCodepointBitmap(&font_info, stb_glyph, w, h, w, font_scale, font_scale, codepoint);
+
+                            s32 advance_width, left_side_bearing;
+                            stbtt_GetCodepointHMetrics(&font_info, codepoint, &advance_width, &left_side_bearing);
+
+                            f32 scaled_advance_width = font_scale * cast(f32) advance_width;
+                            f32 scaled_left_side_bearing = font_scale * cast(f32) left_side_bearing;
+
+                            for (u32 paired_glyph_index = 0; paired_glyph_index < glyph_count; paired_glyph_index++) {
+                                u32 paired_codepoint = packed->font.first_codepoint + paired_glyph_index;
+                                s32 kern_width = stbtt_GetCodepointKernAdvance(&font_info, codepoint, paired_codepoint);
+                                kerning_table[glyph_count*paired_glyph_index + glyph_index] = font_scale * cast(f32) (advance_width + kern_width);
+                            }
 
                             // @TODO: See about single channel texture format
                             packed_glyph->image.pixel_format = PixelFormat_BGRA8;
                             packed_glyph->image.w = w;
                             packed_glyph->image.h = h;
-                            packed_glyph->image.align = vec2(offset_x, offset_y) / vec2(w, h);
+                            packed_glyph->image.align = vec2(-scaled_left_side_bearing, cast(f32) iy1) / vec2(w, h);
 
                             u32 pitch = sizeof(u32)*packed_glyph->image.w;
                             u32 out_glyph_size = packed_glyph->image.h*pitch;
@@ -279,17 +302,24 @@ int main(int argument_count, char** arguments) {
                                 u32* dest_pixel = cast(u32*) dest_row;
                                 for (u32 x = 0; x < packed_glyph->image.w; x++) {
                                     u8 alpha = *source++;
-                                    u8 color = cast(u8) (255.0f*square_root((cast(f32) alpha) / 255.0f));
+                                    u8 color = cast(u8) (255.0f*square_root(cast(f32) alpha / 255.0f));
                                     *dest_pixel++ = (alpha << 24) | (color << 16) | (color << 8) | (color << 0);
                                 }
                                 dest_row -= pitch;
                             }
 
                             fwrite(out_glyph, out_glyph_size, 1, out);
-                            stbtt_FreeBitmap(stb_glyph, 0);
+
+                            end_temporary_memory(glyph_temp);
                         }
 
-                        fprintf(stderr, "Packed %d glyphs (font: '%s')\n", glyph_count, asset_desc->source_file);
+                        u32 end_position = ftell(out);
+
+                        fseek(out, kerning_table_position, SEEK_SET);
+                        fwrite(kerning_table, kerning_table_size, 1, out);
+                        fseek(out, end_position, SEEK_SET);
+
+                        fprintf(stderr, "Packed %d glyphs for '%s'\n", glyph_count, asset_desc->asset_name);
                     } break;
 
                     default: {
@@ -316,6 +346,21 @@ int main(int argument_count, char** arguments) {
 }
 
 #if 0
+inline b32 expect_char(String* asset_manifest, b32* parse_success, char c, char* additional_info = 0) {
+    b32 result = false;
+    if (peek(asset_manifest) == c) {
+        result = true;
+    } else {
+        fprintf(stderr, "Asset Manifest Parse Error: Expected '%c'%s%s.\n",
+            c,
+            additional_info ? " " : "",
+            additional_info ? additional_info : ""
+        );
+        *parse_success = false;
+    }
+    return result;
+}
+
     // @TODO: Big fat unjankification project.
     b32 parse_successful = asset_manifest.len > 0;
     if (parse_successful) {
