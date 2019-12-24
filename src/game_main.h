@@ -10,6 +10,8 @@
  *     http://www.dyn4j.org/2010/05/epa-expanding-polytope-algorithm/
  * Computing the winding of a polygon:
  *     http://paulbourke.net/geometry/polygonmesh/
+ * MIDI:
+ *     https://www.midi.org/specifications-old/item/the-midi-1-0-specification
  */
 
 #include "common.h"
@@ -105,6 +107,8 @@ struct Entity {
     f32 surface_friction;
     f32 friction_of_last_touched_surface;
 
+    v2 midi_test_target;
+
     u32 flags;
 
     v4 color;
@@ -127,10 +131,18 @@ struct GameState {
     AudioMixer audio_mixer;
     Assets assets;
 
+    Font* debug_font;
+
     Sound* test_music;
     Sound* test_sound;
     Image* test_image;
-    Font* test_font;
+    MidiTrack* test_midi_track;
+
+    u32 midi_event_index;
+    f32 midi_timer;
+
+    u32 midi_event_buffer_count;
+    MidiEvent midi_event_buffer[256];
 
     u32 level_entity_count;
     Entity level_entities[MAX_ENTITY_COUNT];

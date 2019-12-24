@@ -391,6 +391,7 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
     entity->p = get_center(rect);
     entity->color = vec4(1, 1, 1, 1);
     entity->surface_friction = 5.0f;
+    entity->midi_test_target = entity->p;
 
     entity->flags |= EntityFlag_Collides;
 
@@ -595,10 +596,14 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pak");
 
+        game_state->debug_font = get_font_by_name(&game_state->assets, "debug_font");
+
         game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
-        game_state->test_font = get_font_by_name(&game_state->assets, "debug_font");
+
+        u32 midi_track_id = get_asset_id_by_name(&game_state->assets, "test_midi");
+        game_state->test_midi_track = &get_asset(&game_state->assets, midi_track_id)->midi_track;
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
         square_verts[0] = { -10.0f,  0.0f };
@@ -636,9 +641,26 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     if (game_state->game_mode == GameMode_Ingame) {
+        MidiTrack* track = game_state->test_midi_track;
+        game_state->midi_event_buffer_count = 0;
+        if (game_state->midi_event_index < track->event_count) {
+            MidiEvent event = track->events[game_state->midi_event_index];
+            while (game_state->midi_timer >= event.delta_time) {
+                game_state->midi_event_index++;
+
+                game_state->midi_event_buffer[game_state->midi_event_buffer_count++] = event;
+                assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
+
+                event = track->events[game_state->midi_event_index];
+                game_state->midi_timer = 0.0f;
+            }
+            game_state->midi_timer += dt;
+        }
+
         //
         // Gameplay Logic
         //
+
         for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
             Entity* entity = game_state->entities + entity_index;
             assert(entity->type != EntityType_Null);
@@ -676,6 +698,18 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                 case EntityType_Wall: {
                     v2 movement = {}; // vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
+                    for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
+                        MidiEvent event = game_state->midi_event_buffer[event_index];
+                        if (event.type == MidiEvent_NoteOn) {
+                            play_sound(&game_state->audio_mixer, game_state->test_sound);
+                            entity->midi_test_target.y += event.note_value - 60;
+                        } else if (event.type == MidiEvent_NoteOff) {
+                            entity->midi_test_target.y -= event.note_value - 60;
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                    }
+                    movement = 0.01f*(entity->midi_test_target - entity->p);
                     entity->p += movement;
                     entity->dp = rcp_dt*movement;
                     entity->movement_t += dt;
@@ -711,7 +745,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         }
 
         if (entity->type == EntityType_Player) {
-            draw_test_text(&game_state->assets, game_state->test_font, "The spice must flow.", entity->p + vec2(0, 60));
+            draw_test_text(&game_state->assets, game_state->debug_font, "The spice must flow.", entity->p + vec2(0, 60));
         }
 
         if (on_ground(entity)) {

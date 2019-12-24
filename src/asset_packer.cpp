@@ -208,7 +208,7 @@ int main(int argument_count, char** arguments) {
     header.version = ASSET_PACK_VERSION;
     header.asset_count = packed_asset_count;
 
-    u32 asset_catalog_size = header.asset_count*sizeof(PackedAsset);
+    u32 asset_catalog_size = sizeof(PackedAsset)*header.asset_count;
 
     header.asset_catalog = sizeof(AssetPackHeader);
     header.asset_name_store = header.asset_catalog + asset_catalog_size;
