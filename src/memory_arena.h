@@ -1,12 +1,14 @@
 #ifndef MEMORY_ARENA_H
 #define MEMORY_ARENA_H
 
+struct LinearBuffer;
 struct MemoryArena {
     size_t size;
     size_t used;
     u8* base_ptr;
 
     s32 temp_count;
+    LinearBuffer* active_linear_buffer;
 };
 
 struct TemporaryMemory {
@@ -19,6 +21,7 @@ inline void initialize_arena(MemoryArena* arena, size_t size, void* base_ptr) {
     arena->base_ptr = (u8*)base_ptr;
     arena->used = 0;
     arena->temp_count = 0;
+    arena->active_linear_buffer = 0;
 }
 
 enum ArenaPushFlags {
@@ -34,6 +37,13 @@ inline ArenaPushParams default_arena_params() {
     ArenaPushParams params;
     params.flags = ArenaFlag_ClearToZero;
     params.alignment = 4;
+    return params;
+}
+
+inline ArenaPushParams align_flags(u32 align, u32 flags) {
+    ArenaPushParams params = default_arena_params();
+    params.flags = flags;
+    params.alignment = align;
     return params;
 }
 
@@ -112,7 +122,9 @@ inline void* get_next_allocation_location(MemoryArena* arena, size_t align = 4) 
 #define push_array(arena, count, type, ...) (type*)push_size_(arena, sizeof(type) * (count), ##__VA_ARGS__)
 #define push_size(arena, size, ...) push_size_(arena, size, ##__VA_ARGS__)
 // #define ZERO_AND_push_struct(arena, type, ...) (type*)zero_size(sizeof(type), push_size_(arena, sizeof(type), ##__VA_ARGS__))
-inline void* push_size_(MemoryArena* arena, size_t size_init, ArenaPushParams params = default_arena_params()) {
+inline void* push_size_(MemoryArena* arena, size_t size_init, ArenaPushParams params = default_arena_params(), LinearBuffer* lb = 0) {
+    assert(arena->active_linear_buffer == lb);
+
     size_t size = get_effective_size_for(arena, size_init, params);
 
     assert((arena->used + size) <= arena->size);
@@ -126,6 +138,45 @@ inline void* push_size_(MemoryArena* arena, size_t size_init, ArenaPushParams pa
 
     return result;
 }
+
+struct LinearBuffer {
+    MemoryArena* arena;
+    u32 flags;
+    size_t count;
+    void* data;
+};
+
+#define begin_linear_buffer(arena, type, ...) (cast(type*) begin_linear_buffer_(arena, ##__VA_ARGS__))
+inline void* begin_linear_buffer_(MemoryArena* arena, ArenaPushParams params = default_arena_params()) {
+    assert(!arena->active_linear_buffer);
+
+    LinearBuffer* header = push_struct(arena, LinearBuffer, align(params.alignment, false));
+    header->arena = arena;
+    header->flags = params.flags;
+    header->count = 0;
+    header->data = header + 1;
+
+    arena->active_linear_buffer = header;
+
+    return header->data;
+}
+
+#define lb_header(buffer) (cast(LinearBuffer*) (cast(u8*) buffer - sizeof(LinearBuffer)))
+#define lb_arena(buffer) lb_header(buffer)->arena
+#define lb_count(buffer) lb_header(buffer)->count
+#define push_linear_buffer(buffer) (push_size(lb_arena(buffer), sizeof(*buffer), align(1, lb_header(buffer)->flags), lb_header(buffer)), &buffer[lb_count(buffer)++])
+
+inline size_t end_linear_buffer(void* buffer) {
+    LinearBuffer* header = lb_header(buffer);
+    assert(header->arena->active_linear_buffer == header);
+
+    header->arena->active_linear_buffer = 0;
+    header->arena = 0;
+
+    return header->count;
+}
+
+#define LinearBuffer(x) x*
 
 inline char* push_string(MemoryArena* arena, size_t length, char* source) {
     assert((arena->used + length) <= arena->size);
@@ -182,6 +233,7 @@ inline void clear_arena(MemoryArena* arena) {
 
 inline void check_arena(MemoryArena* arena) {
     assert(arena->temp_count == 0);
+    assert(arena->active_linear_buffer == 0);
 }
 
 #endif /* MEMORY_ARENA_H */

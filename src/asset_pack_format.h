@@ -11,6 +11,7 @@ enum AssetType {
     AssetType_Image,
     AssetType_Sound,
     AssetType_Font,
+    AssetType_Midi,
 };
 
 enum PixelFormat {
@@ -62,6 +63,34 @@ struct PackedFont {
      */
 };
 
+// @Note: A more complete implementation would allow time signature and bpm to vary across the track.
+#define BodyOf_PackedMidi           \
+    u32 beats_per_minute;           \
+    u16 time_signature_numerator;   \
+    u16 time_signature_denominator; \
+    u32 event_count;
+
+struct PackedMidi {
+    BodyOf_PackedMidi;
+
+    /* Data:
+     * MidiEvent events[event_count];
+     */
+};
+
+enum MidiEventType {
+    MidiEvent_NoteOn,
+    MidiEvent_NoteOff,
+};
+
+struct MidiEvent {
+    f32 delta_time;
+    u8 channel;
+    u8 type;
+    u8 note_value;
+    u8 velocity;
+};
+
 struct PackedAsset {
     u64 data_offset;
     u32 name_offset;
@@ -70,6 +99,7 @@ struct PackedAsset {
         PackedSound sound;
         PackedImage image;
         PackedFont font;
+        PackedMidi midi;
     };
 };
 

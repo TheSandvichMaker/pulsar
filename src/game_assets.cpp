@@ -48,6 +48,12 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
                     font->glyph_table = cast(ImageID*) (assets->asset_data + source_asset->data_offset);
                     font->kerning_table = cast(f32*) (font->glyph_table + sizeof(ImageID)*glyph_count);
                 } break;
+
+                case AssetType_Midi: {
+                    MidiTrack* midi_track = &dest_asset->midi_track;
+                    midi_track->packed_midi = source_asset->midi;
+                    midi_track->events = cast(MidiEvent*) (assets->asset_data + source_asset->data_offset);
+                } break;
             }
         }
     } else {

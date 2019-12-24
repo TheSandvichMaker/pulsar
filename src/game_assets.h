@@ -20,6 +20,11 @@ struct Font {
     f32* kerning_table;
 };
 
+struct MidiTrack {
+    union { PackedMidi packed_midi; struct { BodyOf_PackedMidi }; };
+    MidiEvent* events;
+};
+
 struct Asset {
     char* name;
     AssetType type;
@@ -27,6 +32,7 @@ struct Asset {
         Sound sound;
         Image image;
         Font font;
+        MidiTrack midi_track;
     };
 };
 

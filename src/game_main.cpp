@@ -431,13 +431,13 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
 
     if (on_ground(entity)) {
         ddp.x -= entity->friction_of_last_touched_surface*entity->dp.x;
-        entity->flags &= ~EntityFlag_OnGround;
-    //     f32 off_ground_time = 0.2f;
-    //     if (entity->off_ground_timer < off_ground_time) {
-    //         entity->off_ground_timer += dt;
-    //     } else {
-    //         entity->flags &= ~EntityFlag_OnGround;
-    //     }
+        // entity->flags &= ~EntityFlag_OnGround;
+        f32 off_ground_time = 0.2f;
+        if (entity->off_ground_timer < off_ground_time) {
+            entity->off_ground_timer += dt;
+        } else {
+            entity->flags &= ~EntityFlag_OnGround;
+        }
     }
 
     v2 total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
@@ -463,6 +463,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                     do {
                         CollisionInfo collision;
                         if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
+                            dbg_draw_arrow(entity->p, entity->p + collision.vector*25.0f, vec4(1, 0, 1, 1));
                             if (collision.vector.y < -0.707f) {
                                 if (!on_ground(entity)) {
                                     // !!!!!
@@ -470,7 +471,7 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                                     // total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
                                     entity->flags |= EntityFlag_OnGround;
                                 }
-                                // entity->off_ground_timer = 0.0f;
+                                entity->off_ground_timer = 0.0f;
                                 test_entity->sticking_entity = entity;
                             }
                             f32 depth = collision.depth + epsilon;
@@ -567,9 +568,9 @@ internal void draw_test_text(Assets* assets, Font* font, char* text, v2 p) {
             v2 align = vec2(glyph->w, glyph->h)*glyph->align;
             opengl_texture(cast(GLuint) glyph->handle, rect_min_dim(at_p - align, vec2(glyph->w, glyph->h)));
             if (at[1] && at[1] != ' ') {
-                f32 advance = get_advance_for_codepoint_pair(font, at[0], at[1]);
-                at_p.x += advance;
+                at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
             } else {
+                // @TODO: Is this correct?
                 at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
             }
         }
@@ -627,6 +628,13 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     f32 dt = input->frame_dt;
     f32 rcp_dt = 1.0f / dt;
 
+    glViewport(0, 0, width, height);
+    glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
     if (game_state->game_mode == GameMode_Ingame) {
         //
         // Gameplay Logic
@@ -667,7 +675,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 } break;
 
                 case EntityType_Wall: {
-                    v2 movement = vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
+                    v2 movement = {}; // vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
                     entity->p += movement;
                     entity->dp = rcp_dt*movement;
                     entity->movement_t += dt;
@@ -686,13 +694,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     //
     // Physics & Rendering
     //
-
-    glViewport(0, 0, width, height);
-    glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     opengl_set_screenspace(width, height);
     for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {

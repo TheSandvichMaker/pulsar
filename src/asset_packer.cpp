@@ -26,7 +26,7 @@ enum AssetDataType {
     AssetDataType_Wav,
     AssetDataType_Bmp,
     AssetDataType_Ttf,
-    AssetDataType_TtfGlyph,
+    AssetDataType_Midi,
 };
 
 struct AssetDescription {
@@ -59,6 +59,8 @@ internal AssetDescription* add_asset(char* asset_name = 0, char* file_name = 0) 
             data_type = AssetDataType_Bmp;
         } else if (strings_are_equal(extension, "ttf")) {
             data_type = AssetDataType_Ttf;
+        } else if (strings_are_equal(extension, "mid")) {
+            data_type = AssetDataType_Midi;
         } else {
             assert(!"Unknown extension for asset file.");
         }
@@ -100,6 +102,90 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
     return desc;
 }
 
+internal AssetDescription* add_midi_track(char* asset_name, char* file_name) {
+    AssetDescription* desc = add_asset(asset_name, file_name);
+    return desc;
+}
+
+#define MIDI_TYPE(type) ((type[0] << 0) | (type[1] << 8) | (type[2] << 16) | (type[3] << 24))
+
+struct MidiStream {
+    u8* at;
+    u8* stop;
+};
+
+inline u32 flip_endianness_u32(u32 value) {
+    u32 result = ((value & 0x000000FF) << 24) |
+                 ((value & 0x0000FF00) <<  8) |
+                 ((value & 0x00FF0000) >>  8) |
+                 ((value & 0xFF000000) >> 24);
+    return result;
+}
+
+inline u32 midi_read_variable_length_quantity(MidiStream* stream) {
+    u32 result = (*stream->at++) & 0x7F;
+
+    if (result & 0x80) {
+        u8 c;
+        result &= 0x7F;
+        do {
+            c = (*stream->at++);
+            result = (result << 7) + (c & 0x7F);
+        } while (c & 0x80);
+    }
+
+    return result;
+}
+
+inline u8 midi_read_u8(MidiStream* stream) {
+    u8 result = *stream->at++;
+    return result;
+}
+
+inline u32 midi_read_u32(MidiStream* stream) {
+    u32 result  = midi_read_u8(stream) << 24;
+        result |= midi_read_u8(stream) << 16;
+        result |= midi_read_u8(stream) <<  8;
+        result |= midi_read_u8(stream) <<  0;
+    return result;
+}
+
+inline u32 midi_read_u24(MidiStream* stream) {
+    u32 result  = midi_read_u8(stream) << 16;
+        result |= midi_read_u8(stream) <<  8;
+        result |= midi_read_u8(stream) <<  0;
+    return result;
+}
+
+inline u16 midi_read_u16(MidiStream* stream) {
+    u16 result  = midi_read_u8(stream) << 8;
+        result |= midi_read_u8(stream) << 0;
+    return result;
+}
+
+#pragma pack(push, 1)
+
+struct MidiChunk {
+    u32 type;
+    u32 length;
+};
+
+struct MidiHeader {
+    u16 format;
+    u16 ntrcks;
+    u16 division;
+};
+
+#pragma pack(pop)
+
+inline MidiChunk midi_read_chunk(MidiStream* stream) {
+    MidiChunk result;
+    result.type = *(cast(u32*) stream->at);
+    stream->at += 4;
+    result.length = midi_read_u32(stream);
+    return result;
+}
+
 int main(int argument_count, char** arguments) {
 #define MEMORY_POOL_SIZE GIGABYTES(2ul)
     void* memory_pool = malloc(MEMORY_POOL_SIZE);
@@ -109,6 +195,8 @@ int main(int argument_count, char** arguments) {
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
     asset_descriptions = allocate_array<AssetDescription>(64, &global_arena);
+
+    add_midi_track("test_midi", "test_soundtrack.mid");
 
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
@@ -166,13 +254,11 @@ int main(int argument_count, char** arguments) {
                     case AssetDataType_Wav: {
                         packed->type = AssetType_Sound;
 
-                        u32 channel_count = 0;
-                        u32 sample_rate = 0;
-                        u32 sample_count = 0;
+                        u32 channel_count, sample_rate, sample_count;
                         s16* samples = load_wav(file.size, file.data, &channel_count, &sample_rate, &sample_count);
                         assert(sample_rate == 48000);
 
-                        u32 sound_size = sample_count*channel_count*sizeof(s16);
+                        u32 sound_size = sizeof(s16)*channel_count*sample_count;
 
                         s16* deinterlaced_samples = cast(s16*) push_size(&global_arena, sound_size);
 
@@ -194,14 +280,13 @@ int main(int argument_count, char** arguments) {
                     case AssetDataType_Bmp: {
                         packed->type = AssetType_Image;
 
-                        u32 w = 0;
-                        u32 h = 0;
+                        u32 w, h;
                         void* pixels = load_bitmap(file.size, file.data, &w, &h);
 
                         packed->image.w = w;
                         packed->image.h = h;
 
-                        u32 bitmap_size = w*h*sizeof(u32);
+                        u32 bitmap_size = sizeof(u32)*w*h;
                         fwrite(pixels, bitmap_size, 1, out);
 
                         fprintf(stderr, "Packed image '%s' from '%s' (w: %d, h: %d, align: { %f, %f })\n",
@@ -215,7 +300,8 @@ int main(int argument_count, char** arguments) {
                     case AssetDataType_Ttf: {
                         packed->type = AssetType_Font;
 
-                        const unsigned char* ttf_source = cast(const unsigned char*) file.data;
+                        const u8* ttf_source = cast(const u8*) file.data;
+
                         stbtt_fontinfo font_info;
                         stbtt_InitFont(&font_info, ttf_source, stbtt_GetFontOffsetForIndex(ttf_source, 0));
 
@@ -232,8 +318,7 @@ int main(int argument_count, char** arguments) {
                         packed->font.descent = scaled_descent;
                         packed->font.line_gap = scaled_line_gap;
 
-                        // @Note: The glyphs are stored in the asset catalog
-                        // immediately after the font.
+                        // @Note: The glyphs are stored in the asset catalog immediately after the font.
                         u32 first_glyph_index = asset_desc->asset_index + 1;
                         u32 glyph_count = packed->font.one_past_last_codepoint - packed->font.first_codepoint;
                         ImageID* glyph_table = push_array(&global_arena, glyph_count, ImageID);
@@ -320,6 +405,153 @@ int main(int argument_count, char** arguments) {
                         fseek(out, end_position, SEEK_SET);
 
                         fprintf(stderr, "Packed %d glyphs for '%s'\n", glyph_count, asset_desc->asset_name);
+                    } break;
+
+                    case AssetDataType_Midi: {
+                        packed->type = AssetType_Midi;
+
+                        u32 ticks_per_quarter_note = 0;
+                        f32 seconds_per_quarter_note = 0.125f;
+                        packed->midi.beats_per_minute = 120;
+                        packed->midi.time_signature_numerator = 4;
+                        packed->midi.time_signature_denominator = 4;
+
+                        MidiStream stream;
+                        stream.at = cast(u8*) file.data;
+                        stream.stop = stream.at + file.size;
+
+                        LinearBuffer(MidiEvent) events = begin_linear_buffer(&global_arena, MidiEvent);
+
+                        f32 ticks_to_seconds = 0.0f;
+                        while (stream.at < stream.stop) {
+                            MidiChunk chunk = midi_read_chunk(&stream);
+
+                            MidiStream data;
+                            data.at = stream.at;
+                            data.stop = data.at + chunk.length;
+
+                            switch (chunk.type) {
+                                case MIDI_TYPE("MThd"): {
+                                    MidiHeader header;
+                                    header.format = midi_read_u16(&data);
+                                    header.ntrcks = midi_read_u16(&data);
+                                    header.division = midi_read_u16(&data);
+
+                                    // @TODO: Handle invalid formats mildly more elegantly.
+                                    assert(header.format == 0);
+                                    assert(header.ntrcks == 1);
+
+                                    if ((header.division >> 15) & 0x1) {
+                                        NOT_IMPLEMENTED;
+                                    } else {
+                                        ticks_per_quarter_note = header.division;
+                                        ticks_to_seconds = seconds_per_quarter_note / cast(f32) ticks_per_quarter_note;
+                                    }
+                                } break;
+
+                                case MIDI_TYPE("MTrk"): {
+                                    u32 channel = 0;
+                                    u32 running_status = 0;
+
+                                    while (data.at < data.stop) {
+                                        u32 delta_time = midi_read_variable_length_quantity(&data);
+
+                                        u8 byte = midi_read_u8(&data);
+                                        if (byte & 0x80) {
+                                            // @Note: Status Byte
+                                            if (byte == 0xFF) {
+                                                // @Note: MIDI meta event.
+                                                u8 event = midi_read_u8(&data);
+                                                u32 length = midi_read_variable_length_quantity(&data);
+                                                u8* expected_end_position = data.at + length;
+                                                switch (event) {
+                                                    case 0x51: {
+                                                        // @Note: Tempo Change (how do tempo changes relate to ticks per quarter note from the delta time?)
+                                                        u32 microseconds_per_quarter_note = midi_read_u24(&data);
+                                                        seconds_per_quarter_note = 0.000001f*cast(f32)microseconds_per_quarter_note;
+                                                        ticks_to_seconds = seconds_per_quarter_note / cast(f32) ticks_per_quarter_note;
+                                                        packed->midi.beats_per_minute = round_f32_to_u32(60.0f / (seconds_per_quarter_note*4.0f));
+                                                    } break;
+
+                                                    case 0x58: {
+                                                        // @Note: Time Signature Change
+                                                        u8 numerator = midi_read_u8(&data);
+                                                        u8 negative_power_for_denominator = midi_read_u8(&data);
+                                                        u8 midi_clocks_per_metronome_click = midi_read_u8(&data);
+                                                        u8 notated_32nd_notes_per_quarter_note = midi_read_u8(&data);
+
+                                                        packed->midi.time_signature_numerator = numerator;
+                                                        packed->midi.time_signature_denominator = 1 << negative_power_for_denominator;
+                                                    } break;
+
+#if 0
+                                                    // @TODO: What's the point of this, for me?
+                                                    case 0x2F: {
+                                                        // @Note: End of Track
+                                                    } break;
+#endif
+
+                                                    default: {
+                                                        // @Note: Skipping unhandled messages
+                                                        data.at += length;
+                                                    } break;
+                                                }
+                                                assert(data.at == expected_end_position);
+                                            } else {
+                                                // @Note: Midi Channel Message
+                                                channel = byte & 0x0F;
+                                                running_status = byte & 0xF0;
+
+                                                byte = midi_read_u8(&data);
+                                                goto parse_data_bytes;
+                                            }
+                                        } else {
+parse_data_bytes:
+                                            // @TODO: I think this will barf if I hit an unhandled midi channel message status
+                                            // @Note: Data Byte
+                                            MidiEvent* event = push_linear_buffer(events);
+                                            event->delta_time = ticks_to_seconds * cast(f32) delta_time;
+                                            event->channel = cast(u8) channel;
+
+                                            switch (running_status) {
+                                                case 0x80: {
+                                                    // @Note: Note-Off
+                                                    event->type = cast(u8) MidiEvent_NoteOff;
+                                                    event->note_value = byte;
+                                                    event->velocity = midi_read_u8(&data);
+                                                } break;
+
+                                                case 0x90: {
+                                                    // @Note: Note-On
+                                                    event->type = cast(u8) MidiEvent_NoteOn;
+                                                    event->note_value = byte;
+                                                    event->velocity = midi_read_u8(&data);
+                                                } break;
+                                            }
+                                        }
+                                    }
+
+                                    // @Note: Since we only support single track midi files, we'll jump out right here and now.
+                                    goto done_parsing_midi;
+                                } break;
+
+                                default: {
+                                    // @Note: Skipping unknown chunks
+                                    data.at = data.stop;
+                                } break;
+                            }
+
+                            assert(data.at == data.stop);
+                            stream.at = data.at;
+                        }
+done_parsing_midi:
+                        end_linear_buffer(events);
+                        packed->midi.event_count = cast(u32) lb_count(events);
+
+                        u32 midi_events_size = sizeof(MidiEvent)*packed->midi.event_count;
+                        fwrite(events, midi_events_size, 1, out);
+
+                        fprintf(stderr, "Packed midi track '%s' from '%s' (events: %d)\n", asset_desc->asset_name, asset_desc->source_file, packed->midi.event_count);
                     } break;
 
                     default: {
