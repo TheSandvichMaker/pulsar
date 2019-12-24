@@ -2,6 +2,7 @@
 
 #include "game_assets.cpp"
 #include "audio_mixer.cpp"
+#include "render_commands.cpp"
 
 #define DEBUG_GJK_VISUALIZATION 0
 
@@ -557,7 +558,7 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     return num_bytes;
 }
 
-internal void draw_test_text(Assets* assets, Font* font, char* text, v2 p) {
+internal void draw_test_text(GameRenderCommands* commands, Assets* assets, Font* font, char* text, v2 p) {
     v2 at_p = p;
     for (char* at = text; at[0]; at++) {
         if (at[0] == ' ') {
@@ -566,12 +567,11 @@ internal void draw_test_text(Assets* assets, Font* font, char* text, v2 p) {
             assert(at[0] >= cast(s32) font->first_codepoint && at[0] < cast(s32) font->one_past_last_codepoint);
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             Image* glyph = get_image(assets, glyph_id);
-            v2 align = vec2(glyph->w, glyph->h)*glyph->align;
-            opengl_texture(cast(GLuint) glyph->handle, rect_min_dim(at_p - align, vec2(glyph->w, glyph->h)));
+            push_image(commands, glyph, at_p);
             if (at[1] && at[1] != ' ') {
                 at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
             } else {
-                // @TODO: Is this correct?
+                // @TODO: Is this what you want to do?
                 at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
             }
         }
@@ -629,30 +629,28 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         memory->initialized = true;
     }
 
+    u32 width = render_commands->width;
+    u32 height = render_commands->height;
+
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
     f32 dt = input->frame_dt;
     f32 rcp_dt = 1.0f / dt;
 
-    glViewport(0, 0, width, height);
-    glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    push_clear(render_commands, vec4(0.5f, 0.5f, 0.5f, 1.0f));
 
     if (game_state->game_mode == GameMode_Ingame) {
         MidiTrack* track = game_state->test_midi_track;
         game_state->midi_event_buffer_count = 0;
         if (game_state->midi_event_index < track->event_count) {
             MidiEvent event = track->events[game_state->midi_event_index];
-            while (game_state->midi_timer >= event.delta_time) {
+            while (game_state->midi_timer >= event.delta_time && game_state->midi_event_index < track->event_count) {
                 game_state->midi_event_index++;
 
                 game_state->midi_event_buffer[game_state->midi_event_buffer_count++] = event;
                 assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
 
+                game_state->midi_timer -= event.delta_time;
                 event = track->events[game_state->midi_event_index];
-                game_state->midi_timer = 0.0f;
             }
             game_state->midi_timer += dt;
         }
@@ -702,14 +700,14 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         MidiEvent event = game_state->midi_event_buffer[event_index];
                         if (event.type == MidiEvent_NoteOn) {
                             play_sound(&game_state->audio_mixer, game_state->test_sound);
-                            entity->midi_test_target.y += event.note_value - 60;
+                            entity->midi_test_target.y += 20.0f*(event.note_value - 60);
                         } else if (event.type == MidiEvent_NoteOff) {
-                            entity->midi_test_target.y -= event.note_value - 60;
+                            entity->midi_test_target.y -= 20.0f*(event.note_value - 60);
                         } else {
                             INVALID_CODE_PATH;
                         }
                     }
-                    movement = 0.01f*(entity->midi_test_target - entity->p);
+                    movement = 0.5f*(entity->midi_test_target - entity->p);
                     entity->p += movement;
                     entity->dp = rcp_dt*movement;
                     entity->movement_t += dt;
@@ -729,7 +727,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     // Physics & Rendering
     //
 
-    opengl_set_screenspace(width, height);
     for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
         assert(entity->type != EntityType_Null);
@@ -745,7 +742,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         }
 
         if (entity->type == EntityType_Player) {
-            draw_test_text(&game_state->assets, game_state->debug_font, "The spice must flow.", entity->p + vec2(0, 60));
+            draw_test_text(render_commands, &game_state->assets, game_state->debug_font, "The spice must flow.", entity->p + vec2(0, 60));
         }
 
         if (on_ground(entity)) {
@@ -754,12 +751,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         Transform2D transform = default_transform2d();
         transform.offset = entity->p;
-        dbg_draw_shape(transform, entity->collision, entity->color);
+        push_shape(render_commands, transform, entity->collision, entity->color);
+        // dbg_draw_shape(transform, entity->collision, entity->color);
 
         entity->color = vec4(1, 1, 1, 1);
     }
-
-    glDisable(GL_BLEND);
 
     check_arena(&game_state->permanent_arena);
     check_arena(&game_state->transient_arena);

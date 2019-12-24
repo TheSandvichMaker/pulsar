@@ -101,8 +101,6 @@ inline f32 neighborhood_distance(f32 a, f32 b, f32 period = TAU_32) {
 // NOTE: Types
 //
 
-#ifndef SND_MATH_TYPES
-#define SND_MATH_TYPES
 union v2 {
     struct {
         f32 x, y;
@@ -203,7 +201,6 @@ struct Rect3 {
     v3 min;
     v3 max;
 };
-#endif
 
 //
 //

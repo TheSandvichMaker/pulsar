@@ -151,3 +151,80 @@ internal void opengl_init(b32 modern_context, OpenGLInfo* info) {
         glEnable(GL_MULTISAMPLE_ARB);
     }
 }
+
+internal void opengl_render_commands(GameRenderCommands* commands) {
+    u32 width = commands->width;
+    u32 height = commands->height;
+
+    glViewport(0, 0, width, height);
+    opengl_set_screenspace(width, height);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    u8* at = commands->command_buffer;
+    while (at < (commands->command_buffer + commands->command_buffer_used)) {
+        RenderCommandHeader* header = cast(RenderCommandHeader*) at;
+        at += sizeof(*header);
+
+        switch (header->type) {
+            case RenderCommand_Clear: {
+                RenderCommandClear* command = cast(RenderCommandClear*) at;
+                at += sizeof(*command);
+
+                glClearColor(command->color.r, command->color.g, command->color.b, command->color.a);
+                glClear(GL_COLOR_BUFFER_BIT);
+            } break;
+
+            case RenderCommand_Shape: {
+                RenderCommandShape* command = cast(RenderCommandShape*) at;
+                at += sizeof(*command);
+
+                Transform2D* transform = &command->transform;
+                Shape2D* shape = &command->shape;
+
+                glBegin(GL_LINE_LOOP);
+                glColor4fv(command->color.e);
+
+                u32 circle_quality = 1024;
+
+                switch (shape->type) {
+                    case Shape_Polygon: {
+                        for (u32 vertex_index = 0; vertex_index < shape->vert_count; vertex_index++) {
+                            v2 v = rotate(transform->scale*shape->vertices[vertex_index], transform->rotation_arm) + transform->offset;
+                            glVertex2fv(v.e);
+                        }
+                    } break;
+
+                    case Shape_Circle: {
+                        for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / cast(f32) circle_quality)) {
+                            v2 v = rotate(transform->scale*vec2(sin(segment_angle), cos(segment_angle))*shape->radius, transform->rotation_arm) + transform->offset;
+                            glVertex2fv(v.e);
+                        }
+                    } break;
+                }
+
+                glEnd();
+            } break;
+
+            case RenderCommand_Rectangle: {
+                RenderCommandRectangle* command = cast(RenderCommandRectangle*) at;
+                at += sizeof(*command);
+
+                opengl_rectangle(command->rectangle, command->color);
+            } break;
+
+            case RenderCommand_Image: {
+                RenderCommandImage* command = cast(RenderCommandImage*) at;
+                at += sizeof(*command);
+
+                Image* image = command->image;
+                opengl_texture(cast(GLuint) image->handle, rect_min_dim(command->p - image->align*vec2(image->w, image->h), vec2(image->w, image->h)), command->color);
+            } break;
+
+            INVALID_DEFAULT_CASE;
+        }
+    }
+
+    glDisable(GL_BLEND);
+}

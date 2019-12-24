@@ -1,18 +1,13 @@
 #ifndef GAME_ASSETS_H
 #define GAME_ASSETS_H
 
-#include "asset_pack_format.h"
-
 struct Sound {
     union { PackedSound packed_sound; struct { BodyOf_PackedSound }; };
     s16* samples;
 };
 
-struct Image {
-    union { PackedImage packed_image; struct { BodyOf_PackedImage }; };
-    void* pixels;
-    void* handle;
-};
+// @Note: Image moved to render_commands.h
+struct Image;
 
 struct Font {
     union { PackedFont packed_font; struct { BodyOf_PackedFont }; };

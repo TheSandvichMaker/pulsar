@@ -388,6 +388,11 @@ internal void win32_handle_remaining_messages(GameInput* input) {
     }
 }
 
+internal void win32_output_image(GameRenderCommands* commands, HDC window_dc) {
+    opengl_render_commands(commands);
+    SwapBuffers(window_dc);
+}
+
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
     WNDCLASSA window_class = {};
     window_class.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
@@ -420,7 +425,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 monitor_refresh_rate = 60;
             }
 
-            f32 game_update_rate = (f32)monitor_refresh_rate;
+            f32 game_update_rate = cast(f32) monitor_refresh_rate;
 
             Win32SoundOutput sound_output = {};
             sound_output.sample_rate = 48000;
@@ -438,6 +443,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
             win32_clear_sound_buffer(&sound_output);
             sound_output.buffer->Play(0, 0, DSBPLAY_LOOPING);
+
+            GameRenderCommands render_commands = {};
+            render_commands.command_buffer_size = MEGABYTES(32);
+            render_commands.command_buffer = cast(u8*) win32_allocate_memory(render_commands.command_buffer_size);
 
             b32 sound_is_valid = false;
 
@@ -471,6 +480,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                 u32 width = window_rect.right - window_rect.left;
                 u32 height = window_rect.bottom - window_rect.top;
+
+                render_commands.command_buffer_used = 0;
+                render_commands.width = width;
+                render_commands.height = height;
 
                 //
                 // Input
@@ -519,7 +532,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 // Game Update and Render
                 //
 
-                game_update_and_render(&game_memory, new_input, width, height);
+                game_update_and_render(&game_memory, new_input, &render_commands);
 
                 //
                 // Game Sound
@@ -575,7 +588,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 // @TODO: Handle frame timing when vsync is not available / enabled.
                 //
 
-                SwapBuffers(window_dc);
+                win32_output_image(&render_commands, window_dc);
 
                 //
 

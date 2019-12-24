@@ -114,6 +114,19 @@ struct MidiStream {
     u8* stop;
 };
 
+#pragma pack(push, 1)
+struct MidiChunk {
+    u32 type;
+    u32 length;
+};
+
+struct MidiHeader {
+    u16 format;
+    u16 ntrcks;
+    u16 division;
+};
+#pragma pack(pop)
+
 inline u32 flip_endianness_u32(u32 value) {
     u32 result = ((value & 0x000000FF) << 24) |
                  ((value & 0x0000FF00) <<  8) |
@@ -162,21 +175,6 @@ inline u16 midi_read_u16(MidiStream* stream) {
         result |= midi_read_u8(stream) << 0;
     return result;
 }
-
-#pragma pack(push, 1)
-
-struct MidiChunk {
-    u32 type;
-    u32 length;
-};
-
-struct MidiHeader {
-    u16 format;
-    u16 ntrcks;
-    u16 division;
-};
-
-#pragma pack(pop)
 
 inline MidiChunk midi_read_chunk(MidiStream* stream) {
     MidiChunk result;
@@ -336,7 +334,7 @@ int main(int argument_count, char** arguments) {
                         fseek(out, kerning_table_size, SEEK_CUR);
 
                         s32 whitespace_advance_width;
-                        stbtt_GetCodepointHMetrics(&font_info, 'M', &whitespace_advance_width, 0);
+                        stbtt_GetCodepointHMetrics(&font_info, ' ', &whitespace_advance_width, 0);
 
                         packed->font.whitespace_width = font_scale * cast(f32) whitespace_advance_width;
 
@@ -364,6 +362,8 @@ int main(int argument_count, char** arguments) {
 
                             f32 scaled_advance_width = font_scale * cast(f32) advance_width;
                             f32 scaled_left_side_bearing = font_scale * cast(f32) left_side_bearing;
+
+                            s32 space_kern_width = stbtt_GetCodepointKernAdvance(&font_info, 'a', ' ');
 
                             for (u32 paired_glyph_index = 0; paired_glyph_index < glyph_count; paired_glyph_index++) {
                                 u32 paired_codepoint = packed->font.first_codepoint + paired_glyph_index;
@@ -411,7 +411,7 @@ int main(int argument_count, char** arguments) {
                         packed->type = AssetType_Midi;
 
                         u32 ticks_per_quarter_note = 0;
-                        f32 seconds_per_quarter_note = 0.125f;
+                        f32 seconds_per_beat = 0.5f;
                         packed->midi.beats_per_minute = 120;
                         packed->midi.time_signature_numerator = 4;
                         packed->midi.time_signature_denominator = 4;
@@ -420,7 +420,7 @@ int main(int argument_count, char** arguments) {
                         stream.at = cast(u8*) file.data;
                         stream.stop = stream.at + file.size;
 
-                        LinearBuffer(MidiEvent) events = begin_linear_buffer(&global_arena, MidiEvent);
+                        LinearBuffer(MidiEvent) events = begin_linear_buffer(&global_arena, MidiEvent, no_clear());
 
                         f32 ticks_to_seconds = 0.0f;
                         while (stream.at < stream.stop) {
@@ -445,7 +445,7 @@ int main(int argument_count, char** arguments) {
                                         NOT_IMPLEMENTED;
                                     } else {
                                         ticks_per_quarter_note = header.division;
-                                        ticks_to_seconds = seconds_per_quarter_note / cast(f32) ticks_per_quarter_note;
+                                        ticks_to_seconds = seconds_per_beat / cast(f32) ticks_per_quarter_note;
                                     }
                                 } break;
 
@@ -468,9 +468,9 @@ int main(int argument_count, char** arguments) {
                                                     case 0x51: {
                                                         // @Note: Tempo Change (how do tempo changes relate to ticks per quarter note from the delta time?)
                                                         u32 microseconds_per_quarter_note = midi_read_u24(&data);
-                                                        seconds_per_quarter_note = 0.000001f*cast(f32)microseconds_per_quarter_note;
-                                                        ticks_to_seconds = seconds_per_quarter_note / cast(f32) ticks_per_quarter_note;
-                                                        packed->midi.beats_per_minute = round_f32_to_u32(60.0f / (seconds_per_quarter_note*4.0f));
+                                                        seconds_per_beat = 0.000004f*cast(f32)microseconds_per_quarter_note;
+                                                        ticks_to_seconds = seconds_per_beat / cast(f32) ticks_per_quarter_note;
+                                                        packed->midi.beats_per_minute = round_f32_to_u32(60.0f / (seconds_per_beat));
                                                     } break;
 
                                                     case 0x58: {
@@ -506,10 +506,10 @@ int main(int argument_count, char** arguments) {
                                                 goto parse_data_bytes;
                                             }
                                         } else {
+                                            // @Note: Data Byte
 parse_data_bytes:
                                             // @TODO: I think this will barf if I hit an unhandled midi channel message status
-                                            // @Note: Data Byte
-                                            MidiEvent* event = push_linear_buffer(events);
+                                            MidiEvent* event = lb_push(events);
                                             event->delta_time = ticks_to_seconds * cast(f32) delta_time;
                                             event->channel = cast(u8) channel;
 
@@ -526,6 +526,10 @@ parse_data_bytes:
                                                     event->type = cast(u8) MidiEvent_NoteOn;
                                                     event->note_value = byte;
                                                     event->velocity = midi_read_u8(&data);
+
+                                                    if (event->velocity == 0) {
+                                                        event->type = cast(u8) MidiEvent_NoteOff;
+                                                    }
                                                 } break;
                                             }
                                         }

@@ -26,58 +26,6 @@
 #include "game_assets.h"
 #include "audio_mixer.h"
 
-struct Transform2D {
-    v2 offset;
-    v2 rotation_arm;
-    v2 sweep;
-    f32 scale;
-};
-
-inline Transform2D default_transform2d() {
-    Transform2D result = {};
-    result.rotation_arm = vec2(1, 0);
-    result.scale = 1.0f;
-    return result;
-}
-
-inline Transform2D transform2d(v2 offset, v2 sweep = vec2(0, 0)) {
-    Transform2D result = default_transform2d();
-    result.offset = offset;
-    result.sweep = sweep;
-    return result;
-}
-
-enum ShapeType {
-    Shape_Polygon,
-    Shape_Circle,
-};
-
-struct Shape2D {
-    ShapeType type;
-    union {
-        f32 radius;
-        struct {
-            u32 vert_count;
-            v2* vertices;
-        };
-    };
-};
-
-inline Shape2D polygon(u32 vert_count, v2* vertices) {
-    Shape2D result = {};
-    result.type = Shape_Polygon;
-    result.vert_count = vert_count;
-    result.vertices = vertices;
-    return result;
-}
-
-inline Shape2D circle(f32 radius) {
-    Shape2D result = {};
-    result.type = Shape_Circle;
-    result.radius = radius;
-    return result;
-}
-
 enum EntityType {
     EntityType_Null,
 

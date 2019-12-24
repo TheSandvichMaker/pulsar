@@ -1,112 +1,10 @@
 #ifndef PLATFORM_BRIDGE_H
 #define PLATFORM_BRIDGE_H
 
-#ifndef SND_MATH_TYPES
-#define SND_MATH_TYPES
-union v2 {
-    struct {
-        f32 x, y;
-    };
-    struct {
-        f32 u, v;
-    };
-    f32 e[2];
-};
-
-union v3 {
-    struct {
-        f32 x, y, z;
-    };
-    struct {
-        f32 r, g, b;
-    };
-    struct {
-        f32 u, v, w;
-    };
-    struct {
-        v2 xy;
-        f32 ignored0_;
-    };
-    struct {
-        f32 ignored1_;
-        v2 yz;
-    };
-    struct {
-        v2 rg;
-        f32 ignored2_;
-    };
-    struct {
-        f32 ignored3_;
-        v2 gb;
-    };
-    struct {
-        v2 uv;
-        f32 ignored4_;
-    };
-    struct {
-        f32 ignored5_;
-        v2 vw;
-    };
-    f32 e[3];
-};
-
-union v4 {
-    struct {
-        f32 x, y, z, w;
-    };
-    struct {
-        f32 r, g, b, a;
-    };
-    struct {
-        v3 xyz;
-        f32 ignored0_;
-    };
-    struct {
-        f32 ignored1_;
-        v3 yzw;
-    };
-    struct {
-        v2 xy;
-        v2 zw;
-    };
-    struct {
-        f32 ignored2_;
-        v2 yz;
-        f32 ignored3_;
-    };
-    struct {
-        v3 rgb;
-        f32 ignored4_;
-    };
-    struct {
-        f32 ignored5_;
-        v3 gba;
-    };
-    struct {
-        v2 rg;
-        v2 ba;
-    };
-    struct {
-        f32 ignored6_;
-        v2 gb;
-        f32 ignored7_;
-    };
-    f32 e[4];
-};
-
-struct Rect2 {
-    v2 min;
-    v2 max;
-};
-
-struct Rect3 {
-    v3 min;
-    v3 max;
-};
-#endif
-
+#include "math.h"
 #include "file_io.h"
 #include "asset_pack_format.h"
+#include "render_commands.h"
 
 #define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name)
 typedef PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile);
@@ -187,6 +85,14 @@ struct GameController {
     };
 };
 
+struct GameRenderCommands {
+    u32 width, height;
+
+    u32 command_buffer_size;
+    u32 command_buffer_used;
+    u8* command_buffer;
+};
+
 #define PLATFORM_KEYBOARD_CONTROLLER 0
 
 struct GameInput {
@@ -213,7 +119,7 @@ inline b32 was_released(GameButtonState button) {
     return result;
 }
 
-#define GAME_UPDATE_AND_RENDER(name) void name(GameMemory* memory, GameInput* input, u32 width, u32 height)
+#define GAME_UPDATE_AND_RENDER(name) void name(GameMemory* memory, GameInput* input, GameRenderCommands* render_commands)
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);
 
 // @Note: At the moment, this has to be a very fast function. Not more than ~1ms.

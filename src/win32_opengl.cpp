@@ -1,4 +1,4 @@
-internal void wgl_set_pixel_format(HDC window_dc, WglInfo* wgl_info) {
+internal void wgl_set_pixel_format(HDC window_dc, WglInfo* wgl_info, u32 msaa_count = 4) {
     int suggested_pixel_format_index = 0;
     GLuint number_of_extended_formats_found = 0;
 
@@ -31,7 +31,7 @@ internal void wgl_set_pixel_format(HDC window_dc, WglInfo* wgl_info) {
                 attribute_list[attribute_cursor++] = WGL_SAMPLE_BUFFERS_ARB;
                 attribute_list[attribute_cursor++] = 1;
                 attribute_list[attribute_cursor++] = WGL_SAMPLES_ARB;
-                attribute_list[attribute_cursor++] = 4;
+                attribute_list[attribute_cursor++] = msaa_count;
             }
         }
         assert(attribute_list[attribute_cursor] == 0);
@@ -152,7 +152,7 @@ internal HGLRC wgl_opengl_init(HDC window_dc, WglInfo* wgl_info, OpenGLInfo* ope
     }
 
     wgl_load_extensions(wgl_info);
-    wgl_set_pixel_format(window_dc, wgl_info);
+    wgl_set_pixel_format(window_dc, wgl_info, 8);
 
     b32 modern_context = true;
 
