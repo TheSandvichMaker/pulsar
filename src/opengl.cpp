@@ -183,35 +183,37 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 Transform2D* transform = &command->transform;
                 Shape2D* shape = &command->shape;
 
-                glBegin(GL_LINE_LOOP);
-                glColor4fv(command->color.e);
-
-                u32 circle_quality = 1024;
+                u32 circle_quality = 256;
 
                 switch (shape->type) {
                     case Shape_Polygon: {
+                        glBegin(GL_POLYGON);
+                        glColor4fv(command->color.e);
+
                         for (u32 vertex_index = 0; vertex_index < shape->vert_count; vertex_index++) {
                             v2 v = rotate(transform->scale*shape->vertices[vertex_index], transform->rotation_arm) + transform->offset;
                             glVertex2fv(v.e);
                         }
+
+                        glEnd();
                     } break;
 
                     case Shape_Circle: {
+                        glBegin(GL_POLYGON);
+                        glColor4fv(command->color.e);
+
                         for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / cast(f32) circle_quality)) {
                             v2 v = rotate(transform->scale*vec2(sin(segment_angle), cos(segment_angle))*shape->radius, transform->rotation_arm) + transform->offset;
                             glVertex2fv(v.e);
                         }
+
+                        glEnd();
+                    } break;
+
+                    case Shape_Rectangle: {
+                        opengl_rectangle(shape->rect, command->color);
                     } break;
                 }
-
-                glEnd();
-            } break;
-
-            case RenderCommand_Rectangle: {
-                RenderCommandRectangle* command = cast(RenderCommandRectangle*) at;
-                at += sizeof(*command);
-
-                opengl_rectangle(command->rectangle, command->color);
             } break;
 
             case RenderCommand_Image: {

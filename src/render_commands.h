@@ -31,15 +31,26 @@ inline Transform2D transform2d(v2 offset, v2 sweep = vec2(0, 0)) {
 enum ShapeType {
     Shape_Polygon,
     Shape_Circle,
+    Shape_Rectangle,
 };
 
 struct Shape2D {
     ShapeType type;
     union {
-        f32 radius;
+        // @Note: Polygon
         struct {
             u32 vert_count;
             v2* vertices;
+        };
+
+        // @Note: Circle
+        struct {
+            f32 radius;
+        };
+
+        // @Note: Rectangle
+        struct {
+            Rect2 rect;
         };
     };
 };
@@ -59,10 +70,16 @@ inline Shape2D circle(f32 radius) {
     return result;
 }
 
+inline Shape2D rectangle(Rect2 rect) {
+    Shape2D result = {};
+    result.type = Shape_Rectangle;
+    result.rect = rect;
+    return result;
+}
+
 enum RenderCommandType {
     RenderCommand_Clear,
     RenderCommand_Shape,
-    RenderCommand_Rectangle,
     RenderCommand_Image,
 };
 
@@ -78,11 +95,6 @@ struct RenderCommandShape {
     // @TODO: Make transform a more uniform concept
     Transform2D transform;
     Shape2D shape;
-    v4 color;
-};
-
-struct RenderCommandRectangle {
-    Rect2 rectangle;
     v4 color;
 };
 

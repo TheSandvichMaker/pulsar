@@ -1,9 +1,11 @@
 #ifndef ASSET_PACK_FORMAT_H
 #define ASSET_PACK_FORMAT_H
 
-struct SoundID { u32 value; };
-struct ImageID { u32 value; };
-struct FontID  { u32 value; };
+struct SoundID      { u32 value; };
+struct ImageID      { u32 value; };
+struct FontID       { u32 value; };
+struct MidiID       { u32 value; };
+struct SoundtrackID { u32 value; };
 
 enum AssetType {
     AssetType_Unknown,
@@ -12,6 +14,8 @@ enum AssetType {
     AssetType_Sound,
     AssetType_Font,
     AssetType_Midi,
+
+    AssetType_Soundtrack,
 };
 
 enum PixelFormat {
@@ -78,6 +82,18 @@ struct PackedMidi {
      */
 };
 
+#define BodyOf_PackedSoundtrack \
+    SoundID sound;              \
+    u32 midi_track_count;
+
+struct PackedSoundtrack {
+    BodyOf_PackedSoundtrack;
+
+    /* Data:
+     * MidiID midi_tracks[midi_track_count];
+     */
+};
+
 enum MidiEventType {
     MidiEvent_NoteOn,
     MidiEvent_NoteOff,
@@ -100,6 +116,7 @@ struct PackedAsset {
         PackedImage image;
         PackedFont font;
         PackedMidi midi;
+        PackedSoundtrack soundtrack;
     };
 };
 

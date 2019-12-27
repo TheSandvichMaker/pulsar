@@ -20,6 +20,11 @@ struct MidiTrack {
     MidiEvent* events;
 };
 
+struct Soundtrack {
+    union { PackedSoundtrack packed_soundtrack; struct { BodyOf_PackedSoundtrack }; };
+    MidiID* midi_tracks;
+};
+
 struct Asset {
     char* name;
     AssetType type;
@@ -28,6 +33,7 @@ struct Asset {
         Image image;
         Font font;
         MidiTrack midi_track;
+        Soundtrack soundtrack;
     };
 };
 

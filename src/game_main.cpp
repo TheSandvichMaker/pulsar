@@ -28,6 +28,10 @@ inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
         case Shape_Circle: {
             result = normalize_or_zero(d)*s.radius;
         } break;
+
+        case Shape_Rectangle: {
+            NOT_IMPLEMENTED;
+        } break;
     }
 
     result = rotate(t.scale*result, t.rotation_arm) + t.offset;
@@ -558,23 +562,50 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     return num_bytes;
 }
 
-internal void draw_test_text(GameRenderCommands* commands, Assets* assets, Font* font, char* text, v2 p) {
+internal void draw_test_text(GameRenderCommands* commands, Assets* assets, Font* font, char* text, v2 p, v4 color = vec4(1, 1, 1, 1)) {
     v2 at_p = p;
     for (char* at = text; at[0]; at++) {
         if (at[0] == ' ') {
             at_p.x += font->whitespace_width;
         } else {
-            assert(at[0] >= cast(s32) font->first_codepoint && at[0] < cast(s32) font->one_past_last_codepoint);
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
-            Image* glyph = get_image(assets, glyph_id);
-            push_image(commands, glyph, at_p);
-            if (at[1] && at[1] != ' ') {
-                at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
-            } else {
-                // @TODO: Is this what you want to do?
-                at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
+            if (glyph_id.value) {
+                Image* glyph = get_image(assets, glyph_id);
+                push_image(commands, glyph, at_p, color);
+                if (at[1] && at[1] != ' ') {
+                    at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
+                } else {
+                    // @TODO: Is this what you want to do?
+                    at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
+                }
             }
         }
+    }
+}
+
+inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track) {
+    if (!game_state->first_free_playing_midi) {
+        game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
+        game_state->first_free_playing_midi->next_free = 0;
+    }
+
+    PlayingMidi* playing_midi = game_state->first_free_playing_midi;
+    game_state->first_free_playing_midi = playing_midi->next_free;
+
+    playing_midi->next = game_state->first_playing_midi;
+    game_state->first_playing_midi = playing_midi;
+
+    playing_midi->track = track;
+
+    return playing_midi;
+}
+
+inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack) {
+    Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
+    play_sound(&game_state->audio_mixer, sound);
+    for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
+        MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
+        play_midi(game_state, track);
     }
 }
 
@@ -602,8 +633,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
 
-        u32 midi_track_id = get_asset_id_by_name(&game_state->assets, "test_midi");
-        game_state->test_midi_track = &get_asset(&game_state->assets, midi_track_id)->midi_track;
+        game_state->test_soundtrack = get_soundtrack_by_name(&game_state->assets, "test_soundtrack");
+        play_soundtrack(game_state, game_state->test_soundtrack);
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
         square_verts[0] = { -10.0f,  0.0f };
@@ -639,20 +670,33 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     push_clear(render_commands, vec4(0.5f, 0.5f, 0.5f, 1.0f));
 
     if (game_state->game_mode == GameMode_Ingame) {
-        MidiTrack* track = game_state->test_midi_track;
         game_state->midi_event_buffer_count = 0;
-        if (game_state->midi_event_index < track->event_count) {
-            MidiEvent event = track->events[game_state->midi_event_index];
-            while (game_state->midi_timer >= event.delta_time && game_state->midi_event_index < track->event_count) {
-                game_state->midi_event_index++;
+        for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
+            PlayingMidi* playing_midi = *playing_midi_ptr;
 
-                game_state->midi_event_buffer[game_state->midi_event_buffer_count++] = event;
-                assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
+            MidiTrack* track = playing_midi->track;
+            if (playing_midi->event_index < track->event_count) {
+                MidiEvent event = track->events[playing_midi->event_index];
+                while (playing_midi->timer >= event.delta_time && playing_midi->event_index < track->event_count) {
+                    playing_midi->event_index++;
 
-                game_state->midi_timer -= event.delta_time;
-                event = track->events[game_state->midi_event_index];
+                    game_state->midi_event_buffer[game_state->midi_event_buffer_count++] = event;
+                    assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
+
+                    playing_midi->timer -= event.delta_time;
+                    event = track->events[playing_midi->event_index];
+                }
+                playing_midi->timer += dt;
             }
-            game_state->midi_timer += dt;
+
+            if (playing_midi->event_index >= track->event_count) {
+                assert(playing_midi->event_index == track->event_count);
+                *playing_midi_ptr = playing_midi->next;
+                playing_midi->next = game_state->first_free_playing_midi;
+                game_state->first_free_playing_midi = playing_midi;
+            } else {
+                playing_midi_ptr = &playing_midi->next;
+            }
         }
 
         //
@@ -699,7 +743,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
                         MidiEvent event = game_state->midi_event_buffer[event_index];
                         if (event.type == MidiEvent_NoteOn) {
-                            play_sound(&game_state->audio_mixer, game_state->test_sound);
                             entity->midi_test_target.y += 20.0f*(event.note_value - 60);
                         } else if (event.type == MidiEvent_NoteOff) {
                             entity->midi_test_target.y -= 20.0f*(event.note_value - 60);

@@ -54,6 +54,12 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
                     midi_track->packed_midi = source_asset->midi;
                     midi_track->events = cast(MidiEvent*) (assets->asset_data + source_asset->data_offset);
                 } break;
+
+                case AssetType_Soundtrack: {
+                    Soundtrack* soundtrack = &dest_asset->soundtrack;
+                    soundtrack->packed_soundtrack = source_asset->soundtrack;
+                    soundtrack->midi_tracks = cast(MidiID*) (assets->asset_data + source_asset->data_offset);
+                } break;
             }
         }
     } else {
@@ -168,8 +174,10 @@ inline Font* get_font_by_name(Assets* assets, char* name) {
 inline ImageID get_glyph_id_for_codepoint(Font* font, u32 codepoint) {
     u32 glyph_table_index = codepoint - font->first_codepoint;
     u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
-    assert(codepoint >= font->first_codepoint && glyph_table_index < glyph_count);
-    ImageID result = font->glyph_table[glyph_table_index];
+    ImageID result = { 0 };
+    if (codepoint >= font->first_codepoint && glyph_table_index < glyph_count) {
+        result = font->glyph_table[glyph_table_index];
+    }
     return result;
 }
 
@@ -178,5 +186,51 @@ inline f32 get_advance_for_codepoint_pair(Font* font, u32 c1, u32 c2) {
     u32 g2 = c2 - font->first_codepoint;
     u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
     f32 result = font->kerning_table[glyph_count*g2 + g1];
+    return result;
+}
+
+inline MidiTrack* get_midi(Assets* assets, MidiID id) {
+    Asset* asset = get_asset(assets, id.value);
+    MidiTrack* result = 0;
+    if (asset->type == AssetType_Midi) {
+        result = &asset->midi_track;
+    } else {
+        INVALID_CODE_PATH;
+    }
+
+    return result;
+}
+
+inline MidiTrack* get_midi_by_name(Assets* assets, char* name) {
+    MidiTrack* result = 0;
+
+    u32 asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id) {
+        result = get_midi(assets, { asset_id });
+    }
+
+    return result;
+}
+
+inline Soundtrack* get_soundtrack(Assets* assets, SoundtrackID id) {
+    Asset* asset = get_asset(assets, id.value);
+    Soundtrack* result = 0;
+    if (asset->type == AssetType_Soundtrack) {
+        result = &asset->soundtrack;
+    } else {
+        INVALID_CODE_PATH;
+    }
+
+    return result;
+}
+
+inline Soundtrack* get_soundtrack_by_name(Assets* assets, char* name) {
+    Soundtrack* result = 0;
+
+    u32 asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id) {
+        result = get_soundtrack(assets, { asset_id });
+    }
+
     return result;
 }

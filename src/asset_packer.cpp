@@ -27,6 +27,8 @@ enum AssetDataType {
     AssetDataType_Bmp,
     AssetDataType_Ttf,
     AssetDataType_Midi,
+
+    AssetDataType_Soundtrack,
 };
 
 struct AssetDescription {
@@ -36,6 +38,8 @@ struct AssetDescription {
 
     u32 asset_index;
     PackedAsset packed;
+
+    MidiID* midi_tracks;
 };
 
 global MemoryArena global_arena;
@@ -44,15 +48,15 @@ global u32 packed_asset_count = 1; // @Note: Reserving the 0th index for the nul
 
 // @Note: Neither asset name nor file name is mandatory, because font glyphs have no need for them.
 internal AssetDescription* add_asset(char* asset_name = 0, char* file_name = 0) {
-    char* extension = file_name;
-    for (char* at = file_name; at[0]; at++) {
-        if (at[0] && at[-1] == '.') {
-            extension = at;
-        }
-    }
-
     AssetDataType data_type = AssetDataType_Unknown;
     if (file_name) {
+        char* extension = file_name;
+        for (char* at = file_name; at[0]; at++) {
+            if (at[0] && at[-1] == '.') {
+                extension = at;
+            }
+        }
+
         if (strings_are_equal(extension, "wav")) {
             data_type = AssetDataType_Wav;
         } else if (strings_are_equal(extension, "bmp")) {
@@ -104,6 +108,19 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
 
 internal AssetDescription* add_midi_track(char* asset_name, char* file_name) {
     AssetDescription* desc = add_asset(asset_name, file_name);
+    return desc;
+}
+
+internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, char** midi_files) {
+    AssetDescription* desc = add_asset(asset_name, 0);
+    desc->data_type = AssetDataType_Soundtrack;
+
+    desc->packed.soundtrack.sound = { add_asset(0, audio_file)->asset_index };
+    desc->packed.soundtrack.midi_track_count = midi_file_count;
+    desc->midi_tracks = push_array(&global_arena, midi_file_count, MidiID, no_clear());
+    for (u32 midi_index = 0; midi_index < midi_file_count; midi_index++) {
+        desc->midi_tracks[midi_index] = { add_asset(0, midi_files[midi_index])->asset_index };
+    }
     return desc;
 }
 
@@ -194,7 +211,9 @@ int main(int argument_count, char** arguments) {
 
     asset_descriptions = allocate_array<AssetDescription>(64, &global_arena);
 
-    add_midi_track("test_midi", "test_soundtrack.mid");
+    // add_midi_track("test_midi", "test_soundtrack.mid");
+    char* midi_files[] = { "test_soundtrack.mid" };
+    add_soundtrack("test_soundtrack", "test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
 
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
@@ -217,12 +236,15 @@ int main(int argument_count, char** arguments) {
         fputc(0, out); // @Note: The name store starts with a null byte for assets without a name.
         for (u32 asset_index = 0; asset_index < asset_descriptions.count; asset_index++) {
             AssetDescription* asset_desc = asset_descriptions.data + asset_index;
-            PackedAsset* packed = &asset_desc->packed;
 
-            packed->name_offset = ftell(out) - header.asset_name_store;
-            u32 name_length = cast(u32) cstr_length(asset_desc->asset_name) + 1; // @Note: + 1 to include the null byte.
+            if (asset_desc->asset_name) {
+                PackedAsset* packed = &asset_desc->packed;
 
-            fwrite(asset_desc->asset_name, name_length, 1, out);
+                packed->name_offset = ftell(out) - header.asset_name_store;
+                u32 name_length = cast(u32) cstr_length(asset_desc->asset_name) + 1; // @Note: + 1 to include the null byte.
+
+                fwrite(asset_desc->asset_name, name_length, 1, out);
+            }
         }
 
         header.asset_data = ftell(out);
@@ -246,8 +268,12 @@ int main(int argument_count, char** arguments) {
 
             TemporaryMemory temp_mem = begin_temporary_memory(&global_arena);
 
-            EntireFile file = read_entire_file(asset_desc->source_file, 0, &global_arena);
-            if (file.size) {
+            EntireFile file = {};
+            if (asset_desc->source_file) {
+                file = read_entire_file(asset_desc->source_file, 0, &global_arena);
+            }
+
+            if (file.size || !asset_desc->source_file) {
                 switch (asset_desc->data_type) {
                     case AssetDataType_Wav: {
                         packed->type = AssetType_Sound;
@@ -558,6 +584,12 @@ done_parsing_midi:
                         fprintf(stderr, "Packed midi track '%s' from '%s' (events: %d)\n", asset_desc->asset_name, asset_desc->source_file, packed->midi.event_count);
                     } break;
 
+                    case AssetDataType_Soundtrack: {
+                        packed->type = AssetType_Soundtrack;
+                        fwrite(asset_desc->midi_tracks, sizeof(MidiID)*packed->soundtrack.midi_track_count, 1, out);
+                        fprintf(stderr, "Packed soundtrack track '%s' (midi tracks: %d)\n", asset_desc->asset_name, packed->soundtrack.midi_track_count);
+                    } break;
+
                     default: {
                         *packed = {};
                         fprintf(stderr, "Encountered unhandled asset data type '%d'.\n", asset_desc->data_type);
@@ -569,6 +601,7 @@ done_parsing_midi:
 
             if (packed->type == AssetType_Unknown) {
                 fprintf(stderr, "Encountered unknown asset type for asset %d.\n", asset_catalog_index - 1);
+                INVALID_CODE_PATH;
             }
 
             end_temporary_memory(temp_mem);

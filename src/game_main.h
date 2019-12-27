@@ -69,6 +69,17 @@ enum GameMode {
     GameMode_Editor,
 };
 
+struct PlayingMidi {
+    union {
+        PlayingMidi* next;
+        PlayingMidi* next_free;
+    };
+
+    f32 timer;
+    u32 event_index;
+    MidiTrack* track;
+};
+
 #define MAX_ENTITY_COUNT 8192
 struct GameState {
     MemoryArena permanent_arena;
@@ -84,10 +95,10 @@ struct GameState {
     Sound* test_music;
     Sound* test_sound;
     Image* test_image;
-    MidiTrack* test_midi_track;
+    Soundtrack* test_soundtrack;
 
-    u32 midi_event_index;
-    f32 midi_timer;
+    PlayingMidi* first_playing_midi;
+    PlayingMidi* first_free_playing_midi;
 
     u32 midi_event_buffer_count;
     MidiEvent midi_event_buffer[256];
