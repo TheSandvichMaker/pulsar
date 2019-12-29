@@ -15,7 +15,7 @@
 #include "common.h"
 
 #include "memory_arena.h"
-#include "platform_bridge.h"
+#include "pulsar_platform_bridge.h"
 
 #include "string.h"
 #include "math.h"
@@ -30,7 +30,7 @@
 global WglInfo wgl_info;
 global OpenGLInfo opengl_info;
 
-#include "game_main.cpp"
+#include "pulsar_main.cpp"
 
 global b32 running;
 global b32 in_focus;
@@ -502,6 +502,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 for (u32 button_index = 0; button_index < ARRAY_COUNT(new_controller->buttons); button_index++) {
                     new_controller->buttons[button_index].is_down = old_controller->buttons[button_index].is_down;
                     new_controller->buttons[button_index].half_transition_count = 0;
+                }
+
+                for (u32 fkey_index = 0; fkey_index < ARRAY_COUNT(new_input->debug_fkeys); fkey_index++) {
+                    new_input->debug_fkeys[fkey_index].is_down = old_input->debug_fkeys[fkey_index].is_down;
+                    new_input->debug_fkeys[fkey_index].half_transition_count = 0;
                 }
 
                 POINT mouse_position;

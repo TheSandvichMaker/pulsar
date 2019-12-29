@@ -6,7 +6,7 @@ internal void initialize_audio_mixer(AudioMixer* mixer, MemoryArena* permanent_a
     mixer->master_volume[1] = 1.0f;
 }
 
-internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound) {
+internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0) {
     if (!mixer->first_free_playing_sound) {
         mixer->first_free_playing_sound = push_struct(mixer->arena, PlayingSound);
         mixer->first_free_playing_sound->next = 0;
@@ -19,6 +19,7 @@ internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound) {
     playing_sound->current_volume[0] = 0.5f;
     playing_sound->current_volume[1] = 0.5f;
     playing_sound->sound = sound;
+    playing_sound->flags = flags;
 
     playing_sound->next = mixer->first_playing_sound;
     mixer->first_playing_sound = playing_sound;
@@ -38,6 +39,16 @@ inline void change_balance(PlayingSound* sound, f32 amplitude, f32 pan) {
     f32 theta = deg_to_rad(pan);
     v2 volume = pow * vec2(cos(theta), sin(theta));
     change_volume(sound, amplitude * volume);
+}
+
+inline void stop_all_sounds(AudioMixer* mixer) {
+    PlayingSound* last_playing_sound = mixer->first_playing_sound;
+    while (last_playing_sound->next) {
+        last_playing_sound = last_playing_sound->next;
+    }
+    last_playing_sound->next = mixer->first_free_playing_sound;
+    mixer->first_free_playing_sound = mixer->first_playing_sound;
+    mixer->first_playing_sound = 0;
 }
 
 internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* sound_buffer, MemoryArena* temp_arena) {
@@ -73,7 +84,7 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
             PlayingSound* playing_sound = *playing_sound_ptr;
             b32 sound_finished = false;
 
-            if (playing_sound->sound == 0) {
+            if (!playing_sound->sound) {
                 *playing_sound_ptr = playing_sound->next;
                 playing_sound->next = mixer->first_free_playing_sound;
                 mixer->first_free_playing_sound = playing_sound;
@@ -90,20 +101,33 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                     volume.e[0] = mixer->master_volume[0]*playing_sound->current_volume[0];
                     volume.e[1] = mixer->master_volume[1]*playing_sound->current_volume[1];
 
+                    if (playing_sound->flags & Playback_Looping) {
+                        if (playing_sound->samples_played >= sound->sample_count) {
+                            playing_sound->samples_played -= sound->sample_count;
+                        }
+                    }
+
                     assert(playing_sound->samples_played >= 0 && playing_sound->samples_played < sound->sample_count);
 
                     u32 samples_to_mix = total_samples_to_mix;
                     u32 samples_remaining_in_sound = sound->sample_count - playing_sound->samples_played;
 
-                    if (samples_to_mix > samples_remaining_in_sound) {
-                        samples_to_mix = samples_remaining_in_sound;
+                    if (!(playing_sound->flags & Playback_Looping)) {
+                        if (samples_to_mix > samples_remaining_in_sound) {
+                            samples_to_mix = samples_remaining_in_sound;
+                        }
                     }
 
                     u32 begin_sample_position = playing_sound->samples_played;
                     u32 end_sample_position = begin_sample_position + samples_to_mix;
                     for (u32 sample_index = begin_sample_position; sample_index < end_sample_position; sample_index++) {
+                        u32 wrapped_sample_index = sample_index;
+                        if (wrapped_sample_index >= sound->sample_count) {
+                            wrapped_sample_index -= sound->sample_count;
+                        }
+
                         for (u32 channel = 0; channel < sound->channel_count; channel++) {
-                            f32 sample_value = (f32)(sound->samples + sound->sample_count*channel)[sample_index];
+                            f32 sample_value = (f32)(sound->samples + sound->sample_count*channel)[wrapped_sample_index];
                             *dest[channel]++ += volume.e[channel]*sample_value;
                         }
                     }
@@ -113,8 +137,10 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                     assert(total_samples_to_mix >= samples_to_mix);
                     total_samples_to_mix -= samples_to_mix;
 
-                    if (samples_to_mix >= samples_remaining_in_sound) {
-                        sound_finished = true;
+                    if (!(playing_sound->flags & Playback_Looping)) {
+                        if (samples_to_mix >= samples_remaining_in_sound) {
+                            sound_finished = true;
+                        }
                     }
                 } else {
                     break;

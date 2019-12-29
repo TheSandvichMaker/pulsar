@@ -69,6 +69,7 @@ struct PackedFont {
 
 // @Note: A more complete implementation would allow time signature and bpm to vary across the track.
 #define BodyOf_PackedMidi           \
+    u32 ticks_per_second;           \
     u32 beats_per_minute;           \
     u16 time_signature_numerator;   \
     u16 time_signature_denominator; \
@@ -99,12 +100,15 @@ enum MidiEventType {
     MidiEvent_NoteOff,
 };
 
-struct MidiEvent {
-    f32 delta_time;
-    u8 channel;
-    u8 type;
-    u8 note_value;
+#define BodyOf_MidiEvent        \
+    u32 absolute_time_in_ticks; \
+    u8 channel;                 \
+    u8 type;                    \
+    u8 note_value;              \
     u8 velocity;
+
+struct MidiEvent {
+    BodyOf_MidiEvent;
 };
 
 struct PackedAsset {

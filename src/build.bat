@@ -1,6 +1,6 @@
 @echo off
 
-ctime -begin ctm/win32_stuff.ctm
+ctime -begin ctm/win32_pulsar.ctm
 
 IF NOT EXIST build mkdir build
 pushd build
@@ -31,9 +31,9 @@ set LINKER_FLAGS=/opt:ref /incremental:no
 set LINKER_LIBRARIES=user32.lib gdi32.lib opengl32.lib
 
 REM 64 bit build
-cl ..\win32_main.cpp %FLAGS% /link %LINKER_FLAGS% %LINKER_LIBRARIES%
+cl ..\win32_pulsar.cpp %FLAGS% /link %LINKER_FLAGS% %LINKER_LIBRARIES%
 set LAST_ERROR=%ERRORLEVEL%
 
 popd
 
-ctime -end ctm/win32_stuff.ctm %LAST_ERROR%
+ctime -end ctm/win32_pulsar.ctm %LAST_ERROR%

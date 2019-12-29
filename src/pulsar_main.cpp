@@ -1,8 +1,14 @@
-#include "game_main.h"
+#include "pulsar_main.h"
 
-#include "game_assets.cpp"
-#include "audio_mixer.cpp"
-#include "render_commands.cpp"
+#include "pulsar_assets.cpp"
+#include "pulsar_audio_mixer.cpp"
+#include "pulsar_render_commands.cpp"
+
+#include <stdarg.h>
+
+#define STB_SPRINTF_STATIC 1
+#define STB_SPRINTF_IMPLEMENTATION 1
+#include "stb_sprintf.h"
 
 #define DEBUG_GJK_VISUALIZATION 0
 
@@ -372,27 +378,40 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     dbg_draw_shape(default_transform2d(), arrow, color);
 }
 
-inline u32 add_player(GameState* game_state, v2 starting_p) {
-    assert(game_state->entity_count < ARRAY_COUNT(game_state->entities));
+inline Entity* get_entity(Level* level, EntityID id) {
+    assert(id.value < level->entity_count);
+    Entity* result = level->entities + id.value;
+    return result;
+}
 
-    u32 entity_index = game_state->level_entity_count++;
-    Entity* entity = game_state->level_entities + entity_index;
-    entity->type = EntityType_Player;
+inline EntityID add_entity(Level* level, EntityType type) {
+    assert(level->entity_count < ARRAY_COUNT(level->entities));
+    EntityID entity_id = { level->entity_count++ };
+    Entity* entity = get_entity(level, entity_id);
+
+    zero_struct(*entity);
+    entity->type = type;
+
+    return entity_id;
+}
+
+inline EntityID add_player(GameState* game_state, Level* level, v2 starting_p) {
+    EntityID entity_id = add_entity(level, EntityType_Player);
+    Entity* entity = get_entity(level, entity_id);
+
     entity->p = starting_p;
     entity->collision = game_state->player_collision;
     entity->color = vec4(1, 1, 1, 1);
 
     entity->flags |= EntityFlag_Moveable|EntityFlag_Collides;
 
-    return entity_index;
+    return entity_id;
 }
 
-inline u32 add_wall(GameState* game_state, Rect2 rect) {
-    assert(game_state->entity_count < ARRAY_COUNT(game_state->entities));
+inline EntityID add_wall(GameState* game_state, Level* level, Rect2 rect) {
+    EntityID entity_id = add_entity(level, EntityType_Wall);
+    Entity* entity = get_entity(level, entity_id);
 
-    u32 entity_index = game_state->level_entity_count++;
-    Entity* entity = game_state->level_entities + entity_index;
-    entity->type = EntityType_Wall;
     entity->p = get_center(rect);
     entity->color = vec4(1, 1, 1, 1);
     entity->surface_friction = 5.0f;
@@ -408,9 +427,33 @@ inline u32 add_wall(GameState* game_state, Rect2 rect) {
     verts[1] = { rect.max.x, rect.min.y };
     verts[2] = { rect.max.x, rect.max.y };
     verts[3] = { rect.min.x, rect.max.y };
-    entity->collision = polygon(3, verts);
+    entity->collision = polygon(4, verts);
 
-    return entity_index;
+    return entity_id;
+}
+
+inline EntityID add_soundtrack_player(GameState* game_state, Level* level, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
+    EntityID entity_id = add_entity(level, EntityType_SoundtrackPlayer);
+    Entity* entity = get_entity(level, entity_id);
+
+    entity->soundtrack_id  = soundtrack_id;
+    entity->playback_flags = playback_flags;
+    entity->collision = circle(25.0f);
+
+    return entity_id;
+}
+
+inline Level* allocate_level(MemoryArena* arena, char* name) {
+    Level* result = push_struct(arena, Level);
+
+    // @Note: The 0th entity is reserved as the null entity
+    result->entity_count = 1;
+
+    size_t name_length = cstr_length(name);
+    result->name.len = name_length;
+    result->name.data = push_string_and_null_terminate(arena, name_length, name); // @Note: Null termination just in case we want to interact with some C APIs.
+
+    return result;
 }
 
 inline b32 on_ground(Entity* entity) {
@@ -513,13 +556,42 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     entity->p += delta;
 }
 
+inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0) {
+    if (!game_state->first_free_playing_midi) {
+        game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
+        game_state->first_free_playing_midi->next_free = 0;
+    }
+
+    PlayingMidi* playing_midi = game_state->first_free_playing_midi;
+    game_state->first_free_playing_midi = playing_midi->next_free;
+
+    playing_midi->next = game_state->first_playing_midi;
+    game_state->first_playing_midi = playing_midi;
+
+    zero_struct(*playing_midi);
+    playing_midi->track = track;
+    playing_midi->flags = flags;
+    playing_midi->sync_sound = sync_sound;
+
+    return playing_midi;
+}
+
+inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0) {
+    Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
+    PlayingSound* playing_sound = play_sound(&game_state->audio_mixer, sound, flags);
+    for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
+        MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
+        play_midi(game_state, track, flags, playing_sound);
+    }
+}
+
 internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     u32 num_bytes = 0;
     char* at = input_string;
     u32 codepoint = 0;
 
-    if (at[0] == 0) {
-        // NOTE: Null termination time!
+    if (!at[0]) {
+        // @Note: We've been null terminated.
     } else {
         u8 utf8_mask[] = {
             (1 << 7) - 1,
@@ -548,7 +620,7 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
                 if (*at != 0) {
                     codepoint |= (*at & ((1 << 6) - 1)) << offset;
                 } else {
-                    // NOTE: You don't really want to  assert on a gibberish
+                    // @Note: You don't really want to  assert on a gibberish
                     // bit of unicode, but it's here to draw my attention.
                     INVALID_CODE_PATH;
                 }
@@ -562,16 +634,30 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     return num_bytes;
 }
 
-internal void draw_test_text(GameRenderCommands* commands, Assets* assets, Font* font, char* text, v2 p, v4 color = vec4(1, 1, 1, 1)) {
+internal void editor_draw_text(EditorState* editor, v2 p, v4 color, char* format_string, ...) {
+    TemporaryMemory temp = begin_temporary_memory(editor->arena);
+
+    va_list va_args;
+    va_start(va_args, format_string);
+
+    u32 text_size = stbsp_vsnprintf(0, 0, format_string, va_args) + 1; // @Note: stbsp_vsprintf doesn't include the null terminator in the returned size, so I add it in.
+
+    char* text = (char*)push_size(editor->arena, text_size, align_no_clear(1));
+    stbsp_vsnprintf(text, text_size, format_string, va_args);
+
+    va_end(va_args);
+
     v2 at_p = p;
+    Font* font = editor->font;
     for (char* at = text; at[0]; at++) {
         if (at[0] == ' ') {
             at_p.x += font->whitespace_width;
         } else {
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             if (glyph_id.value) {
-                Image* glyph = get_image(assets, glyph_id);
-                push_image(commands, glyph, at_p, color);
+                Image* glyph = get_image(editor->assets, glyph_id);
+                push_image(editor->render_commands, glyph, at_p + vec2(2.0f, -2.0f), vec4(0, 0, 0, 0.75f));
+                push_image(editor->render_commands, glyph, at_p, color);
                 if (at[1] && at[1] != ' ') {
                     at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
                 } else {
@@ -581,32 +667,45 @@ internal void draw_test_text(GameRenderCommands* commands, Assets* assets, Font*
             }
         }
     }
+
+    end_temporary_memory(temp);
 }
 
-inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track) {
-    if (!game_state->first_free_playing_midi) {
-        game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
-        game_state->first_free_playing_midi->next_free = 0;
-    }
-
-    PlayingMidi* playing_midi = game_state->first_free_playing_midi;
-    game_state->first_free_playing_midi = playing_midi->next_free;
-
-    playing_midi->next = game_state->first_playing_midi;
-    game_state->first_playing_midi = playing_midi;
-
-    playing_midi->track = track;
-
-    return playing_midi;
+inline EditorState* allocate_editor_state(GameRenderCommands* render_commands, Assets* assets, MemoryArena* permanent_arena, MemoryArena* transient_arena) {
+    EditorState* editor = push_struct(permanent_arena, EditorState);
+    editor->render_commands = render_commands;
+    editor->assets = assets;
+    editor->arena = transient_arena;
+    return editor;
 }
 
-inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack) {
-    Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
-    play_sound(&game_state->audio_mixer, sound);
-    for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
-        MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
-        play_midi(game_state, track);
+inline void stop_all_midi_tracks(GameState* game_state) {
+    PlayingMidi* last_playing_midi = game_state->first_playing_midi;
+    while (last_playing_midi->next) {
+        last_playing_midi = last_playing_midi->next;
     }
+    last_playing_midi->next = game_state->first_free_playing_midi;
+    game_state->first_free_playing_midi = game_state->first_playing_midi;
+    game_state->first_playing_midi = 0;
+}
+
+inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
+    switch (game_mode) {
+        case GameMode_Ingame: {
+            Level* level = game_state->active_level;
+            for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
+                game_state->entities[entity_index] = level->entities[entity_index];
+            }
+            game_state->entity_count = level->entity_count;
+        } break;
+
+        case GameMode_Editor: {
+            stop_all_sounds(&game_state->audio_mixer);
+            game_state->entity_count = 0;
+        } break;
+    }
+
+    game_state->game_mode = game_mode;
 }
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -625,16 +724,14 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
 
-        load_assets(&game_state->assets, &game_state->transient_arena, "assets.pak");
+        // @TODO: Make the load_assets routine ignorant of the platform's file system
+        load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        game_state->debug_font = get_font_by_name(&game_state->assets, "debug_font");
+        game_state->editor_state = allocate_editor_state(render_commands, &game_state->assets, &game_state->permanent_arena, &game_state->transient_arena);
 
         game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
-
-        game_state->test_soundtrack = get_soundtrack_by_name(&game_state->assets, "test_soundtrack");
-        play_soundtrack(game_state, game_state->test_soundtrack);
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
         square_verts[0] = { -10.0f,  0.0f };
@@ -643,19 +740,20 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         square_verts[3] = { -10.0f, 50.0f };
         game_state->player_collision = polygon(4, square_verts);
 
-        // @Note: I'm reserving the 0th entity index to signify the null entity.
-        game_state->level_entity_count = 1;
+        game_state->active_level = allocate_level(&game_state->permanent_arena, "Default Level");
 
-        add_player(game_state, vec2(512, 650));
-        add_wall(game_state, rect_center_dim(vec2(512, 400), vec2(512, 96)));
+        add_player(game_state, game_state->active_level, vec2(512, 512));
 
-        game_state->game_mode = GameMode_Ingame;
-        for (u32 entity_index = 1; entity_index < game_state->level_entity_count; entity_index++) {
-            game_state->entities[entity_index] = game_state->level_entities[entity_index];
+        SoundtrackID soundtrack_id = get_soundtrack_id_by_name(&game_state->assets, "test_soundtrack");
+        add_soundtrack_player(game_state, game_state->active_level, soundtrack_id);
+
+        for (s32 i = 0; i < 12; i++) {
+            EntityID wall_index = add_wall(game_state, game_state->active_level, rect_center_dim(vec2(512 + 64*i, 400), vec2(64, 64)));
+            Entity* wall = get_entity(game_state->active_level, wall_index);
+            wall->midi_note = 60 + i;
         }
-        game_state->entity_count = game_state->level_entity_count;
 
-        // play_sound(&game_state->audio_mixer, game_state->test_music);
+        switch_gamemode(game_state, GameMode_Ingame);
 
         memory->initialized = true;
     }
@@ -676,24 +774,39 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
             MidiTrack* track = playing_midi->track;
             if (playing_midi->event_index < track->event_count) {
+                if (playing_midi->sync_sound) {
+                    assert(track->ticks_per_second == 48000);
+                    playing_midi->tick_timer = playing_midi->sync_sound->samples_played;
+                }
+
+                u32 ticks_for_frame = round_f32_to_u32((cast(f32) track->ticks_per_second)*dt);
+                playing_midi->tick_timer += ticks_for_frame;
+
                 MidiEvent event = track->events[playing_midi->event_index];
-                while (playing_midi->timer >= event.delta_time && playing_midi->event_index < track->event_count) {
+                while (event.absolute_time_in_ticks <= playing_midi->tick_timer && playing_midi->event_index < track->event_count) {
                     playing_midi->event_index++;
 
-                    game_state->midi_event_buffer[game_state->midi_event_buffer_count++] = event;
+                    ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
+                    active_event->midi_event = event;
+                    active_event->dt_left = dt*(1.0f - (cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame));
+
                     assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
 
-                    playing_midi->timer -= event.delta_time;
                     event = track->events[playing_midi->event_index];
                 }
-                playing_midi->timer += dt;
             }
 
             if (playing_midi->event_index >= track->event_count) {
                 assert(playing_midi->event_index == track->event_count);
-                *playing_midi_ptr = playing_midi->next;
-                playing_midi->next = game_state->first_free_playing_midi;
-                game_state->first_free_playing_midi = playing_midi;
+                if (playing_midi->flags & Playback_Looping) {
+                    playing_midi->event_index = 0;
+                    playing_midi->tick_timer = 0;
+                    playing_midi_ptr = &playing_midi->next;
+                } else {
+                    *playing_midi_ptr = playing_midi->next;
+                    playing_midi->next = game_state->first_free_playing_midi;
+                    game_state->first_free_playing_midi = playing_midi;
+                }
             } else {
                 playing_midi_ptr = &playing_midi->next;
             }
@@ -709,6 +822,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
             entity->ddp = vec2(0, 0);
             entity->was_on_ground = on_ground(entity);
+
+            entity->sim_dt = dt;
 
             switch (entity->type) {
                 case EntityType_Player: {
@@ -739,30 +854,63 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 } break;
 
                 case EntityType_Wall: {
-                    v2 movement = {}; // vec2(2.0f*cos(entity->movement_t), 2.0f*sin(entity->movement_t));
+                    v2 movement = {};
                     for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
-                        MidiEvent event = game_state->midi_event_buffer[event_index];
-                        if (event.type == MidiEvent_NoteOn) {
-                            entity->midi_test_target.y += 20.0f*(event.note_value - 60);
-                        } else if (event.type == MidiEvent_NoteOff) {
-                            entity->midi_test_target.y -= 20.0f*(event.note_value - 60);
-                        } else {
-                            INVALID_CODE_PATH;
+                        ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
+                        if (event.note_value == entity->midi_note) {
+                            entity->sim_dt = event.dt_left;
+                            if (event.type == MidiEvent_NoteOn) {
+                                entity->midi_test_target.y += 20.0f*(event.note_value - 59);
+                            } else if (event.type == MidiEvent_NoteOff) {
+                                entity->midi_test_target.y -= 20.0f*(event.note_value - 59);
+                            } else {
+                                INVALID_CODE_PATH;
+                            }
                         }
                     }
-                    movement = 0.5f*(entity->midi_test_target - entity->p);
-                    entity->p += movement;
-                    entity->dp = rcp_dt*movement;
-                    entity->movement_t += dt;
+                    movement = 25.0f*(entity->midi_test_target - entity->p);
+                    entity->p += entity->sim_dt*movement;
+                    entity->dp = movement;
+                    entity->movement_t += entity->sim_dt;
+#if 0
                     Entity* sticking_entity = entity->sticking_entity;
                     if (sticking_entity) {
                         sticking_entity->p += movement;
                         sticking_entity->sticking_dp = rcp_dt*movement;
                     }
+#endif
+                } break;
+
+                case EntityType_SoundtrackPlayer: {
+                    if (!entity->soundtrack_has_been_played) {
+                        Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
+                        play_soundtrack(game_state, soundtrack, entity->playback_flags);
+                        entity->soundtrack_has_been_played = true;
+                    }
                 } break;
 
                 INVALID_DEFAULT_CASE;
             }
+        }
+
+        if (was_pressed(input->debug_fkeys[1])) {
+            switch_gamemode(game_state, GameMode_Editor);
+        }
+    } else if (game_state->game_mode == GameMode_Editor) {
+        EditorState* editor = game_state->editor_state;
+
+        if (!editor->initialized) {
+            editor->active_level = game_state->active_level;
+            editor->font = get_font_by_name(editor->assets, "editor_font");
+
+            editor->initialized = true;
+        }
+
+        Level* level = editor->active_level;
+        editor_draw_text(editor, vec2(4.0f, height - get_baseline_from_top(editor->font)), vec4(1, 1, 1, 1), "Editing level '%s'", level->name.data);
+
+        if (was_pressed(input->debug_fkeys[1])) {
+            switch_gamemode(game_state, GameMode_Ingame);
         }
     }
 
@@ -770,22 +918,32 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     // Physics & Rendering
     //
 
-    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
-        Entity* entity = game_state->entities + entity_index;
+    u32 active_entity_count = 0;
+    Entity* active_entities = 0;
+    if (game_state->game_mode == GameMode_Ingame) {
+        active_entity_count = game_state->entity_count;
+        active_entities = game_state->entities;
+    } else if (game_state->game_mode == GameMode_Editor) {
+        active_entity_count = game_state->active_level->entity_count;
+        active_entities = game_state->active_level->entities;
+    } else {
+        INVALID_CODE_PATH;
+    }
+
+    for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
+        Entity* entity = active_entities + entity_index;
         assert(entity->type != EntityType_Null);
 
-        opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
-        if (entity->flags & EntityFlag_Moveable) {
-            move_entity(game_state, entity, entity->ddp, dt);
-        }
+        if (game_state->game_mode == GameMode_Ingame) {
+            opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
+            if (entity->flags & EntityFlag_Moveable) {
+                move_entity(game_state, entity, entity->ddp, entity->sim_dt);
+            }
 
-        if (entity->was_on_ground && !on_ground(entity)) {
-            // entity->dp += entity->sticking_dp;
-            entity->sticking_dp = vec2(0, 0);
-        }
-
-        if (entity->type == EntityType_Player) {
-            draw_test_text(render_commands, &game_state->assets, game_state->debug_font, "The spice must flow.", entity->p + vec2(0, 60));
+            if (entity->was_on_ground && !on_ground(entity)) {
+                // entity->dp += entity->sticking_dp;
+                entity->sticking_dp = vec2(0, 0);
+            }
         }
 
         if (on_ground(entity)) {
@@ -795,7 +953,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         Transform2D transform = default_transform2d();
         transform.offset = entity->p;
         push_shape(render_commands, transform, entity->collision, entity->color);
-        // dbg_draw_shape(transform, entity->collision, entity->color);
 
         entity->color = vec4(1, 1, 1, 1);
     }

@@ -17,20 +17,20 @@
 #include "common.h"
 
 #include "memory_arena.h"
-#include "platform_bridge.h"
+#include "pulsar_platform_bridge.h"
 
 #include "string.h"
 #include "math.h"
 #include "opengl.h"
 
-#include "game_assets.h"
-#include "audio_mixer.h"
+#define using_struct(type, as) union { type as; struct { BodyOf_##type }; };
 
-enum EntityType {
-    EntityType_Null,
+#include "pulsar_assets.h"
+#include "pulsar_audio_mixer.h"
 
-    EntityType_Player,
-    EntityType_Wall,
+enum GameMode {
+    GameMode_Ingame,
+    GameMode_Editor,
 };
 
 enum EntityFlag {
@@ -39,23 +39,40 @@ enum EntityFlag {
     EntityFlag_OnGround = 0x4,
 };
 
+enum EntityType {
+    EntityType_Null,
+
+    EntityType_Player,
+    EntityType_Wall,
+    EntityType_SoundtrackPlayer,
+};
+
+struct EntityID { u32 value; };
+
 struct Entity {
     EntityType type;
     v2 p;
     v2 dp;
     v2 ddp;
 
+    f32 sim_dt;
+
     Entity* sticking_entity;
     v2 sticking_dp;
 
     b32 was_on_ground;
+    f32 surface_friction;
 
     f32 movement_t;
     f32 off_ground_timer;
-    f32 surface_friction;
     f32 friction_of_last_touched_surface;
 
+    u32 midi_note;
     v2 midi_test_target;
+
+    b32 soundtrack_has_been_played;
+    SoundtrackID soundtrack_id;
+    u32 playback_flags;
 
     u32 flags;
 
@@ -64,33 +81,58 @@ struct Entity {
     Shape2D collision;
 };
 
-enum GameMode {
-    GameMode_Ingame,
-    GameMode_Editor,
-};
-
 struct PlayingMidi {
     union {
         PlayingMidi* next;
         PlayingMidi* next_free;
     };
 
-    f32 timer;
+    // @Note: Without a sync sound, midi timing is going to be pretty rubbish.
+    // With a sync sound however, it will be very good.
+    PlayingSound* sync_sound;
+
+    u32 tick_timer;
     u32 event_index;
     MidiTrack* track;
+
+    u32 flags;
 };
 
 #define MAX_ENTITY_COUNT 8192
+struct Level {
+    String name;
+
+    u32 entity_count;
+    Entity entities[MAX_ENTITY_COUNT];
+};
+
+struct EditorState {
+    b32 initialized;
+
+    MemoryArena* arena;
+
+    Level* active_level;
+
+    GameRenderCommands* render_commands;
+    Assets* assets;
+    Font* font;
+};
+
+struct ActiveMidiEvent {
+    using_struct(MidiEvent, midi_event);
+    f32 dt_left;
+};
+
 struct GameState {
     MemoryArena permanent_arena;
     MemoryArena transient_arena;
+
+    EditorState* editor_state;
 
     GameMode game_mode;
 
     AudioMixer audio_mixer;
     Assets assets;
-
-    Font* debug_font;
 
     Sound* test_music;
     Sound* test_sound;
@@ -101,10 +143,9 @@ struct GameState {
     PlayingMidi* first_free_playing_midi;
 
     u32 midi_event_buffer_count;
-    MidiEvent midi_event_buffer[256];
+    ActiveMidiEvent midi_event_buffer[256];
 
-    u32 level_entity_count;
-    Entity level_entities[MAX_ENTITY_COUNT];
+    Level* active_level;
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];

@@ -1,10 +1,11 @@
 internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
+    // @TODO: Make load_assets ignorant of the platform's file system
     // @TODO: Load assets into the memory arena instead of the space allocated
     // by platform.read_entire_file
     EntireFile asset_file = platform.read_entire_file(file_name);
     if (asset_file.size > 0) {
         AssetPackHeader* header = cast(AssetPackHeader*) asset_file.data;
-        assert(header->magic_value == ASSET_PACK_CODE('p', 'a', 'k', 'f'));
+        assert(header->magic_value == ASSET_PACK_CODE('p', 'l', 'a', 'f'));
         assert(header->version == 0);
 
         assets->asset_count = header->asset_count;
@@ -68,13 +69,15 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
     }
 }
 
-inline u32 get_asset_id_by_name(Assets* assets, char* name) {
+inline u32 get_asset_id_by_name(Assets* assets, char* name, AssetType asset_type = AssetType_Unknown) {
     u32 result = 0;
 
     for (u32 asset_index = 1; asset_index < assets->asset_count; asset_index++) {
         Asset* asset = assets->asset_catalog + asset_index;
         if (asset->name && strings_are_equal(asset->name, name)) {
-            result = asset_index;
+            if (asset_type == AssetType_Unknown || asset->type == asset_type) {
+                result = asset_index;
+            }
         }
     }
 
@@ -82,17 +85,22 @@ inline u32 get_asset_id_by_name(Assets* assets, char* name) {
 }
 
 inline ImageID get_image_id_by_name(Assets* assets, char* name) {
-    ImageID result = { get_asset_id_by_name(assets, name) };
+    ImageID result = { get_asset_id_by_name(assets, name, AssetType_Image) };
     return result;
 }
 
 inline SoundID get_sound_id_by_name(Assets* assets, char* name) {
-    SoundID result = { get_asset_id_by_name(assets, name) };
+    SoundID result = { get_asset_id_by_name(assets, name, AssetType_Sound) };
     return result;
 }
 
 inline FontID get_font_id_by_name(Assets* assets, char* name) {
-    FontID result = { get_asset_id_by_name(assets, name) };
+    FontID result = { get_asset_id_by_name(assets, name, AssetType_Font) };
+    return result;
+}
+
+inline SoundtrackID get_soundtrack_id_by_name(Assets* assets, char* name) {
+    SoundtrackID result = { get_asset_id_by_name(assets, name, AssetType_Soundtrack) };
     return result;
 }
 
@@ -186,6 +194,21 @@ inline f32 get_advance_for_codepoint_pair(Font* font, u32 c1, u32 c2) {
     u32 g2 = c2 - font->first_codepoint;
     u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
     f32 result = font->kerning_table[glyph_count*g2 + g1];
+    return result;
+}
+
+inline f32 get_baseline(Font* font) {
+    f32 result = font->descent;
+    return result;
+}
+
+inline f32 get_baseline_from_top(Font* font) {
+    f32 result = font->ascent;
+    return result;
+}
+
+inline f32 get_line_spacing(Font* font) {
+    f32 result = font->ascent + font->descent + font->line_gap;
     return result;
 }
 

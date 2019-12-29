@@ -2,7 +2,7 @@
 #define GAME_ASSETS_H
 
 struct Sound {
-    union { PackedSound packed_sound; struct { BodyOf_PackedSound }; };
+    using_struct(PackedSound, packed_sound);
     s16* samples;
 };
 
@@ -10,18 +10,18 @@ struct Sound {
 struct Image;
 
 struct Font {
-    union { PackedFont packed_font; struct { BodyOf_PackedFont }; };
+    using_struct(PackedFont, packed_font);
     ImageID* glyph_table;
     f32* kerning_table;
 };
 
 struct MidiTrack {
-    union { PackedMidi packed_midi; struct { BodyOf_PackedMidi }; };
+    using_struct(PackedMidi, packed_midi);
     MidiEvent* events;
 };
 
 struct Soundtrack {
-    union { PackedSoundtrack packed_soundtrack; struct { BodyOf_PackedSoundtrack }; };
+    using_struct(PackedSoundtrack, packed_soundtrack);
     MidiID* midi_tracks;
 };
 

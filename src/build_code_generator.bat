@@ -1,14 +1,14 @@
 @echo off
 
-ctime -begin ctm/pulsar_asset_packer.ctm
+ctime -begin ctm/pulsar_code_generator.ctm
 
 IF NOT EXIST build mkdir build
 pushd build
 
 ECHO]
-ECHO ----------------------------
-ECHO *** BUILDING FROM SOURCE ***
-ECHO ----------------------------
+ECHO -------------------------------
+ECHO *** BUILDING CODE GENERATOR ***
+ECHO -------------------------------
 
 REM /MT: Statically link C runtime library (goodbye 10 billion MSVCRedist versions!)
 REM /Gm-: Disable incremental builds
@@ -24,16 +24,13 @@ REM /opt:ref: Cull unused functions
 
 REM NOTE: /MTd for getting the debug version of the CRT. Should be /MT for release.
 set FLAGS=/nologo /Od /MTd /Gm- /Zi /Zo /Oi /GR- /EHa- /fp:fast /fp:except- ^
-    /WX /W4 /wd4201 /wd4100 /wd4189 /wd4577 /wd4505 /wd4702 /wd4456 /wd4311 /wd4302 /wd4127 /wd4312 ^
-    /D_CRT_SECURE_NO_WARNINGS=1
+    /WX /W4 /wd4201 /wd4100 /wd4189 /wd4577 /wd4505 /wd4702 /wd4456 /wd4311 /wd4302 /wd4127 /wd4312
 
 set LINKER_FLAGS=/opt:ref /incremental:no
-set LINKER_LIBRARIES=
 
-REM 64 bit build
-cl ..\pulsar_asset_packer.cpp %FLAGS% /link %LINKER_FLAGS% %LINKER_LIBRARIES%
+cl ..\pulsar_code_generator.cpp /D_CRT_SECURE_NO_WARNINGS %FLAGS% /link %LINKER_FLAGS%
 set LAST_ERROR=%ERRORLEVEL%
 
 popd
 
-ctime -end ctm/pulsar_asset_packer.ctm %LAST_ERROR%
+ctime -end ctm/pulsar_code_generator.ctm %LAST_ERROR%

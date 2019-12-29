@@ -67,7 +67,11 @@ inline s32 floor_f32_to_i32(f32 f) {
 }
 
 inline s32 ceil_f32_to_i32(f32 f) {
-    return (s32)ceilf(f);
+    return cast(s32) ceilf(f);
+}
+
+inline u64 round_f64_to_u64(f64 f) {
+    return cast(u64) round(f);
 }
 
 inline s32 truncate_f32_to_i32(f32 f) {

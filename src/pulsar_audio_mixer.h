@@ -1,9 +1,15 @@
 #ifndef AUDIO_MIXER_H
 #define AUDIO_MIXER_H
 
+enum PlaybackFlag {
+    Playback_Looping = 0x1,
+};
+
 struct PlayingSound {
     f32 current_volume[2];
     u32 samples_played;
+
+    u32 flags;
 
     Sound* sound;
 

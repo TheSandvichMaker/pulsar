@@ -14,7 +14,7 @@
 #include "file_io.cpp"
 #include "asset_loading.cpp"
 
-#include "asset_pack_format.h"
+#include "pulsar_asset_pack_file_format.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
@@ -211,17 +211,17 @@ int main(int argument_count, char** arguments) {
 
     asset_descriptions = allocate_array<AssetDescription>(64, &global_arena);
 
-    // add_midi_track("test_midi", "test_soundtrack.mid");
     char* midi_files[] = { "test_soundtrack.mid" };
     add_soundtrack("test_soundtrack", "test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
 
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
     add_image("test_image", "test_bitmap.bmp");
-    add_font("debug_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 36);
+    add_font("debug_font", "C:/Windows/Fonts/consola.ttf", 22);
+    add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 36);
 
     AssetPackHeader header;
-    header.magic_value = ASSET_PACK_CODE('p', 'a', 'k', 'f');
+    header.magic_value = ASSET_PACK_CODE('p', 'l', 'a', 'f');
     header.version = ASSET_PACK_VERSION;
     header.asset_count = packed_asset_count;
 
@@ -230,7 +230,7 @@ int main(int argument_count, char** arguments) {
     header.asset_catalog = sizeof(AssetPackHeader);
     header.asset_name_store = header.asset_catalog + asset_catalog_size;
 
-    FILE* out = fopen("assets.pak", "wb");
+    FILE* out = fopen("assets.pla", "wb");
     if (out) {
         fseek(out, header.asset_name_store, SEEK_SET);
         fputc(0, out); // @Note: The name store starts with a null byte for assets without a name.
@@ -436,11 +436,17 @@ int main(int argument_count, char** arguments) {
                     case AssetDataType_Midi: {
                         packed->type = AssetType_Midi;
 
-                        u32 ticks_per_quarter_note = 0;
-                        f32 seconds_per_beat = 0.5f;
-                        packed->midi.beats_per_minute = 120;
+                        f64 running_sample_index = 0.0f;
+
+                        packed->midi.ticks_per_second = 48000;
                         packed->midi.time_signature_numerator = 4;
                         packed->midi.time_signature_denominator = 4;
+
+                        f64 samples_per_microsecond = cast(f32) packed->midi.ticks_per_second / 1000000.0f;
+                        u32 ticks_per_quarter_note = 0;
+                        u32 microseconds_per_quarter_note = 500000;
+
+                        f64 samples_per_delta_time = 0.0f;
 
                         MidiStream stream;
                         stream.at = cast(u8*) file.data;
@@ -448,7 +454,6 @@ int main(int argument_count, char** arguments) {
 
                         LinearBuffer(MidiEvent) events = begin_linear_buffer(&global_arena, MidiEvent, no_clear());
 
-                        f32 ticks_to_seconds = 0.0f;
                         while (stream.at < stream.stop) {
                             MidiChunk chunk = midi_read_chunk(&stream);
 
@@ -471,7 +476,7 @@ int main(int argument_count, char** arguments) {
                                         NOT_IMPLEMENTED;
                                     } else {
                                         ticks_per_quarter_note = header.division;
-                                        ticks_to_seconds = seconds_per_beat / cast(f32) ticks_per_quarter_note;
+                                        samples_per_delta_time = samples_per_microsecond*(cast(f64) microseconds_per_quarter_note / cast(f64) ticks_per_quarter_note);
                                     }
                                 } break;
 
@@ -493,10 +498,8 @@ int main(int argument_count, char** arguments) {
                                                 switch (event) {
                                                     case 0x51: {
                                                         // @Note: Tempo Change (how do tempo changes relate to ticks per quarter note from the delta time?)
-                                                        u32 microseconds_per_quarter_note = midi_read_u24(&data);
-                                                        seconds_per_beat = 0.000004f*cast(f32)microseconds_per_quarter_note;
-                                                        ticks_to_seconds = seconds_per_beat / cast(f32) ticks_per_quarter_note;
-                                                        packed->midi.beats_per_minute = round_f32_to_u32(60.0f / (seconds_per_beat));
+                                                        microseconds_per_quarter_note = midi_read_u24(&data);
+                                                        samples_per_delta_time = samples_per_microsecond*(cast(f64) microseconds_per_quarter_note / cast(f64) ticks_per_quarter_note);
                                                     } break;
 
                                                     case 0x58: {
@@ -536,7 +539,9 @@ int main(int argument_count, char** arguments) {
 parse_data_bytes:
                                             // @TODO: I think this will barf if I hit an unhandled midi channel message status
                                             MidiEvent* event = lb_push(events);
-                                            event->delta_time = ticks_to_seconds * cast(f32) delta_time;
+                                            f64 delta_time_in_samples = samples_per_delta_time * cast(f64) delta_time;
+                                            running_sample_index += delta_time_in_samples;
+                                            event->absolute_time_in_ticks = safe_truncate_u64u32(round_f64_to_u64(running_sample_index));
                                             event->channel = cast(u8) channel;
 
                                             switch (running_status) {
@@ -575,6 +580,10 @@ parse_data_bytes:
                             stream.at = data.at;
                         }
 done_parsing_midi:
+                        f32 seconds_per_beat = 0.000004f*cast(f32)microseconds_per_quarter_note;
+                        f32 ticks_to_seconds = seconds_per_beat / cast(f32) ticks_per_quarter_note;
+                        packed->midi.beats_per_minute = round_f32_to_u32(60.0f / seconds_per_beat);
+
                         end_linear_buffer(events);
                         packed->midi.event_count = cast(u32) lb_count(events);
 
