@@ -1,14 +1,13 @@
 #include "pulsar_main.h"
 
-#include "pulsar_assets.cpp"
-#include "pulsar_audio_mixer.cpp"
-#include "pulsar_render_commands.cpp"
-
-#include <stdarg.h>
-
 #define STB_SPRINTF_STATIC 1
 #define STB_SPRINTF_IMPLEMENTATION 1
 #include "stb_sprintf.h"
+
+#include "pulsar_assets.cpp"
+#include "pulsar_audio_mixer.cpp"
+#include "pulsar_render_commands.cpp"
+#include "pulsar_editor.cpp"
 
 #define DEBUG_GJK_VISUALIZATION 0
 
@@ -16,6 +15,10 @@ inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
     v2 result = vec2(0, 0);
 
     switch (s.type) {
+        case Shape_Point: {
+            result = vec2(0, 0);
+        } break;
+
         case Shape_Polygon: {
             if (s.vert_count > 0) {
                 f32 best_dist = dot(s.vertices[0], d);
@@ -206,7 +209,10 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
     v4 viz_color = vec4(1, 0, 1, 1);
 #endif
 
-    TemporaryMemory temp = begin_temporary_memory(temp_arena);
+    TemporaryMemory temp = {};
+    if (temp_arena) {
+        temp = begin_temporary_memory(temp_arena);
+    }
 
     u32 pc = 0;
     v2 p[3] = {};
@@ -291,8 +297,17 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
     dbg_draw_minkowski_difference_with_brute_force(t1, s1, t2, s2, viz_color);
 #endif
 
-    end_temporary_memory(temp);
+    if (temp_arena) {
+        end_temporary_memory(temp);
+    }
 
+    return result;
+}
+
+inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p) {
+    Transform2D point_t = transform2d(p);
+    Shape2D point_s = point();
+    b32 result = gjk_intersect(t, s, point_t, point_s);
     return result;
 }
 
@@ -634,51 +649,6 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     return num_bytes;
 }
 
-internal void editor_draw_text(EditorState* editor, v2 p, v4 color, char* format_string, ...) {
-    TemporaryMemory temp = begin_temporary_memory(editor->arena);
-
-    va_list va_args;
-    va_start(va_args, format_string);
-
-    u32 text_size = stbsp_vsnprintf(0, 0, format_string, va_args) + 1; // @Note: stbsp_vsprintf doesn't include the null terminator in the returned size, so I add it in.
-
-    char* text = (char*)push_size(editor->arena, text_size, align_no_clear(1));
-    stbsp_vsnprintf(text, text_size, format_string, va_args);
-
-    va_end(va_args);
-
-    v2 at_p = p;
-    Font* font = editor->font;
-    for (char* at = text; at[0]; at++) {
-        if (at[0] == ' ') {
-            at_p.x += font->whitespace_width;
-        } else {
-            ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
-            if (glyph_id.value) {
-                Image* glyph = get_image(editor->assets, glyph_id);
-                push_image(editor->render_commands, glyph, at_p + vec2(2.0f, -2.0f), vec4(0, 0, 0, 0.75f));
-                push_image(editor->render_commands, glyph, at_p, color);
-                if (at[1] && at[1] != ' ') {
-                    at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
-                } else {
-                    // @TODO: Is this what you want to do?
-                    at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
-                }
-            }
-        }
-    }
-
-    end_temporary_memory(temp);
-}
-
-inline EditorState* allocate_editor_state(GameRenderCommands* render_commands, Assets* assets, MemoryArena* permanent_arena, MemoryArena* transient_arena) {
-    EditorState* editor = push_struct(permanent_arena, EditorState);
-    editor->render_commands = render_commands;
-    editor->assets = assets;
-    editor->arena = transient_arena;
-    return editor;
-}
-
 inline void stop_all_midi_tracks(GameState* game_state) {
     PlayingMidi* last_playing_midi = game_state->first_playing_midi;
     while (last_playing_midi->next) {
@@ -788,7 +758,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                     ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
                     active_event->midi_event = event;
-                    active_event->dt_left = dt*(1.0f - (cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame));
+                    f32 timing_into_frame = cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame;
+                    active_event->dt_left = dt*(1.0f - timing_into_frame);
 
                     assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
 
@@ -900,14 +871,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         EditorState* editor = game_state->editor_state;
 
         if (!editor->initialized) {
-            editor->active_level = game_state->active_level;
-            editor->font = get_font_by_name(editor->assets, "editor_font");
-
-            editor->initialized = true;
+            initialize_editor(editor, game_state->active_level);
         }
 
-        Level* level = editor->active_level;
-        editor_draw_text(editor, vec2(4.0f, height - get_baseline_from_top(editor->font)), vec4(1, 1, 1, 1), "Editing level '%s'", level->name.data);
+        execute_editor(editor, input);
 
         if (was_pressed(input->debug_fkeys[1])) {
             switch_gamemode(game_state, GameMode_Ingame);

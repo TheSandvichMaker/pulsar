@@ -221,7 +221,7 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 at += sizeof(*command);
 
                 Image* image = command->image;
-                opengl_texture(cast(GLuint) image->handle, rect_min_dim(command->p - image->align*vec2(image->w, image->h), vec2(image->w, image->h)), command->color);
+                opengl_texture(cast(GLuint) image->handle, rect_min_dim(command->p, vec2(image->w, image->h)), command->color);
             } break;
 
             INVALID_DEFAULT_CASE;

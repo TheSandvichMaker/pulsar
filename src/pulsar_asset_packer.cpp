@@ -218,7 +218,7 @@ int main(int argument_count, char** arguments) {
     add_sound("test_music", "test_music.wav");
     add_image("test_image", "test_bitmap.bmp");
     add_font("debug_font", "C:/Windows/Fonts/consola.ttf", 22);
-    add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 36);
+    add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'l', 'a', 'f');

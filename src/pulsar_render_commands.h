@@ -29,6 +29,7 @@ inline Transform2D transform2d(v2 offset, v2 sweep = vec2(0, 0)) {
 }
 
 enum ShapeType {
+    Shape_Point,
     Shape_Polygon,
     Shape_Circle,
     Shape_Rectangle,
@@ -74,6 +75,12 @@ inline Shape2D rectangle(Rect2 rect) {
     Shape2D result = {};
     result.type = Shape_Rectangle;
     result.rect = rect;
+    return result;
+}
+
+inline Shape2D point() {
+    Shape2D result = {};
+    result.type = Shape_Point;
     return result;
 }
 

@@ -317,6 +317,8 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                 b32 is_down = !(message.lParam & (1 << 31));
                 b32 alt_is_down = (message.lParam & (1 << 29));
 
+                input->alt_down = alt_is_down;
+
                 if (was_down == is_down) break;
 
                 switch (vk_code) {
@@ -351,6 +353,9 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                     case VK_LEFT: { win32_process_keyboard_message(&input->controller.action_left, is_down); } break;
                     case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
                     case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
+
+                    case VK_SHIFT: { input->shift_down = is_down; } break;
+                    case VK_CONTROL: { input->ctrl_down = is_down; } break;
 
                     case VK_RETURN: {
                         if (is_down && alt_is_down) {
@@ -508,6 +513,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     new_input->debug_fkeys[fkey_index].is_down = old_input->debug_fkeys[fkey_index].is_down;
                     new_input->debug_fkeys[fkey_index].half_transition_count = 0;
                 }
+
+                new_input->ctrl_down = old_input->ctrl_down;
+                new_input->shift_down = old_input->shift_down;
+                new_input->alt_down = old_input->alt_down;
 
                 POINT mouse_position;
                 GetCursorPos(&mouse_position);

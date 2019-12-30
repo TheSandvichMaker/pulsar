@@ -14,6 +14,8 @@
  *     https://www.midi.org/specifications-old/item/the-midi-1-0-specification
  */
 
+#include <stdarg.h>
+
 #include "common.h"
 
 #include "memory_arena.h"
@@ -45,6 +47,8 @@ enum EntityType {
     EntityType_Player,
     EntityType_Wall,
     EntityType_SoundtrackPlayer,
+
+    EntityType_Count,
 };
 
 struct EntityID { u32 value; };
@@ -81,6 +85,8 @@ struct Entity {
     Shape2D collision;
 };
 
+#include "pulsar_editor.h"
+
 struct PlayingMidi {
     union {
         PlayingMidi* next;
@@ -104,18 +110,6 @@ struct Level {
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
-};
-
-struct EditorState {
-    b32 initialized;
-
-    MemoryArena* arena;
-
-    Level* active_level;
-
-    GameRenderCommands* render_commands;
-    Assets* assets;
-    Font* font;
 };
 
 struct ActiveMidiEvent {
@@ -156,5 +150,7 @@ struct GameState {
 };
 
 global PlatformAPI platform;
+
+inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 
 #endif /* GAME_MAIN_H */

@@ -23,7 +23,7 @@ inline RenderCommandClear* push_clear(GameRenderCommands* commands, v4 color) {
 inline RenderCommandImage* push_image(GameRenderCommands* commands, Image* image, v2 p, v4 color = vec4(1, 1, 1, 1)) {
     RenderCommandImage* result = push_render_command(commands, Image);
     result->image = image;
-    result->p = p;
+    result->p = p - image->align*vec2(image->w, image->h);
     result->color = color;
     return result;
 }
