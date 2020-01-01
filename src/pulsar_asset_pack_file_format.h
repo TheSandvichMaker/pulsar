@@ -26,7 +26,8 @@ enum PixelFormat {
 #define BodyOf_PackedImage    \
     PixelFormat pixel_format; \
     u32 w, h;                 \
-    v2 align;
+    v2 align;                 \
+    v2 scale;
 
 struct PackedImage {
     BodyOf_PackedImage;
@@ -52,6 +53,7 @@ struct PackedSound {
     u32 first_codepoint;         \
     u32 one_past_last_codepoint; \
     u32 size;                    \
+    u32 oversample_amount;       \
     f32 whitespace_width;        \
     f32 ascent;                  \
     f32 descent;                 \

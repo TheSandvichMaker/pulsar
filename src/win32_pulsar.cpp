@@ -317,8 +317,6 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                 b32 is_down = !(message.lParam & (1 << 31));
                 b32 alt_is_down = (message.lParam & (1 << 29));
 
-                input->alt_down = alt_is_down;
-
                 if (was_down == is_down) break;
 
                 switch (vk_code) {
@@ -354,8 +352,11 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                     case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
                     case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
 
-                    case VK_SHIFT: { input->shift_down = is_down; } break;
-                    case VK_CONTROL: { input->ctrl_down = is_down; } break;
+                    case VK_MENU: { win32_process_keyboard_message(&input->alt, is_down); } break;
+                    case VK_SHIFT: { win32_process_keyboard_message(&input->shift, is_down); } break;
+                    case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl, is_down); } break;
+                    case 'Z': { win32_process_keyboard_message(&input->z, is_down); } break;
+                    case VK_DELETE: { win32_process_keyboard_message(&input->del, is_down); } break;
 
                     case VK_RETURN: {
                         if (is_down && alt_is_down) {
@@ -420,6 +421,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         );
 
         if (window) {
+            win32_toggle_fullscreen(window);
+
             ShowWindow(window, show_code);
 
             HDC window_dc = GetDC(window);
@@ -514,9 +517,20 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     new_input->debug_fkeys[fkey_index].half_transition_count = 0;
                 }
 
-                new_input->ctrl_down = old_input->ctrl_down;
-                new_input->shift_down = old_input->shift_down;
-                new_input->alt_down = old_input->alt_down;
+                new_input->ctrl.is_down = old_input->ctrl.is_down;
+                new_input->ctrl.half_transition_count = 0;
+
+                new_input->shift.is_down = old_input->shift.is_down;
+                new_input->shift.half_transition_count = 0;
+
+                new_input->alt.is_down = old_input->alt.is_down;
+                new_input->alt.half_transition_count = 0;
+
+                new_input->z.is_down = old_input->z.is_down;
+                new_input->z.half_transition_count = 0;
+
+                new_input->del.is_down = old_input->del.is_down;
+                new_input->del.half_transition_count = 0;
 
                 POINT mouse_position;
                 GetCursorPos(&mouse_position);

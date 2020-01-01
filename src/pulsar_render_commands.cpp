@@ -20,10 +20,10 @@ inline RenderCommandClear* push_clear(GameRenderCommands* commands, v4 color) {
     return result;
 }
 
-inline RenderCommandImage* push_image(GameRenderCommands* commands, Image* image, v2 p, v4 color = vec4(1, 1, 1, 1)) {
+inline RenderCommandImage* push_image(GameRenderCommands* commands, Image* image, v2 p, v4 color = vec4(1, 1, 1, 1), v2 scale = vec2(1, 1)) {
     RenderCommandImage* result = push_render_command(commands, Image);
     result->image = image;
-    result->p = p - image->align*vec2(image->w, image->h);
+    result->p = p - image->scale*image->align*vec2(image->w, image->h);
     result->color = color;
     return result;
 }

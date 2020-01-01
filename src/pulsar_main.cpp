@@ -394,25 +394,39 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
 }
 
 inline Entity* get_entity(Level* level, EntityID id) {
-    assert(id.value < level->entity_count);
-    Entity* result = level->entities + id.value;
+    Entity* result = 0;
+    if (id.value > 0 && id.value < level->entity_count) {
+        result = level->entities + id.value;
+    }
     return result;
 }
 
-inline EntityID add_entity(Level* level, EntityType type) {
+inline AddEntityResult add_entity(Level* level, EntityType type) {
     assert(level->entity_count < ARRAY_COUNT(level->entities));
     EntityID entity_id = { level->entity_count++ };
     Entity* entity = get_entity(level, entity_id);
+    entity->id = entity_id;
 
     zero_struct(*entity);
     entity->type = type;
 
-    return entity_id;
+    AddEntityResult result;
+    result.id = entity_id;
+    result.ptr = entity;
+
+    return result;
 }
 
-inline EntityID add_player(GameState* game_state, Level* level, v2 starting_p) {
-    EntityID entity_id = add_entity(level, EntityType_Player);
-    Entity* entity = get_entity(level, entity_id);
+inline void delete_entity(Level* level, EntityID id) {
+    if (id.value && level->entity_count > 0) {
+        level->entities[id.value] = level->entities[--level->entity_count];
+        level->entities[id.value].id = id;
+    }
+}
+
+inline AddEntityResult add_player(GameState* game_state, Level* level, v2 starting_p) {
+    AddEntityResult result = add_entity(level, EntityType_Player);
+    Entity* entity = result.ptr;
 
     entity->p = starting_p;
     entity->collision = game_state->player_collision;
@@ -420,12 +434,12 @@ inline EntityID add_player(GameState* game_state, Level* level, v2 starting_p) {
 
     entity->flags |= EntityFlag_Moveable|EntityFlag_Collides;
 
-    return entity_id;
+    return result;
 }
 
-inline EntityID add_wall(GameState* game_state, Level* level, Rect2 rect) {
-    EntityID entity_id = add_entity(level, EntityType_Wall);
-    Entity* entity = get_entity(level, entity_id);
+inline AddEntityResult add_wall(GameState* game_state, Level* level, Rect2 rect) {
+    AddEntityResult result = add_entity(level, EntityType_Wall);
+    Entity* entity = result.ptr;
 
     entity->p = get_center(rect);
     entity->color = vec4(1, 1, 1, 1);
@@ -444,18 +458,18 @@ inline EntityID add_wall(GameState* game_state, Level* level, Rect2 rect) {
     verts[3] = { rect.min.x, rect.max.y };
     entity->collision = polygon(4, verts);
 
-    return entity_id;
+    return result;
 }
 
-inline EntityID add_soundtrack_player(GameState* game_state, Level* level, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
-    EntityID entity_id = add_entity(level, EntityType_SoundtrackPlayer);
-    Entity* entity = get_entity(level, entity_id);
+inline AddEntityResult add_soundtrack_player(GameState* game_state, Level* level, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
+    AddEntityResult result = add_entity(level, EntityType_SoundtrackPlayer);
+    Entity* entity = result.ptr;
 
     entity->soundtrack_id  = soundtrack_id;
     entity->playback_flags = playback_flags;
     entity->collision = circle(25.0f);
 
-    return entity_id;
+    return result;
 }
 
 inline Level* allocate_level(MemoryArena* arena, char* name) {
@@ -651,12 +665,14 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
 
 inline void stop_all_midi_tracks(GameState* game_state) {
     PlayingMidi* last_playing_midi = game_state->first_playing_midi;
-    while (last_playing_midi->next) {
-        last_playing_midi = last_playing_midi->next;
+    if (last_playing_midi) {
+        while (last_playing_midi->next) {
+            last_playing_midi = last_playing_midi->next;
+        }
+        last_playing_midi->next = game_state->first_free_playing_midi;
+        game_state->first_free_playing_midi = game_state->first_playing_midi;
+        game_state->first_playing_midi = 0;
     }
-    last_playing_midi->next = game_state->first_free_playing_midi;
-    game_state->first_free_playing_midi = game_state->first_playing_midi;
-    game_state->first_playing_midi = 0;
 }
 
 inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
@@ -665,6 +681,8 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             Level* level = game_state->active_level;
             for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
                 game_state->entities[entity_index] = level->entities[entity_index];
+                game_state->entities[entity_index].id = { entity_index };
+                level->entities[entity_index].id = { entity_index };
             }
             game_state->entity_count = level->entity_count;
         } break;
@@ -718,12 +736,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         add_soundtrack_player(game_state, game_state->active_level, soundtrack_id);
 
         for (s32 i = 0; i < 12; i++) {
-            EntityID wall_index = add_wall(game_state, game_state->active_level, rect_center_dim(vec2(512 + 64*i, 400), vec2(64, 64)));
-            Entity* wall = get_entity(game_state->active_level, wall_index);
+            Entity* wall = add_wall(game_state, game_state->active_level, rect_center_dim(vec2(512 + 64*i, 400), vec2(64, 64))).ptr;
             wall->midi_note = 60 + i;
         }
 
-        switch_gamemode(game_state, GameMode_Ingame);
+        switch_gamemode(game_state, GameMode_Editor);
 
         memory->initialized = true;
     }
@@ -868,18 +885,18 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             switch_gamemode(game_state, GameMode_Editor);
         }
     } else if (game_state->game_mode == GameMode_Editor) {
-        EditorState* editor = game_state->editor_state;
-
-        if (!editor->initialized) {
-            initialize_editor(editor, game_state->active_level);
-        }
-
-        execute_editor(editor, input);
-
         if (was_pressed(input->debug_fkeys[1])) {
             switch_gamemode(game_state, GameMode_Ingame);
         }
     }
+
+    EditorState* editor = game_state->editor_state;
+
+    if (!editor->initialized) {
+        initialize_editor(editor, game_state->active_level);
+    }
+
+    execute_editor(game_state, editor, input);
 
     //
     // Physics & Rendering

@@ -51,9 +51,24 @@ enum EntityType {
     EntityType_Count,
 };
 
+#define enum_to_string(enum_name) case enum_name: { return #enum_name; }
+inline char* entity_type_name(EntityType type) {
+    switch (type) {
+        enum_to_string(EntityType_Null);
+        enum_to_string(EntityType_Player);
+        enum_to_string(EntityType_Wall);
+        enum_to_string(EntityType_SoundtrackPlayer);
+        enum_to_string(EntityType_Count);
+        INVALID_DEFAULT_CASE;
+    }
+    return 0;
+}
+
 struct EntityID { u32 value; };
 
 struct Entity {
+    EntityID id;
+
     EntityType type;
     v2 p;
     v2 dp;
@@ -151,6 +166,15 @@ struct GameState {
 
 global PlatformAPI platform;
 
+struct AddEntityResult {
+    EntityID id;
+    Entity* ptr;
+};
+
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
+inline AddEntityResult add_entity(Level* level, EntityType type);
+inline AddEntityResult add_player(GameState* game_state, Level* level, v2 starting_p);
+inline Entity* get_entity(Level* level, EntityID id);
+inline void delete_entity(Level* level, EntityID id);
 
 #endif /* GAME_MAIN_H */

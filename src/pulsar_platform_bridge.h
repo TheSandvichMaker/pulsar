@@ -105,7 +105,7 @@ struct GameInput {
     GameButtonState mouse_buttons[PlatformMouseButton_Count];
 
     GameButtonState debug_fkeys[13];
-    b32 ctrl_down, shift_down, alt_down;
+    GameButtonState ctrl, shift, alt, z, del;
 
     b32 quit_requested;
 };

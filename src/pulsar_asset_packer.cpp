@@ -20,6 +20,9 @@
 #define STBTT_STATIC
 #include "stb_truetype.h"
 
+#define GAMMA_CORRECT_FONTS 1
+#define FONT_OVERSAMPLING 1
+
 enum AssetDataType {
     AssetDataType_Unknown,
 
@@ -217,7 +220,7 @@ int main(int argument_count, char** arguments) {
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
     add_image("test_image", "test_bitmap.bmp");
-    add_font("debug_font", "C:/Windows/Fonts/consola.ttf", 22);
+    add_font("debug_font", "C:/Windows/Fonts/consola.ttf", 24);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
 
     AssetPackHeader header;
@@ -329,18 +332,21 @@ int main(int argument_count, char** arguments) {
                         stbtt_fontinfo font_info;
                         stbtt_InitFont(&font_info, ttf_source, stbtt_GetFontOffsetForIndex(ttf_source, 0));
 
-                        f32 font_scale = stbtt_ScaleForPixelHeight(&font_info, cast(f32) packed->font.size);
+                        u32 oversample_amount = FONT_OVERSAMPLING;
+                        f32 rcp_oversample_amount = 1.0f / cast(f32) oversample_amount;
+                        f32 font_scale = stbtt_ScaleForPixelHeight(&font_info, cast(f32) (oversample_amount*packed->font.size));
 
                         s32 ascent, descent, line_gap;
                         stbtt_GetFontVMetrics(&font_info, &ascent, &descent, &line_gap);
 
-                        f32 scaled_ascent = font_scale * cast(f32) ascent;
-                        f32 scaled_descent = font_scale * cast(f32) descent;
-                        f32 scaled_line_gap = font_scale * cast(f32) line_gap;
+                        f32 scaled_ascent = (rcp_oversample_amount*font_scale) * cast(f32) ascent;
+                        f32 scaled_descent = (rcp_oversample_amount*font_scale) * cast(f32) descent;
+                        f32 scaled_line_gap = (rcp_oversample_amount*font_scale) * cast(f32) line_gap;
 
                         packed->font.ascent = scaled_ascent;
                         packed->font.descent = scaled_descent;
                         packed->font.line_gap = scaled_line_gap;
+                        packed->font.oversample_amount = oversample_amount;
 
                         // @Note: The glyphs are stored in the asset catalog immediately after the font.
                         u32 first_glyph_index = asset_desc->asset_index + 1;
@@ -362,7 +368,7 @@ int main(int argument_count, char** arguments) {
                         s32 whitespace_advance_width;
                         stbtt_GetCodepointHMetrics(&font_info, ' ', &whitespace_advance_width, 0);
 
-                        packed->font.whitespace_width = font_scale * cast(f32) whitespace_advance_width;
+                        packed->font.whitespace_width = rcp_oversample_amount*font_scale*cast(f32) whitespace_advance_width;
 
                         for (u32 glyph_index = 0; glyph_index < glyph_count; glyph_index++) {
                             TemporaryMemory glyph_temp = begin_temporary_memory(&global_arena);
@@ -379,22 +385,19 @@ int main(int argument_count, char** arguments) {
 
                             s32 w = ix1 - ix0;
                             s32 h = iy1 - iy0;
-                            u8* stb_glyph = cast(u8*) push_size(&global_arena, w*h, no_clear());
+                            u8* stb_glyph = cast(u8*) push_size(&global_arena, w*h);
 
                             stbtt_MakeCodepointBitmap(&font_info, stb_glyph, w, h, w, font_scale, font_scale, codepoint);
 
                             s32 advance_width, left_side_bearing;
                             stbtt_GetCodepointHMetrics(&font_info, codepoint, &advance_width, &left_side_bearing);
 
-                            f32 scaled_advance_width = font_scale * cast(f32) advance_width;
-                            f32 scaled_left_side_bearing = font_scale * cast(f32) left_side_bearing;
-
-                            s32 space_kern_width = stbtt_GetCodepointKernAdvance(&font_info, 'a', ' ');
+                            f32 scaled_left_side_bearing = rcp_oversample_amount*font_scale * cast(f32) left_side_bearing;
 
                             for (u32 paired_glyph_index = 0; paired_glyph_index < glyph_count; paired_glyph_index++) {
                                 u32 paired_codepoint = packed->font.first_codepoint + paired_glyph_index;
                                 s32 kern_width = stbtt_GetCodepointKernAdvance(&font_info, codepoint, paired_codepoint);
-                                kerning_table[glyph_count*paired_glyph_index + glyph_index] = font_scale * cast(f32) (advance_width + kern_width);
+                                kerning_table[glyph_count*paired_glyph_index + glyph_index] = rcp_oversample_amount*font_scale*cast(f32) (advance_width + kern_width);
                             }
 
                             // @TODO: See about single channel texture format
@@ -402,10 +405,11 @@ int main(int argument_count, char** arguments) {
                             packed_glyph->image.w = w;
                             packed_glyph->image.h = h;
                             packed_glyph->image.align = vec2(-scaled_left_side_bearing, cast(f32) iy1) / vec2(w, h);
+                            packed_glyph->image.scale = vec2(rcp_oversample_amount, rcp_oversample_amount);
 
                             u32 pitch = sizeof(u32)*packed_glyph->image.w;
                             u32 out_glyph_size = packed_glyph->image.h*pitch;
-                            u8* out_glyph = cast(u8*) push_size(&global_arena, out_glyph_size, no_clear());
+                            u8* out_glyph = cast(u8*) push_size(&global_arena, out_glyph_size);
 
                             u8* source = stb_glyph;
                             u8* dest_row = out_glyph + (packed_glyph->image.h - 1)*pitch;
@@ -413,7 +417,11 @@ int main(int argument_count, char** arguments) {
                                 u32* dest_pixel = cast(u32*) dest_row;
                                 for (u32 x = 0; x < packed_glyph->image.w; x++) {
                                     u8 alpha = *source++;
+#if GAMMA_CORRECT_FONTS
                                     u8 color = cast(u8) (255.0f*square_root(cast(f32) alpha / 255.0f));
+#else
+                                    u8 color = alpha;
+#endif
                                     *dest_pixel++ = (alpha << 24) | (color << 16) | (color << 8) | (color << 0);
                                 }
                                 dest_row -= pitch;
@@ -497,7 +505,7 @@ int main(int argument_count, char** arguments) {
                                                 u8* expected_end_position = data.at + length;
                                                 switch (event) {
                                                     case 0x51: {
-                                                        // @Note: Tempo Change (how do tempo changes relate to ticks per quarter note from the delta time?)
+                                                        // @Note: Tempo Change
                                                         microseconds_per_quarter_note = midi_read_u24(&data);
                                                         samples_per_delta_time = samples_per_microsecond*(cast(f64) microseconds_per_quarter_note / cast(f64) ticks_per_quarter_note);
                                                     } break;

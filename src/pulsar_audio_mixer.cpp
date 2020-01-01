@@ -43,12 +43,14 @@ inline void change_balance(PlayingSound* sound, f32 amplitude, f32 pan) {
 
 inline void stop_all_sounds(AudioMixer* mixer) {
     PlayingSound* last_playing_sound = mixer->first_playing_sound;
-    while (last_playing_sound->next) {
-        last_playing_sound = last_playing_sound->next;
+    if (last_playing_sound) {
+        while (last_playing_sound->next) {
+            last_playing_sound = last_playing_sound->next;
+        }
+        last_playing_sound->next = mixer->first_free_playing_sound;
+        mixer->first_free_playing_sound = mixer->first_playing_sound;
+        mixer->first_playing_sound = 0;
     }
-    last_playing_sound->next = mixer->first_free_playing_sound;
-    mixer->first_free_playing_sound = mixer->first_playing_sound;
-    mixer->first_playing_sound = 0;
 }
 
 internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* sound_buffer, MemoryArena* temp_arena) {

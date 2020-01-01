@@ -7,6 +7,12 @@ struct Image {
     void* handle;
 };
 
+inline Rect2 get_aligned_image_rect(Image* image) {
+    v2 dim = image->scale*vec2(image->w, image->h);
+    Rect2 result = rect_min_dim(-image->align*dim, dim);
+    return result;
+}
+
 struct Transform2D {
     v2 offset;
     v2 rotation_arm;
@@ -109,6 +115,7 @@ struct RenderCommandImage {
     Image* image;
     v2 p;
     v4 color;
+    v2 scale;
 };
 
 #endif /* RENDER_COMMANDS_H */

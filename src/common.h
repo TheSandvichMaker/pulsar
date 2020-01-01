@@ -48,7 +48,7 @@ typedef int64_t s64;
 #define GIGABYTES(num) (MEGABYTES(num) * 1024)
 #define TERABYTES(num) (GIGABYTES(num) * 1024)
 
-#define offset_of(st, m) ((size_t)&(((st *)0)->m))
+#define offset_of(st, m) ((size_t)&(((st*)0)->m))
 
 #ifndef NULL
 #ifdef __cplusplus
