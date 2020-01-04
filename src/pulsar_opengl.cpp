@@ -221,7 +221,12 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 at += sizeof(*command);
 
                 Image* image = command->image;
-                opengl_texture(cast(GLuint) image->handle, rect_min_dim(command->p, image->scale*vec2(image->w, image->h)), command->color);
+                Transform2D t = command->transform;
+                v2 x_axis = t.rotation_arm*t.scale;
+                v2 y_axis = perp(x_axis);
+                v2 align = t.scale*image->align*vec2(image->w, image->h);
+                v2 min_p = t.offset - x_axis*align.x - y_axis*align.y;
+                opengl_texture(cast(GLuint) image->handle, min_p, x_axis*cast(f32) image->w, y_axis*cast(f32) image->h, command->color);
             } break;
 
             INVALID_DEFAULT_CASE;

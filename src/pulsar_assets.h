@@ -44,4 +44,6 @@ struct Assets {
     u8* asset_data;
 };
 
+inline f32 get_line_spacing(Font* font);
+
 #endif /* GAME_ASSETS_H */

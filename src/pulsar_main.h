@@ -4,6 +4,9 @@
 /* REFERENCES:
  * HANDMADE HERO (@TODO: List the stuff directly used from handmade hero):
  *     https://handmadehero.org/
+ * Immediate mode GUIs:
+ *     Handmade Hero Debug System
+ *     https://www.youtube.com/watch?v=Z1qyvQsjK5Y
  * GJK, EPA:
  *     https://caseymuratori.com/blog_0003
  *     http://www.dyn4j.org/2010/04/gjk-gilbert-johnson-keerthi/
@@ -12,6 +15,8 @@
  *     http://paulbourke.net/geometry/polygonmesh/
  * MIDI:
  *     https://www.midi.org/specifications-old/item/the-midi-1-0-specification
+ * Framerate Independence / Timing
+ *     https://www.youtube.com/watch?v=fdAOPHgW7qM
  */
 
 #include <stdarg.h>
@@ -23,12 +28,16 @@
 
 #include "string.h"
 #include "math.h"
-#include "opengl.h"
+#include "pulsar_opengl.h"
 
 #define using_struct(type, as) union { type as; struct { BodyOf_##type }; };
 
 #include "pulsar_assets.h"
 #include "pulsar_audio_mixer.h"
+
+#if PULSAR_DEBUG
+global GameRenderCommands* dbg_render_commands;
+#endif
 
 enum GameMode {
     GameMode_Ingame,
@@ -36,9 +45,10 @@ enum GameMode {
 };
 
 enum EntityFlag {
-    EntityFlag_Moveable = 0x1,
+    EntityFlag_Physical = 0x1,
     EntityFlag_Collides = 0x2,
     EntityFlag_OnGround = 0x4,
+    EntityFlag_Invisible = 0x8,
 };
 
 enum EntityType {
@@ -59,9 +69,8 @@ inline char* entity_type_name(EntityType type) {
         enum_to_string(EntityType_Wall);
         enum_to_string(EntityType_SoundtrackPlayer);
         enum_to_string(EntityType_Count);
-        INVALID_DEFAULT_CASE;
     }
-    return 0;
+    return "Unknown EntityType";
 }
 
 struct EntityID { u32 value; };
@@ -95,6 +104,7 @@ struct Entity {
 
     u32 flags;
 
+    Image* sprite;
     v4 color;
 
     Shape2D collision;
@@ -136,6 +146,8 @@ struct GameState {
     MemoryArena permanent_arena;
     MemoryArena transient_arena;
 
+    RenderGroup render_group;
+
     EditorState* editor_state;
 
     GameMode game_mode;
@@ -146,6 +158,10 @@ struct GameState {
     Sound* test_music;
     Sound* test_sound;
     Image* test_image;
+    Image* speaker_icon;
+
+    f32 rotation;
+
     Soundtrack* test_soundtrack;
 
     PlayingMidi* first_playing_midi;
@@ -154,12 +170,15 @@ struct GameState {
     u32 midi_event_buffer_count;
     ActiveMidiEvent midi_event_buffer[256];
 
+    EntityID camera_target;
+
     Level* active_level;
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
 
     Shape2D player_collision;
+    Shape2D arrow;
 
     u32 sound_timer;
 };
@@ -176,5 +195,30 @@ inline AddEntityResult add_entity(Level* level, EntityType type);
 inline AddEntityResult add_player(GameState* game_state, Level* level, v2 starting_p);
 inline Entity* get_entity(Level* level, EntityID id);
 inline void delete_entity(Level* level, EntityID id);
+
+#define DEFINE_COLORS(MIDDLE_FIX, VALUE, COUNTER_VALUE) \
+static const v4 COLOR_##MIDDLE_FIX##RED    = { VALUE         , COUNTER_VALUE , COUNTER_VALUE , 1 }; \
+static const v4 COLOR_##MIDDLE_FIX##GREEN  = { COUNTER_VALUE , VALUE         , COUNTER_VALUE , 1 }; \
+static const v4 COLOR_##MIDDLE_FIX##BLUE   = { COUNTER_VALUE , COUNTER_VALUE , VALUE         , 1 }; \
+static const v4 COLOR_##MIDDLE_FIX##YELLOW = { VALUE         , VALUE         , COUNTER_VALUE , 1 }; \
+static const v4 COLOR_##MIDDLE_FIX##PINK   = { VALUE         , COUNTER_VALUE , VALUE         , 1 }; \
+static const v4 COLOR_##MIDDLE_FIX##CYAN   = { COUNTER_VALUE , VALUE         , VALUE         , 1 }; \
+
+DEFINE_COLORS(, 1.0f, 0.0f)
+DEFINE_COLORS(DARK_, 0.75f, 0.0f)
+DEFINE_COLORS(DARKER_, 0.5f, 0.0f)
+DEFINE_COLORS(DARKEST_, 0.25f, 0.0f)
+DEFINE_COLORS(LIGHT_, 1.0f, 0.25f)
+DEFINE_COLORS(LIGHTER_, 1.0f, 0.5f)
+DEFINE_COLORS(LIGHTEST_, 1.0f, 0.75f)
+DEFINE_COLORS(DESATURATED_, 0.65f, 0.35f)
+DEFINE_COLORS(DESATURATED_DARK_, 0.5f, 0.25f)
+DEFINE_COLORS(DESATURATED_LIGHT_, 0.85f, 0.75f)
+
+static const v4 COLOR_WHITE      = { 1.0f , 1.0f , 1.0f , 1.0f };
+static const v4 COLOR_LIGHT_GREY = { 0.75f, 0.75f, 0.75f, 1.0f };
+static const v4 COLOR_GREY       = { 0.5f , 0.5f , 0.5f , 1.0f };
+static const v4 COLOR_DARK_GREY  = { 0.25f, 0.25f, 0.25f, 1.0f };
+static const v4 COLOR_BLACK      = { 0.0f , 0.0f , 0.0f , 1.0f };
 
 #endif /* GAME_MAIN_H */

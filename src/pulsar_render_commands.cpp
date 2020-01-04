@@ -1,3 +1,45 @@
+inline void render_worldspace(RenderGroup* render_group, f32 vertical_screen_percentage_to_units) {
+    render_group->vertical_screen_percentage_to_units = vertical_screen_percentage_to_units;
+    render_group->units_to_vertical_screen_percentage = 1.0f / vertical_screen_percentage_to_units;
+}
+
+inline void initialize_render_group(RenderGroup* render_group, GameRenderCommands* commands, f32 vertical_screen_percentage_to_units) {
+    zero_struct(*render_group);
+    render_worldspace(render_group, vertical_screen_percentage_to_units);
+    render_group->camera_rotation_arm = vec2(1, 0);
+    render_group->commands = commands;
+}
+
+inline void render_screenspace(RenderGroup* render_group) {
+    render_group->vertical_screen_percentage_to_units = cast(f32) render_group->commands->height;
+    render_group->units_to_vertical_screen_percentage = 1.0f / render_group->vertical_screen_percentage_to_units;
+    render_group->camera_p = 0.5f*vec2(render_group->commands->width, render_group->commands->height);
+}
+
+inline Transform2D world_to_screen(RenderGroup* render_group, Transform2D world_t) {
+    v2 screen_size = vec2(render_group->commands->width, render_group->commands->height);
+    f32 units_to_pixels = render_group->units_to_vertical_screen_percentage * screen_size.y;
+
+    Transform2D result = world_t;
+    result.offset = units_to_pixels*rotate(world_t.offset - render_group->camera_p, render_group->camera_rotation_arm) + 0.5f*screen_size;
+    result.scale  = units_to_pixels*(world_t.scale);
+    result.rotation_arm = rotate(result.rotation_arm, render_group->camera_rotation_arm);
+
+    return result;
+}
+
+inline Transform2D screen_to_world(RenderGroup* render_group, Transform2D screen_t) {
+    v2 screen_size = vec2(render_group->commands->width, render_group->commands->height);
+    f32 pixels_to_units = render_group->vertical_screen_percentage_to_units / screen_size.y;
+
+    Transform2D result = screen_t;
+    result.offset = pixels_to_units*rotate_clockwise(screen_t.offset - 0.5f*screen_size, render_group->camera_rotation_arm)  + render_group->camera_p;
+    result.scale  = pixels_to_units*(screen_t.scale);
+    result.rotation_arm = rotate_clockwise(result.rotation_arm, render_group->camera_rotation_arm);
+
+    return result;
+}
+
 #define push_render_command(commands, type) cast(RenderCommand##type*) push_render_command_(commands, RenderCommand_##type, sizeof(RenderCommand##type))
 inline void* push_render_command_(GameRenderCommands* commands, RenderCommandType type, u32 render_command_size) {
     void* result = 0;
@@ -14,24 +56,33 @@ inline void* push_render_command_(GameRenderCommands* commands, RenderCommandTyp
     return result;
 }
 
-inline RenderCommandClear* push_clear(GameRenderCommands* commands, v4 color) {
-    RenderCommandClear* result = push_render_command(commands, Clear);
-    result->color = color;
+inline RenderCommandClear* push_clear(RenderGroup* render_group, v4 color) {
+    RenderCommandClear* result = push_render_command(render_group->commands, Clear);
+    if (result) {
+        result->color = color;
+    }
     return result;
 }
 
-inline RenderCommandImage* push_image(GameRenderCommands* commands, Image* image, v2 p, v4 color = vec4(1, 1, 1, 1), v2 scale = vec2(1, 1)) {
-    RenderCommandImage* result = push_render_command(commands, Image);
-    result->image = image;
-    result->p = p - image->scale*image->align*vec2(image->w, image->h);
-    result->color = color;
+inline RenderCommandImage* push_image(RenderGroup* render_group, Transform2D world_transform, Image* image, v4 color = vec4(1, 1, 1, 1)) {
+    RenderCommandImage* result = push_render_command(render_group->commands, Image);
+    if (result) {
+        Transform2D transform = world_to_screen(render_group, world_transform);
+        transform.scale  *= image->scale / vec2(image->w, image->h);
+        result->transform = transform;
+        result->image = image;
+        result->color = color;
+    }
     return result;
 }
 
-inline RenderCommandShape* push_shape(GameRenderCommands* commands, Transform2D transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
-    RenderCommandShape* result = push_render_command(commands, Shape);
-    result->transform = transform;
-    result->shape = shape;
-    result->color = color;
+inline RenderCommandShape* push_shape(RenderGroup* render_group, Transform2D world_transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
+    RenderCommandShape* result = push_render_command(render_group->commands, Shape);
+    if (result) {
+        Transform2D transform = world_to_screen(render_group, world_transform);
+        result->transform = transform;
+        result->shape = shape;
+        result->color = color;
+    }
     return result;
 }

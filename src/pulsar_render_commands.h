@@ -1,6 +1,16 @@
 #ifndef RENDER_COMMANDS_H
 #define RENDER_COMMANDS_H
 
+struct RenderGroup {
+    f32 units_to_vertical_screen_percentage;
+    f32 vertical_screen_percentage_to_units;
+
+    v2 camera_p;
+    v2 camera_rotation_arm;
+
+    struct GameRenderCommands* commands;
+};
+
 struct Image {
     union { PackedImage packed_image; struct { BodyOf_PackedImage }; };
     void* pixels;
@@ -17,19 +27,20 @@ struct Transform2D {
     v2 offset;
     v2 rotation_arm;
     v2 sweep;
-    f32 scale;
+    v2 scale;
 };
 
 inline Transform2D default_transform2d() {
     Transform2D result = {};
     result.rotation_arm = vec2(1, 0);
-    result.scale = 1.0f;
+    result.scale = vec2(1.0f, 1.0f);
     return result;
 }
 
-inline Transform2D transform2d(v2 offset, v2 sweep = vec2(0, 0)) {
+inline Transform2D transform2d(v2 offset, v2 scale = vec2(1.0f, 1.0f), v2 sweep = vec2(0, 0)) {
     Transform2D result = default_transform2d();
     result.offset = offset;
+    result.scale = scale;
     result.sweep = sweep;
     return result;
 }
@@ -112,10 +123,9 @@ struct RenderCommandShape {
 };
 
 struct RenderCommandImage {
+    Transform2D transform;
     Image* image;
-    v2 p;
     v4 color;
-    v2 scale;
 };
 
 #endif /* RENDER_COMMANDS_H */

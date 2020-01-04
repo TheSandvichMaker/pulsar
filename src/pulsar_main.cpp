@@ -9,7 +9,11 @@
 #include "pulsar_render_commands.cpp"
 #include "pulsar_editor.cpp"
 
+#if PULSAR_DEBUG
 #define DEBUG_GJK_VISUALIZATION 0
+#else
+#define DEBUG_GJK_VISUALIZATION 0
+#endif
 
 inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
     v2 result = vec2(0, 0);
@@ -231,7 +235,7 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
         Shape2D dbg_shape = polygon(pc, p);
         Transform2D dbg_transform = default_transform2d();
         dbg_transform.offset = t1.offset;
-        dbg_draw_shape(dbg_transform, dbg_shape);
+        push_shape(dbg_render_commands, dbg_transform, dbg_shape);
 #endif
 
         if (gjk_do_simplex(&pc, p, &d)) {
@@ -381,16 +385,17 @@ inline Shape2D dbg_minkowski_sum(Shape2D s1, Shape2D s2, MemoryArena* perm_arena
 }
 #endif
 
+global v2 arrow_verts[] = { { 0, 0 }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f } };
+global Shape2D arrow = polygon(ARRAY_COUNT(arrow_verts), arrow_verts);
+
 inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
-    v2 dir = end - start;
-    v2 dir_perp = perp(dir);
-    v2 fin = 0.1f*dir_perp;
-    v2 neck = start + 0.9f*dir;
-    v2 arrow_verts[] = { start, neck, neck + fin, end, neck - fin, neck };
-    Shape2D arrow;
-    arrow.vert_count = ARRAY_COUNT(arrow_verts);
-    arrow.vertices = arrow_verts;
-    dbg_draw_shape(default_transform2d(), arrow, color);
+    f32 scale = length(end - start);
+    v2 dir = normalize_or_zero(end - start);
+    Transform2D t = transform2d(start);
+    t.scale = vec2(scale, scale);
+    t.rotation_arm = dir;
+
+    // push_shape(dbg_render_commands, t, arrow, color);
 }
 
 inline Entity* get_entity(Level* level, EntityID id) {
@@ -405,9 +410,9 @@ inline AddEntityResult add_entity(Level* level, EntityType type) {
     assert(level->entity_count < ARRAY_COUNT(level->entities));
     EntityID entity_id = { level->entity_count++ };
     Entity* entity = get_entity(level, entity_id);
-    entity->id = entity_id;
 
     zero_struct(*entity);
+    entity->id = entity_id;
     entity->type = type;
 
     AddEntityResult result;
@@ -432,7 +437,9 @@ inline AddEntityResult add_player(GameState* game_state, Level* level, v2 starti
     entity->collision = game_state->player_collision;
     entity->color = vec4(1, 1, 1, 1);
 
-    entity->flags |= EntityFlag_Moveable|EntityFlag_Collides;
+    entity->flags |= EntityFlag_Physical|EntityFlag_Collides;
+
+    game_state->camera_target = result.id;
 
     return result;
 }
@@ -467,7 +474,9 @@ inline AddEntityResult add_soundtrack_player(GameState* game_state, Level* level
 
     entity->soundtrack_id  = soundtrack_id;
     entity->playback_flags = playback_flags;
-    entity->collision = circle(25.0f);
+    entity->sprite = game_state->speaker_icon;
+    entity->collision = circle(1.0f);
+    entity->flags |= EntityFlag_Invisible;
 
     return result;
 }
@@ -491,7 +500,7 @@ inline b32 on_ground(Entity* entity) {
 }
 
 #define MAX_COLLISION_ITERATIONS 4
-inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
+inline void physics_move(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     /*
      * @TODO: Figure out some of the cases in which the collision handling will
      * fail, which I'm sure there are some, such as _very_ extreme velocities
@@ -501,52 +510,82 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
      * side, allowing very fast entities to clip through each other.
      */
 
-    f32 epsilon = 0.01f;
+    f32 epsilon = 1.0e-3f;
 
-    // @TODO: Some kind of relationship with real world units, get away from using pixels.
-    f32 gravity = 300.0f;
-    ddp.y -= gravity;
+    if (entity->flags & EntityFlag_Physical) {
+        // @TODO: Some kind of relationship with real world units, get away from using pixels.
+        f32 gravity = 9.8f;
+        ddp.y -= gravity;
 
-    if (on_ground(entity)) {
-        ddp.x -= entity->friction_of_last_touched_surface*entity->dp.x;
-        // entity->flags &= ~EntityFlag_OnGround;
-        f32 off_ground_time = 0.2f;
-        if (entity->off_ground_timer < off_ground_time) {
-            entity->off_ground_timer += dt;
-        } else {
+        if (on_ground(entity)) {
+            ddp.x -= entity->friction_of_last_touched_surface*entity->dp.x;
             entity->flags &= ~EntityFlag_OnGround;
+            // f32 off_ground_time = 0.2f;
+            // if (entity->off_ground_timer < off_ground_time) {
+            //     entity->off_ground_timer += dt;
+            // } else {
+            //     entity->flags &= ~EntityFlag_OnGround;
+            // }
         }
-    }
 
-    v2 total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
-    entity->dp += ddp*dt;
+        v2 total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
+        entity->dp += ddp*dt;
 
-    entity->friction_of_last_touched_surface = 0.0f;
+        entity->friction_of_last_touched_surface = 0.0f;
 
-    f32 t_left = 1.0f;
-    v2 delta = t_left*total_delta;
+        f32 t_left = 1.0f;
+        v2 delta = t_left*total_delta;
 
-    if (entity->flags & EntityFlag_Collides) {
-        // @TODO: Optimized spatial indexing of sorts?
-        for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
-            Entity* test_entity = game_state->entities + entity_index;
-            if (entity != test_entity) {
-                entity->friction_of_last_touched_surface = test_entity->surface_friction;
-                Transform2D test_t = transform2d(test_entity->p);
-                if (test_entity->flags & EntityFlag_Collides) {
+        if (entity->flags & EntityFlag_Collides) {
+            // @TODO: Optimized spatial indexing of sorts?
+            for (u32 test_entity_index = 0; test_entity_index < game_state->entity_count; test_entity_index++) {
+                Entity* test_entity = game_state->entities + test_entity_index;
+                if (entity != test_entity && (test_entity->flags & EntityFlag_Collides) && !(test_entity->flags & EntityFlag_Physical)) {
                     test_entity->sticking_entity = 0;
-                    u32 iteration = 0;
-                    Transform2D t = transform2d(entity->p, delta);
+                    Transform2D t = transform2d(entity->p, vec2(1.0f, 1.0f), delta);
                     Transform2D test_t = transform2d(test_entity->p);
+
+                    CollisionInfo collision;
+                    if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
+                        entity->friction_of_last_touched_surface = test_entity->surface_friction;
+
+                        f32 theta_times_length_of_delta = dot(collision.vector, delta);
+
+                        collision.depth += epsilon;
+
+                        if (collision.vector.y < -0.707f) {
+                            if (!on_ground(entity)) {
+                                entity->flags |= EntityFlag_OnGround;
+                            }
+                            entity->off_ground_timer = 0.0f;
+                            test_entity->sticking_entity = entity;
+                        }
+
+                        dbg_draw_arrow(entity->p, entity->p + collision.vector*collision.depth*100.0f, vec4(1, 0, 0, 1));
+
+#if 0
+                        if (theta_times_length_of_delta > 0.0f) {
+                            f32 penetration_along_delta = collision.depth / theta_times_length_of_delta;
+                            v2 legal_move = delta*(1.0f - penetration_along_delta);
+                            delta *= penetration_along_delta;
+                            delta -= collision.vector*dot(delta, collision.vector);
+                            delta += legal_move;
+                        } else {
+#endif
+                            delta -= collision.vector*collision.depth;
+                        // }
+
+                        entity->dp -= (collision.vector*collision.depth)/dt;
+                        // entity->dp -= collision.vector*dot(entity->dp, collision.vector);
+                    }
+#if 0
+                    u32 iteration = 0;
                     do {
                         CollisionInfo collision;
                         if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
                             dbg_draw_arrow(entity->p, entity->p + collision.vector*25.0f, vec4(1, 0, 1, 1));
                             if (collision.vector.y < -0.707f) {
                                 if (!on_ground(entity)) {
-                                    // !!!!!
-                                    // entity->dp -= test_entity->dp;
-                                    // total_delta = 0.5f*ddp*square(dt) + entity->dp*dt;
                                     entity->flags |= EntityFlag_OnGround;
                                 }
                                 entity->off_ground_timer = 0.0f;
@@ -559,8 +598,11 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
                                 break;
                             } else {
                                 f32 penetration_along_delta = depth / theta_times_length_of_delta;
-                                f32 t_spent = 1.0f - penetration_along_delta;
+                                f32 t_spent = max(0.0f, 1.0f - penetration_along_delta);
                                 t_left -= t_spent;
+                                if (t_left > 1.0f || t_left < 0.0f) {
+                                    __debugbreak();
+                                }
 
                                 entity->p   += t_spent*delta;
                                 entity->dp  -= collision.vector*dot(entity->dp, collision.vector);
@@ -572,17 +614,22 @@ inline void move_entity(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
 
                         delta = t_left*total_delta;
 
+                        if (length(delta) > 100.0f) {
+                            __debugbreak();
+                        }
+
                         t.offset = entity->p;
                         t.sweep = delta;
 
                         iteration++;
                     } while (iteration < MAX_COLLISION_ITERATIONS && t_left > epsilon);
+#endif
                 }
             }
         }
-    }
 
-    entity->p += delta;
+        entity->p += delta;
+    }
 }
 
 inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0) {
@@ -678,6 +725,11 @@ inline void stop_all_midi_tracks(GameState* game_state) {
 inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
     switch (game_mode) {
         case GameMode_Ingame: {
+            if (game_state->game_mode == GameMode_Editor) {
+                EditorState* editor = game_state->editor_state;
+                editor->camera_p_on_exit = game_state->render_group.camera_p;
+            }
+
             Level* level = game_state->active_level;
             for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
                 game_state->entities[entity_index] = level->entities[entity_index];
@@ -688,6 +740,11 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
         } break;
 
         case GameMode_Editor: {
+            if (game_state->game_mode == GameMode_Ingame) {
+                EditorState* editor = game_state->editor_state;
+                game_state->render_group.camera_p = editor->camera_p_on_exit;
+            }
+
             stop_all_sounds(&game_state->audio_mixer);
             game_state->entity_count = 0;
         } break;
@@ -698,6 +755,10 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
+
+#if PULSAR_DEBUG
+    dbg_render_commands = render_commands;
+#endif
 
     platform = memory->platform_api;
 
@@ -715,32 +776,35 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        game_state->editor_state = allocate_editor_state(render_commands, &game_state->assets, &game_state->permanent_arena, &game_state->transient_arena);
-
         game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
         game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
+        game_state->speaker_icon = get_image_by_name(&game_state->assets, "speaker_icon");
 
         v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
-        square_verts[0] = { -10.0f,  0.0f };
-        square_verts[1] = {  10.0f,  0.0f };
-        square_verts[2] = {  10.0f, 50.0f };
-        square_verts[3] = { -10.0f, 50.0f };
-        game_state->player_collision = polygon(4, square_verts);
+        square_verts[0] = { -0.2f, 0.0f };
+        square_verts[1] = {  0.2f, 0.0f };
+        square_verts[2] = {  0.2f, 1.0f };
+        square_verts[3] = { -0.2f, 1.0f };
+        game_state->player_collision = circle(0.5f); // polygon(4, square_verts);
 
         game_state->active_level = allocate_level(&game_state->permanent_arena, "Default Level");
 
-        add_player(game_state, game_state->active_level, vec2(512, 512));
+        add_player(game_state, game_state->active_level, vec2(2.0f, 1.5f));
 
         SoundtrackID soundtrack_id = get_soundtrack_id_by_name(&game_state->assets, "test_soundtrack");
         add_soundtrack_player(game_state, game_state->active_level, soundtrack_id);
 
         for (s32 i = 0; i < 12; i++) {
-            Entity* wall = add_wall(game_state, game_state->active_level, rect_center_dim(vec2(512 + 64*i, 400), vec2(64, 64))).ptr;
+            Entity* wall = add_wall(game_state, game_state->active_level, rect_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f))).ptr;
             wall->midi_note = 60 + i;
         }
 
+        game_state->editor_state = allocate_editor(game_state, render_commands, game_state->active_level);
+
         switch_gamemode(game_state, GameMode_Editor);
+
+        initialize_render_group(&game_state->render_group, render_commands, 30.0f);
 
         memory->initialized = true;
     }
@@ -752,7 +816,17 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     f32 dt = input->frame_dt;
     f32 rcp_dt = 1.0f / dt;
 
-    push_clear(render_commands, vec4(0.5f, 0.5f, 0.5f, 1.0f));
+    render_worldspace(&game_state->render_group, 30.0f);
+
+#if 0
+    game_state->rotation += dt;
+    if (game_state->rotation > PI_32) {
+        game_state->rotation -= TAU_32;
+    }
+    game_state->render_group.camera_rotation_arm = arm2(game_state->rotation);
+#endif
+
+    push_clear(&game_state->render_group, vec4(0.5f, 0.5f, 0.5f, 1.0f));
 
     if (game_state->game_mode == GameMode_Ingame) {
         game_state->midi_event_buffer_count = 0;
@@ -815,18 +889,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
             switch (entity->type) {
                 case EntityType_Player: {
-                    if (entity->p.x < 0.0f) {
-                        entity->p.x += width;
-                    } else if (entity->p.x >= width) {
-                        entity->p.x -= width;
-                    }
-                    if (entity->p.y < 0.0f) {
-                        entity->p.y += height;
-                    } else if (entity->p.y >= height) {
-                        entity->p.y -= height;
-                    }
                     GameController* controller = &input->controller;
-                    f32 move_speed = entity->was_on_ground ? 1000.0f : 200.0f;
+                    f32 move_speed = entity->was_on_ground ? 50.0f : 10.0f;
                     if (controller->move_left.is_down) {
                         entity->ddp.x -= move_speed;
                     }
@@ -836,7 +900,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                     if (entity->was_on_ground && was_pressed(controller->move_up)) {
                         play_sound(&game_state->audio_mixer, game_state->test_sound);
-                        entity->ddp.y += 10000.0f;
+                        entity->ddp.y += 400.0f;
                         entity->flags &= ~EntityFlag_OnGround;
                     }
                 } break;
@@ -848,16 +912,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         if (event.note_value == entity->midi_note) {
                             entity->sim_dt = event.dt_left;
                             if (event.type == MidiEvent_NoteOn) {
-                                entity->midi_test_target.y += 20.0f*(event.note_value - 59);
+                                entity->midi_test_target.y += 0.5f*(event.note_value - 59);
                             } else if (event.type == MidiEvent_NoteOff) {
-                                entity->midi_test_target.y -= 20.0f*(event.note_value - 59);
+                                entity->midi_test_target.y -= 0.5f*(event.note_value - 59);
                             } else {
                                 INVALID_CODE_PATH;
                             }
                         }
                     }
-                    movement = 25.0f*(entity->midi_test_target - entity->p);
-                    entity->p += entity->sim_dt*movement;
+                    movement = 5.0f*(entity->midi_test_target - entity->p);
+                    // entity->p += entity->sim_dt*movement;
                     entity->dp = movement;
                     entity->movement_t += entity->sim_dt;
 #if 0
@@ -874,6 +938,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
                         play_soundtrack(game_state, soundtrack, entity->playback_flags);
                         entity->soundtrack_has_been_played = true;
+                    } else {
+                        entity->color = COLOR_GREEN;
                     }
                 } break;
 
@@ -892,8 +958,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     EditorState* editor = game_state->editor_state;
 
-    if (!editor->initialized) {
-        initialize_editor(editor, game_state->active_level);
+    if (was_pressed(input->debug_fkeys[2])) {
+        editor->shown = !editor->shown;
     }
 
     execute_editor(game_state, editor, input);
@@ -907,6 +973,9 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     if (game_state->game_mode == GameMode_Ingame) {
         active_entity_count = game_state->entity_count;
         active_entities = game_state->entities;
+
+        Entity* camera_target = game_state->entities + game_state->camera_target.value;
+        game_state->render_group.camera_p = camera_target->p;
     } else if (game_state->game_mode == GameMode_Editor) {
         active_entity_count = game_state->active_level->entity_count;
         active_entities = game_state->active_level->entities;
@@ -914,29 +983,46 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         INVALID_CODE_PATH;
     }
 
+    if (game_state->game_mode == GameMode_Ingame) {
+        for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
+            Entity* entity = active_entities + entity_index;
+            assert(entity->type != EntityType_Null);
+
+            if (entity->flags & EntityFlag_Physical) {
+                physics_move(game_state, entity, entity->ddp, entity->sim_dt);
+            }
+
+            if (on_ground(entity)) {
+                entity->color = vec4(0, 0, 1, 1);
+            }
+        }
+
+        for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
+            Entity* entity = active_entities + entity_index;
+            assert(entity->type != EntityType_Null);
+
+            if (!(entity->flags & EntityFlag_Physical)) {
+                entity->p += dt*entity->dp;
+                if (entity->sticking_entity) {
+                    // entity->sticking_entity->p += dt*entity->dp;
+                    // entity->sticking_entity->dp += entity->dp;
+                }
+            }
+        }
+    }
+
     for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
         Entity* entity = active_entities + entity_index;
         assert(entity->type != EntityType_Null);
 
-        if (game_state->game_mode == GameMode_Ingame) {
-            opengl_rectangle(rect_center_dim(entity->p + entity->sticking_dp, vec2(2, 2)), vec4(1, 0, 0, 1));
-            if (entity->flags & EntityFlag_Moveable) {
-                move_entity(game_state, entity, entity->ddp, entity->sim_dt);
-            }
-
-            if (entity->was_on_ground && !on_ground(entity)) {
-                // entity->dp += entity->sticking_dp;
-                entity->sticking_dp = vec2(0, 0);
+        if (!(entity->flags & EntityFlag_Invisible) || (game_state->game_mode == GameMode_Editor && editor->shown)) {
+            Transform2D transform = transform2d(entity->p);
+            if (entity->sprite) {
+                push_image(&game_state->render_group, transform, entity->sprite, entity->color);
+            } else {
+                push_shape(&game_state->render_group, transform, entity->collision, entity->color);
             }
         }
-
-        if (on_ground(entity)) {
-            entity->color = vec4(0, 0, 1, 1);
-        }
-
-        Transform2D transform = default_transform2d();
-        transform.offset = entity->p;
-        push_shape(render_commands, transform, entity->collision, entity->color);
 
         entity->color = vec4(1, 1, 1, 1);
     }

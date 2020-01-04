@@ -91,6 +91,7 @@ internal AssetDescription* add_image(char* asset_name, char* file_name, v2 align
     PackedImage* image = &desc->packed.image;
     image->pixel_format = PixelFormat_BGRA8;
     image->align = align;
+    image->scale = vec2(1.0f, 1.0f);
     return desc;
 }
 
@@ -220,8 +221,12 @@ int main(int argument_count, char** arguments) {
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
     add_image("test_image", "test_bitmap.bmp");
-    add_font("debug_font", "C:/Windows/Fonts/consola.ttf", 24);
+
+    add_image("speaker_icon", "speaker_icon.bmp");
+
+    add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
+    add_font("editor_font_big", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 32);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'l', 'a', 'f');

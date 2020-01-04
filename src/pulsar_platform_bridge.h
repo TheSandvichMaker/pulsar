@@ -54,6 +54,14 @@ struct GameSoundOutputBuffer {
     s16* samples;
 };
 
+struct GameRenderCommands {
+    u32 width, height;
+
+    u32 command_buffer_size;
+    u32 command_buffer_used;
+    u8* command_buffer;
+};
+
 struct GameButtonState {
     b32 is_down;
     u32 half_transition_count;
@@ -85,16 +93,6 @@ struct GameController {
     };
 };
 
-struct GameRenderCommands {
-    u32 width, height;
-
-    u32 command_buffer_size;
-    u32 command_buffer_used;
-    u8* command_buffer;
-};
-
-#define PLATFORM_KEYBOARD_CONTROLLER 0
-
 struct GameInput {
     b32 in_focus, focus_changed;
     f32 frame_dt;
@@ -104,11 +102,24 @@ struct GameInput {
     u32 mouse_x, mouse_y, mouse_z;
     GameButtonState mouse_buttons[PlatformMouseButton_Count];
 
+    // @Note: All these keys are just for dev purposes
     GameButtonState debug_fkeys[13];
-    GameButtonState ctrl, shift, alt, z, del;
+    union {
+        GameButtonState editor_keys[6];
+        struct {
+            GameButtonState ctrl, shift, alt, space, del, escape;
+        };
+    };
+    GameButtonState keys[26];
 
     b32 quit_requested;
 };
+
+inline GameButtonState get_key(GameInput* input, char key) {
+    assert(key >= 'A' && key <= 'Z');
+    GameButtonState result = input->keys[key - 'A'];
+    return result;
+}
 
 inline b32 was_pressed(GameButtonState button) {
     b32 result = (button.half_transition_count > 1) || (button.is_down && button.half_transition_count > 0);

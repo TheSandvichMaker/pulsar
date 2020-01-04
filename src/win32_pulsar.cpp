@@ -21,10 +21,10 @@
 #include "math.h"
 #include "file_io.h"
 
-#include "opengl.h"
+#include "pulsar_opengl.h"
 #include "win32_opengl.h"
 
-#include "opengl.cpp"
+#include "pulsar_opengl.cpp"
 #include "win32_opengl.cpp"
 
 global WglInfo wgl_info;
@@ -317,17 +317,25 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                 b32 is_down = !(message.lParam & (1 << 31));
                 b32 alt_is_down = (message.lParam & (1 << 29));
 
+                // @TODO: Fix key repeats
+                if (vk_code >= 'A' && vk_code <= 'Z') {
+                    win32_process_keyboard_message(&input->keys[vk_code - 'A'], is_down);
+                }
+
                 if (was_down == is_down) break;
 
                 switch (vk_code) {
                     case VK_ESCAPE: {
+                        // @TODO: It's not very useful to keep track of escape
+                        // usage if the game quits right away if I hit it...
                         running = false;
+                        win32_process_keyboard_message(&input->escape, is_down);
                     } break;
 
                     case VK_F1:  { win32_process_keyboard_message(&input->debug_fkeys[1],  is_down); } break;
                     case VK_F2:  { win32_process_keyboard_message(&input->debug_fkeys[2],  is_down); } break;
                     case VK_F3:  { win32_process_keyboard_message(&input->debug_fkeys[3],  is_down); } break;
-                    case VK_F4: {
+                    case VK_F4:  {
                         win32_process_keyboard_message(&input->debug_fkeys[4], is_down);
                         if (alt_is_down) {
                             input->quit_requested = true;
@@ -352,10 +360,10 @@ internal void win32_handle_remaining_messages(GameInput* input) {
                     case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
                     case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
 
+                    case VK_SPACE: { win32_process_keyboard_message(&input->space, is_down); } break;
                     case VK_MENU: { win32_process_keyboard_message(&input->alt, is_down); } break;
                     case VK_SHIFT: { win32_process_keyboard_message(&input->shift, is_down); } break;
                     case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl, is_down); } break;
-                    case 'Z': { win32_process_keyboard_message(&input->z, is_down); } break;
                     case VK_DELETE: { win32_process_keyboard_message(&input->del, is_down); } break;
 
                     case VK_RETURN: {
@@ -517,20 +525,15 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     new_input->debug_fkeys[fkey_index].half_transition_count = 0;
                 }
 
-                new_input->ctrl.is_down = old_input->ctrl.is_down;
-                new_input->ctrl.half_transition_count = 0;
+                for (u32 key_index = 0; key_index < ARRAY_COUNT(new_input->keys); key_index++) {
+                    new_input->keys[key_index].is_down = old_input->keys[key_index].is_down;
+                    new_input->keys[key_index].half_transition_count = 0;
+                }
 
-                new_input->shift.is_down = old_input->shift.is_down;
-                new_input->shift.half_transition_count = 0;
-
-                new_input->alt.is_down = old_input->alt.is_down;
-                new_input->alt.half_transition_count = 0;
-
-                new_input->z.is_down = old_input->z.is_down;
-                new_input->z.half_transition_count = 0;
-
-                new_input->del.is_down = old_input->del.is_down;
-                new_input->del.half_transition_count = 0;
+                for (u32 key_index = 0; key_index < ARRAY_COUNT(new_input->editor_keys); key_index++) {
+                    new_input->editor_keys[key_index].is_down = old_input->editor_keys[key_index].is_down;
+                    new_input->editor_keys[key_index].half_transition_count = 0;
+                }
 
                 POINT mouse_position;
                 GetCursorPos(&mouse_position);
