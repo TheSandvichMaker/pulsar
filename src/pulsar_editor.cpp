@@ -39,7 +39,9 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
                 if (at[1] && at[1] != ' ') {
                     layout->at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
                 } else {
-                    // @TODO: Is this what you want to do?
+                    // @TODO: This is definitely not right. I need to be able
+                    // to get the correct advance for if the next codepoint is
+                    // a whitespace.
                     layout->at_p.x += get_advance_for_codepoint_pair(font, at[0], at[0]);
                 }
             }
@@ -86,6 +88,7 @@ internal Rect2 editor_finish_print(EditorLayout* layout) {
 DECLARE_EDITABLE_TYPE_INFERENCER(u32)
 DECLARE_EDITABLE_TYPE_INFERENCER(s32)
 DECLARE_EDITABLE_TYPE_INFERENCER(v2)
+DECLARE_EDITABLE_TYPE_INFERENCER(Rect2)
 DECLARE_EDITABLE_TYPE_INFERENCER(EntityID)
 DECLARE_EDITABLE_TYPE_INFERENCER(SoundtrackID)
 
@@ -145,6 +148,14 @@ internal void set_up_editable_parameters(EditorState* editor) {
     }
     end_editables(editor, editables);
 
+    editables = begin_editables(editor, EntityType_CameraZone);
+    {
+        add_viewable(editables, Entity, id);
+        add_viewable(editables, Entity, p);
+        add_editable(editables, Entity, camera_zone);
+    }
+    end_editables(editor, editables);
+
     editables = begin_editables(editor, EntityType_Wall);
     {
         add_viewable(editables, Entity, id);
@@ -161,11 +172,6 @@ char* midi_note_names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "
 
 inline void print_editable(EditorLayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
     switch (editable->type) {
-        case Editable_v2: {
-            v2 value = *(cast(v2*) editable_ptr);
-            editor_print(layout, color, "{ %f, %f }", value.x, value.y);
-        } break;
-
         case Editable_u32: {
             u32 value = *(cast(u32*) editable_ptr);
             if (editable->flags & Editable_IsMidiNote) {
@@ -184,6 +190,16 @@ inline void print_editable(EditorLayout* layout, EditableParameter* editable, vo
             } else {
                 editor_print(layout, color, "%d", value);
             }
+        } break;
+
+        case Editable_v2: {
+            v2 value = *(cast(v2*) editable_ptr);
+            editor_print(layout, color, "{ %f, %f }", value.x, value.y);
+        } break;
+
+        case Editable_Rect2: {
+            Rect2 value = *(cast(Rect2*) editable_ptr);
+            editor_print(layout, color, "{ min: { %f, %f }, max{ %f, %f }  }", value.min.x, value.min.y, value.max.x, value.max.y);
         } break;
 
         case Editable_EntityID: {

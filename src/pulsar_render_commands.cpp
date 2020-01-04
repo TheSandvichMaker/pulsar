@@ -21,9 +21,9 @@ inline Transform2D world_to_screen(RenderGroup* render_group, Transform2D world_
     f32 units_to_pixels = render_group->units_to_vertical_screen_percentage * screen_size.y;
 
     Transform2D result = world_t;
-    result.offset = units_to_pixels*rotate(world_t.offset - render_group->camera_p, render_group->camera_rotation_arm) + 0.5f*screen_size;
+    result.offset = units_to_pixels*rotate_clockwise(world_t.offset - render_group->camera_p, render_group->camera_rotation_arm) + 0.5f*screen_size;
     result.scale  = units_to_pixels*(world_t.scale);
-    result.rotation_arm = rotate(result.rotation_arm, render_group->camera_rotation_arm);
+    result.rotation_arm = rotate_clockwise(result.rotation_arm, render_group->camera_rotation_arm);
 
     return result;
 }
@@ -33,9 +33,9 @@ inline Transform2D screen_to_world(RenderGroup* render_group, Transform2D screen
     f32 pixels_to_units = render_group->vertical_screen_percentage_to_units / screen_size.y;
 
     Transform2D result = screen_t;
-    result.offset = pixels_to_units*rotate_clockwise(screen_t.offset - 0.5f*screen_size, render_group->camera_rotation_arm)  + render_group->camera_p;
+    result.offset = pixels_to_units*rotate(screen_t.offset - 0.5f*screen_size, render_group->camera_rotation_arm)  + render_group->camera_p;
     result.scale  = pixels_to_units*(screen_t.scale);
-    result.rotation_arm = rotate_clockwise(result.rotation_arm, render_group->camera_rotation_arm);
+    result.rotation_arm = rotate(result.rotation_arm, render_group->camera_rotation_arm);
 
     return result;
 }
@@ -76,13 +76,14 @@ inline RenderCommandImage* push_image(RenderGroup* render_group, Transform2D wor
     return result;
 }
 
-inline RenderCommandShape* push_shape(RenderGroup* render_group, Transform2D world_transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
+inline RenderCommandShape* push_shape(RenderGroup* render_group, Transform2D world_transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1), ShapeRenderMode render_mode = ShapeRenderMode_Fill) {
     RenderCommandShape* result = push_render_command(render_group->commands, Shape);
     if (result) {
         Transform2D transform = world_to_screen(render_group, world_transform);
         result->transform = transform;
         result->shape = shape;
         result->color = color;
+        result->render_mode = render_mode;
     }
     return result;
 }

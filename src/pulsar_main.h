@@ -1,9 +1,29 @@
-#ifndef GAME_MAIN_H
-#define GAME_MAIN_H
+#ifndef PULSAR_MAIN_H
+#define PULSAR_MAIN_H
 
-/* REFERENCES:
- * HANDMADE HERO (@TODO: List the stuff directly used from handmade hero):
+/* RESOURCES:
+ * Audio and Music:
+ *     test_sound: Handmade Hero
+ *     test_music: Glenn Gould: Golberg Variations (1983) - 01 Aria
+ *     Everything else: Composed by me
+ * Images:
+ *     camera icon: Google images (@Copyright!)
+ *     speaker icon: Google images (@Copyright!)
+ *
+ * REFERENCES:
+ * OpenGL:
+ *     Handmade Hero for OpenGL setup and basic rendering (@TODO: be more specific)
+ *     OpenGL wiki for everything else (@TODO: be more specific)
+ * General Knowledge and Insight from watching Jonathan Blow streams:
+ *     https://www.youtube.com/user/jblow888
+ * Handmade Hero (@TODO: List the stuff directly used from handmade hero):
  *     https://handmadehero.org/
+ *     A lot of the (win32) platform layer
+ *     DirectSound setup and usage
+ *     Input handling (@TODO: Start using raw input - set up an input thread?)
+ * Equations of motion:
+ *     Handmade Hero (https://www.youtube.com/watch?v=LoTRzRFEk5I)
+ *     Various wikipedia pages (e.g. https://en.wikipedia.org/wiki/Classical_mechanics)
  * Immediate mode GUIs:
  *     Handmade Hero Debug System
  *     https://www.youtube.com/watch?v=Z1qyvQsjK5Y
@@ -34,83 +54,22 @@
 
 #include "pulsar_assets.h"
 #include "pulsar_audio_mixer.h"
+#include "pulsar_entity.h"
 
-#if PULSAR_DEBUG
-global GameRenderCommands* dbg_render_commands;
-#endif
+#define MAX_ENTITY_COUNT 8192
+struct Level {
+    String name;
+
+    u32 entity_count;
+    Entity entities[MAX_ENTITY_COUNT];
+};
+
+#include "pulsar_editor.h"
 
 enum GameMode {
     GameMode_Ingame,
     GameMode_Editor,
 };
-
-enum EntityFlag {
-    EntityFlag_Physical = 0x1,
-    EntityFlag_Collides = 0x2,
-    EntityFlag_OnGround = 0x4,
-    EntityFlag_Invisible = 0x8,
-};
-
-enum EntityType {
-    EntityType_Null,
-
-    EntityType_Player,
-    EntityType_Wall,
-    EntityType_SoundtrackPlayer,
-
-    EntityType_Count,
-};
-
-#define enum_to_string(enum_name) case enum_name: { return #enum_name; }
-inline char* entity_type_name(EntityType type) {
-    switch (type) {
-        enum_to_string(EntityType_Null);
-        enum_to_string(EntityType_Player);
-        enum_to_string(EntityType_Wall);
-        enum_to_string(EntityType_SoundtrackPlayer);
-        enum_to_string(EntityType_Count);
-    }
-    return "Unknown EntityType";
-}
-
-struct EntityID { u32 value; };
-
-struct Entity {
-    EntityID id;
-
-    EntityType type;
-    v2 p;
-    v2 dp;
-    v2 ddp;
-
-    f32 sim_dt;
-
-    Entity* sticking_entity;
-    v2 sticking_dp;
-
-    b32 was_on_ground;
-    f32 surface_friction;
-
-    f32 movement_t;
-    f32 off_ground_timer;
-    f32 friction_of_last_touched_surface;
-
-    u32 midi_note;
-    v2 midi_test_target;
-
-    b32 soundtrack_has_been_played;
-    SoundtrackID soundtrack_id;
-    u32 playback_flags;
-
-    u32 flags;
-
-    Image* sprite;
-    v4 color;
-
-    Shape2D collision;
-};
-
-#include "pulsar_editor.h"
 
 struct PlayingMidi {
     union {
@@ -127,14 +86,6 @@ struct PlayingMidi {
     MidiTrack* track;
 
     u32 flags;
-};
-
-#define MAX_ENTITY_COUNT 8192
-struct Level {
-    String name;
-
-    u32 entity_count;
-    Entity entities[MAX_ENTITY_COUNT];
 };
 
 struct ActiveMidiEvent {
@@ -157,7 +108,9 @@ struct GameState {
 
     Sound* test_music;
     Sound* test_sound;
-    Image* test_image;
+
+    // @Note: Editor Assets (should they go somewhere else?)
+    Image* camera_icon;
     Image* speaker_icon;
 
     f32 rotation;
@@ -182,6 +135,10 @@ struct GameState {
 
     u32 sound_timer;
 };
+
+#if PULSAR_DEBUG
+global GameState* dbg_game_state;
+#endif
 
 global PlatformAPI platform;
 
@@ -221,4 +178,4 @@ static const v4 COLOR_GREY       = { 0.5f , 0.5f , 0.5f , 1.0f };
 static const v4 COLOR_DARK_GREY  = { 0.25f, 0.25f, 0.25f, 1.0f };
 static const v4 COLOR_BLACK      = { 0.0f , 0.0f , 0.0f , 1.0f };
 
-#endif /* GAME_MAIN_H */
+#endif /* PULSAR_MAIN_H */

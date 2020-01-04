@@ -12,6 +12,7 @@ enum EditableType {
     Editable_u32,
     Editable_s32,
     Editable_v2,
+    Editable_Rect2,
     Editable_EntityID,
     Editable_SoundtrackID,
 };
@@ -114,7 +115,7 @@ struct EditorState {
 
     MemoryArena* arena;
 
-    struct Level* active_level;
+    Level* active_level;
 
     RenderGroup render_group;
     Assets* assets;

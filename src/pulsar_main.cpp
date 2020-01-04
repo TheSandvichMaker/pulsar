@@ -9,11 +9,8 @@
 #include "pulsar_render_commands.cpp"
 #include "pulsar_editor.cpp"
 
-#if PULSAR_DEBUG
-#define DEBUG_GJK_VISUALIZATION 0
-#else
-#define DEBUG_GJK_VISUALIZATION 0
-#endif
+// LSP Server: https://www.twitch.tv/videos/530103083?t=0h22m25s
+// @IMPORTANT @TODO: Figure out how entities are addressed!!!
 
 inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
     v2 result = vec2(0, 0);
@@ -43,7 +40,23 @@ inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
         } break;
 
         case Shape_Rectangle: {
-            NOT_IMPLEMENTED;
+            // @TODO: There ought to be a good efficient way to do this
+            v2 p[4] = {
+                s.rect.min,
+                vec2(s.rect.min.x, s.rect.max.y),
+                vec2(s.rect.max.x, s.rect.min.y),
+                s.rect.max,
+            };
+            f32 best_dist = dot(p[0], d);
+            result = p[0];
+            for (u32 p_index = 1; p_index < 4; p_index++) {
+                v2 the_p = p[p_index];
+                f32 dist_along_d = dot(the_p, d);
+                if (dist_along_d > best_dist) {
+                    result = the_p;
+                    best_dist = dist_along_d;
+                }
+            }
         } break;
     }
 
@@ -61,66 +74,6 @@ inline v2 support(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2, v2 d) 
     v2 b = get_furthest_point_along(t2, s2, -rotate_clockwise(d, t2.rotation_arm));
     v2 p = a - b;
     return p;
-}
-
-inline void dbg_draw_shape(Transform2D transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
-    glBegin(GL_LINE_LOOP);
-    glColor4fv(color.e);
-
-    u32 circle_quality = 1024;
-
-    switch (shape.type) {
-        case Shape_Polygon: {
-            for (u32 vertex_index = 0; vertex_index < shape.vert_count; vertex_index++) {
-                v2 v = rotate(transform.scale*shape.vertices[vertex_index], transform.rotation_arm) + transform.offset;
-                glVertex2fv(v.e);
-            }
-        } break;
-
-        case Shape_Circle: {
-            for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / cast(f32) circle_quality)) {
-                v2 v = rotate(transform.scale*vec2(sin(segment_angle), cos(segment_angle))*shape.radius, transform.rotation_arm) + transform.offset;
-                glVertex2fv(v.e);
-            }
-        } break;
-    }
-
-    glEnd();
-}
-
-inline void dbg_draw_shape_with_brute_force(Transform2D transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
-    glBegin(GL_LINE_LOOP);
-    glColor4fv(color.e);
-
-    f32 quality = 1024.0f;
-    v2 previous_p = vec2(FLT_MAX, FLT_MAX);
-    for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / quality)) {
-        v2 p = get_furthest_point_along(transform, shape, arm2(segment_angle));
-        if (!vectors_equal(p, previous_p)) {
-            previous_p = p;
-            glVertex2fv(p.e);
-        }
-    }
-
-    glEnd();
-}
-
-inline void dbg_draw_minkowski_difference_with_brute_force(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2, v4 color = vec4(1, 1, 1, 1)) {
-    glBegin(GL_LINE_LOOP);
-    glColor4fv(color.e);
-
-    f32 quality = 4096.0f;
-    v2 previous_p = vec2(FLT_MAX, FLT_MAX);
-    for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / quality)) {
-        v2 p = support(t1, s1, t2, s2, arm2(segment_angle));
-        if (!vectors_equal(p, previous_p)) {
-            previous_p = p;
-            p += t1.offset;
-            glVertex2fv(p.e);
-        }
-    }
-
-    glEnd();
 }
 
 inline v2 triple_product(v2 a, v2 b, v2 c) {
@@ -209,7 +162,7 @@ struct CollisionInfo {
 inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2, CollisionInfo* info = 0, MemoryArena* temp_arena = 0) {
     b32 result = false;
 
-#if DEBUG_GJK_VISUALIZATION
+#if 0 // DEBUG_GJK_VISUALIZATION
     v4 viz_color = vec4(1, 0, 1, 1);
 #endif
 
@@ -231,7 +184,7 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
         }
         p[pc++] = a;
 
-#if DEBUG_GJK_VISUALIZATION
+#if 0 // DEBUG_GJK_VISUALIZATION
         Shape2D dbg_shape = polygon(pc, p);
         Transform2D dbg_transform = default_transform2d();
         dbg_transform.offset = t1.offset;
@@ -255,7 +208,7 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
         assert(temp_arena);
 
         b32 simplex_wound_ccw = (((p[1].x - p[0].x)*(p[2].y - p[1].y)) - ((p[1].y - p[0].y)*(p[2].x-p[1].x))) > 0.0f;
-#if DEBUG_GJK_VISUALIZATION
+#if 0 // DEBUG_GJK_VISUALIZATION
         viz_color = simplex_wound_ccw ? viz_color : vec4(1, 1, 0, 1);
 #endif
 
@@ -286,7 +239,7 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
             }
         }
 
-#if DEBUG_GJK_VISUALIZATION
+#if 0 // DEBUG_GJK_VISUALIZATION
         glBegin(GL_LINE_LOOP);
         glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
         for (EpaPoint* test_p = epa_p; test_p; test_p = test_p->next) {
@@ -297,7 +250,7 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
 #endif
     }
 
-#if DEBUG_GJK_VISUALIZATION
+#if 0 // DEBUG_GJK_VISUALIZATION
     dbg_draw_minkowski_difference_with_brute_force(t1, s1, t2, s2, viz_color);
 #endif
 
@@ -314,6 +267,43 @@ inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p) {
     b32 result = gjk_intersect(t, s, point_t, point_s);
     return result;
 }
+
+#if 0
+inline void dbg_draw_shape_with_brute_force(Transform2D transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1)) {
+    glBegin(GL_LINE_LOOP);
+    glColor4fv(color.e);
+
+    f32 quality = 1024.0f;
+    v2 previous_p = vec2(FLT_MAX, FLT_MAX);
+    for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / quality)) {
+        v2 p = get_furthest_point_along(transform, shape, arm2(segment_angle));
+        if (!vectors_equal(p, previous_p)) {
+            previous_p = p;
+            glVertex2fv(p.e);
+        }
+    }
+
+    glEnd();
+}
+
+inline void dbg_draw_minkowski_difference_with_brute_force(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2, v4 color = vec4(1, 1, 1, 1)) {
+    glBegin(GL_LINE_LOOP);
+    glColor4fv(color.e);
+
+    f32 quality = 4096.0f;
+    v2 previous_p = vec2(FLT_MAX, FLT_MAX);
+    for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / quality)) {
+        v2 p = support(t1, s1, t2, s2, arm2(segment_angle));
+        if (!vectors_equal(p, previous_p)) {
+            previous_p = p;
+            p += t1.offset;
+            glVertex2fv(p.e);
+        }
+    }
+
+    glEnd();
+}
+#endif
 
 #if 0
 inline Shape2D dbg_convex_hull(Shape2D source_shape, MemoryArena* perm_arena) {
@@ -385,7 +375,7 @@ inline Shape2D dbg_minkowski_sum(Shape2D s1, Shape2D s2, MemoryArena* perm_arena
 }
 #endif
 
-global v2 arrow_verts[] = { { 0, 0 }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f } };
+global v2 arrow_verts[] = { { 0, -0.05f }, { 0.8f, -0.05f }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f }, { 0.8f, 0.05f }, { 0, 0.05f } };
 global Shape2D arrow = polygon(ARRAY_COUNT(arrow_verts), arrow_verts);
 
 inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
@@ -395,7 +385,7 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     t.scale = vec2(scale, scale);
     t.rotation_arm = dir;
 
-    // push_shape(dbg_render_commands, t, arrow, color);
+    push_shape(&dbg_game_state->render_group, t, arrow, color, ShapeRenderMode_Outline);
 }
 
 inline Entity* get_entity(Level* level, EntityID id) {
@@ -457,13 +447,7 @@ inline AddEntityResult add_wall(GameState* game_state, Level* level, Rect2 rect)
 
     rect = offset(rect, -entity->p);
 
-    // @TODO: Stop wasting memory on rectangular polygons
-    v2* verts = push_array(&game_state->permanent_arena, 4, v2);
-    verts[0] = { rect.min.x, rect.min.y };
-    verts[1] = { rect.max.x, rect.min.y };
-    verts[2] = { rect.max.x, rect.max.y };
-    verts[3] = { rect.min.x, rect.max.y };
-    entity->collision = polygon(4, verts);
+    entity->collision = rectangle(rect);
 
     return result;
 }
@@ -476,6 +460,23 @@ inline AddEntityResult add_soundtrack_player(GameState* game_state, Level* level
     entity->playback_flags = playback_flags;
     entity->sprite = game_state->speaker_icon;
     entity->collision = circle(1.0f);
+    entity->flags |= EntityFlag_Invisible;
+
+    return result;
+}
+
+inline AddEntityResult add_camera_zone(GameState* game_state, Level* level, Rect2 zone, f32 rotation = 0.0f) {
+    AddEntityResult result = add_entity(level, EntityType_CameraZone);
+    Entity* entity = result.ptr;
+
+    entity->p = get_center(zone);
+    entity->sprite = game_state->camera_icon;
+
+    entity->camera_zone = offset(zone, -entity->p);
+    entity->camera_rotation_arm = arm2(rotation);
+
+    entity->collision = circle(1.0f);
+
     entity->flags |= EntityFlag_Invisible;
 
     return result;
@@ -756,10 +757,6 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
-#if PULSAR_DEBUG
-    dbg_render_commands = render_commands;
-#endif
-
     platform = memory->platform_api;
 
     //
@@ -767,6 +764,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     //
 
     GameState* game_state = cast(GameState*) memory->permanent_storage;
+
+#if PULSAR_DEBUG
+    dbg_game_state = game_state;
+#endif
+
     if (!memory->initialized) {
         initialize_arena(&game_state->permanent_arena, memory->permanent_storage_size - sizeof(GameState), cast(u8*) memory->permanent_storage + sizeof(GameState));
         initialize_arena(&game_state->transient_arena, memory->transient_storage_size, memory->transient_storage);
@@ -778,15 +780,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
         game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
-        game_state->test_image = get_image_by_name(&game_state->assets, "test_image");
+        game_state->camera_icon = get_image_by_name(&game_state->assets, "camera_icon");
         game_state->speaker_icon = get_image_by_name(&game_state->assets, "speaker_icon");
 
-        v2* square_verts = push_array(&game_state->permanent_arena, 4, v2);
-        square_verts[0] = { -0.2f, 0.0f };
-        square_verts[1] = {  0.2f, 0.0f };
-        square_verts[2] = {  0.2f, 1.0f };
-        square_verts[3] = { -0.2f, 1.0f };
-        game_state->player_collision = circle(0.5f); // polygon(4, square_verts);
+        game_state->player_collision = circle(0.5f); // rectangle(rect_min_max(vec2(-0.2f, 0.0f), vec2(0.2f, 1.0f));
 
         game_state->active_level = allocate_level(&game_state->permanent_arena, "Default Level");
 
@@ -799,6 +796,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             Entity* wall = add_wall(game_state, game_state->active_level, rect_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f))).ptr;
             wall->midi_note = 60 + i;
         }
+
+        add_camera_zone(game_state, game_state->active_level, rect_center_dim(vec2(6.0f, 2.0f), vec2(50.0f, 20.0f)));
 
         game_state->editor_state = allocate_editor(game_state, render_commands, game_state->active_level);
 
@@ -816,7 +815,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     f32 dt = input->frame_dt;
     f32 rcp_dt = 1.0f / dt;
 
-    render_worldspace(&game_state->render_group, 30.0f);
+    RenderGroup* render_group = &game_state->render_group;
+
+    render_worldspace(render_group, 30.0f);
+    game_state->render_group.camera_rotation_arm = vec2(1, 0);
 
 #if 0
     game_state->rotation += dt;
@@ -826,7 +828,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     game_state->render_group.camera_rotation_arm = arm2(game_state->rotation);
 #endif
 
-    push_clear(&game_state->render_group, vec4(0.5f, 0.5f, 0.5f, 1.0f));
+    push_clear(render_group, vec4(0.5f, 0.5f, 0.5f, 1.0f));
 
     if (game_state->game_mode == GameMode_Ingame) {
         game_state->midi_event_buffer_count = 0;
@@ -877,6 +879,13 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         //
         // Gameplay Logic
         //
+
+        if (game_state->game_mode == GameMode_Ingame) {
+            Entity* camera_target = game_state->entities + game_state->camera_target.value;
+            if (camera_target) {
+                render_group->camera_p = camera_target->p;
+            }
+        }
 
         for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
             Entity* entity = game_state->entities + entity_index;
@@ -943,6 +952,17 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     }
                 } break;
 
+                case EntityType_CameraZone: {
+                    Entity* camera_target = game_state->entities + game_state->camera_target.value;
+                    if (camera_target) {
+                        if (is_in_rect(offset(entity->camera_zone, entity->p), camera_target->p)) {
+                            render_group->camera_p = entity->p;
+                            render_group->camera_rotation_arm = entity->camera_rotation_arm;
+                            render_worldspace(render_group, get_dim(entity->camera_zone).y);
+                        }
+                    }
+                } break;
+
                 INVALID_DEFAULT_CASE;
             }
         }
@@ -973,9 +993,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     if (game_state->game_mode == GameMode_Ingame) {
         active_entity_count = game_state->entity_count;
         active_entities = game_state->entities;
-
-        Entity* camera_target = game_state->entities + game_state->camera_target.value;
-        game_state->render_group.camera_p = camera_target->p;
     } else if (game_state->game_mode == GameMode_Editor) {
         active_entity_count = game_state->active_level->entity_count;
         active_entities = game_state->active_level->entities;
@@ -1017,10 +1034,24 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         if (!(entity->flags & EntityFlag_Invisible) || (game_state->game_mode == GameMode_Editor && editor->shown)) {
             Transform2D transform = transform2d(entity->p);
-            if (entity->sprite) {
-                push_image(&game_state->render_group, transform, entity->sprite, entity->color);
-            } else {
-                push_shape(&game_state->render_group, transform, entity->collision, entity->color);
+            switch (entity->type) {
+                case EntityType_CameraZone: {
+                    f32 aspect_ratio = cast(f32) width / cast(f32) height;
+                    transform.rotation_arm = entity->camera_rotation_arm;
+                    push_image(render_group, transform, entity->sprite, entity->color);
+                    push_shape(render_group, transform, rectangle(entity->camera_zone), entity->color, ShapeRenderMode_Outline);
+                    f32 zone_height = get_dim(entity->camera_zone).y;
+                    Rect2 visible_zone = rect_center_dim(get_center(entity->camera_zone), vec2(aspect_ratio*zone_height, zone_height));
+                    push_shape(render_group, transform, rectangle(visible_zone), entity->color, ShapeRenderMode_Outline);
+                } break;
+
+                default: {
+                    if (entity->sprite) {
+                        push_image(render_group, transform, entity->sprite, entity->color);
+                    } else {
+                        push_shape(render_group, transform, entity->collision, entity->color);
+                    }
+                } break;
             }
         }
 

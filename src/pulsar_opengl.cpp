@@ -11,8 +11,8 @@ inline void opengl_set_screenspace(u32 width, u32 height) {
     glLoadMatrixf(projection_matrix);
 }
 
-inline void opengl_rectangle(v2 min_p, v2 x_axis, v2 y_axis, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(0, 0)) {
-    glBegin(GL_TRIANGLES);
+inline void opengl_rectangle(v2 min_p, v2 x_axis, v2 y_axis, v4 color, GLuint render_mode, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(0, 0)) {
+    glBegin(render_mode);
 
     glColor4f(color.r, color.g, color.b, color.a);
 
@@ -40,15 +40,15 @@ inline void opengl_rectangle(v2 min_p, v2 x_axis, v2 y_axis, v4 color, v2 min_uv
     glEnd();
 }
 
-inline void opengl_rectangle(Rect2 rect, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
+inline void opengl_rectangle(Rect2 rect, v4 color, GLuint render_mode, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
     v2 dim = get_dim(rect);
-    opengl_rectangle(get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
+    opengl_rectangle(get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, render_mode, min_uv, max_uv);
 }
 
 inline void opengl_texture(GLuint handle, v2 min_p, v2 x_axis, v2 y_axis, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, handle);
-    opengl_rectangle(min_p, x_axis, y_axis, color, min_uv, max_uv);
+    opengl_rectangle(min_p, x_axis, y_axis, color, GL_TRIANGLES, min_uv, max_uv);
     glDisable(GL_TEXTURE_2D);
 }
 
@@ -185,9 +185,19 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
 
                 u32 circle_quality = 256;
 
+                GLuint render_mode = GL_POLYGON;
+                switch (command->render_mode) {
+                    case ShapeRenderMode_Fill: {
+                        render_mode = GL_POLYGON;
+                    } break;
+                    case ShapeRenderMode_Outline: {
+                        render_mode = GL_LINE_LOOP;
+                    } break;
+                }
+
                 switch (shape->type) {
                     case Shape_Polygon: {
-                        glBegin(GL_POLYGON);
+                        glBegin(render_mode);
                         glColor4fv(command->color.e);
 
                         for (u32 vertex_index = 0; vertex_index < shape->vert_count; vertex_index++) {
@@ -199,7 +209,7 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                     } break;
 
                     case Shape_Circle: {
-                        glBegin(GL_POLYGON);
+                        glBegin(render_mode);
                         glColor4fv(command->color.e);
 
                         for (f32 segment_angle = 0; segment_angle < TAU_32; segment_angle += (TAU_32 / cast(f32) circle_quality)) {
@@ -211,7 +221,27 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                     } break;
 
                     case Shape_Rectangle: {
-                        opengl_rectangle(shape->rect, command->color);
+                        v2 x_axis = transform->rotation_arm*transform->scale;
+                        v2 y_axis = perp(x_axis);
+                        v2 dim = get_dim(shape->rect);
+                        v2 min_p = transform->offset + get_min_corner(shape->rect) - 0.5f*x_axis*dim.x - 0.5f*y_axis*dim.y;
+
+                        v2 p00 = min_p;
+                        v2 p10 = min_p + x_axis*dim.x;
+                        v2 p01 = min_p + y_axis*dim.y;
+                        v2 p11 = min_p + x_axis*dim.x + y_axis*dim.y;
+
+                        glBegin(render_mode);
+                        glColor4fv(command->color.e);
+
+                        glVertex2fv(p00.e);
+                        glVertex2fv(p10.e);
+                        glVertex2fv(p11.e);
+                        glVertex2fv(p01.e);
+
+                        glEnd();
+
+                        // opengl_rectangle(min_p, x_axis*dim.x, y_axis*dim.y, command->color, render_mode);
                     } break;
                 }
             } break;

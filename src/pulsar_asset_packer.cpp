@@ -220,8 +220,8 @@ int main(int argument_count, char** arguments) {
 
     add_sound("test_sound", "test_sound.wav");
     add_sound("test_music", "test_music.wav");
-    add_image("test_image", "test_bitmap.bmp");
 
+    add_image("camera_icon", "camera_icon.bmp");
     add_image("speaker_icon", "speaker_icon.bmp");
 
     add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);

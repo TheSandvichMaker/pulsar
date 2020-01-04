@@ -115,11 +115,17 @@ struct RenderCommandClear {
     v4 color;
 };
 
+enum ShapeRenderMode {
+    ShapeRenderMode_Fill,
+    ShapeRenderMode_Outline,
+};
+
 struct RenderCommandShape {
     // @TODO: Make transform a more uniform concept
     Transform2D transform;
     Shape2D shape;
     v4 color;
+    ShapeRenderMode render_mode;
 };
 
 struct RenderCommandImage {
