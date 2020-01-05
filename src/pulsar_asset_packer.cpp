@@ -100,7 +100,7 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
 
     PackedFont* font = &desc->packed.font;
     // @TODO: Actual unicode support, instead of just a hardcoded ascii range.
-    font->first_codepoint = '!';
+    font->first_codepoint = ' ';
     font->one_past_last_codepoint = '~' + 1;
     font->size = size;
 
@@ -215,14 +215,14 @@ int main(int argument_count, char** arguments) {
 
     asset_descriptions = allocate_array<AssetDescription>(64, &global_arena);
 
-    char* midi_files[] = { "test_soundtrack.mid" };
-    add_soundtrack("test_soundtrack", "test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
+    char* midi_files[] = { "assets/test_soundtrack.mid" };
+    add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
 
-    add_sound("test_sound", "test_sound.wav");
-    add_sound("test_music", "test_music.wav");
+    add_sound("test_sound", "assets/test_sound.wav");
+    add_sound("test_music", "assets/test_music.wav");
 
-    add_image("camera_icon", "camera_icon.bmp");
-    add_image("speaker_icon", "speaker_icon.bmp");
+    add_image("camera_icon", "assets/camera_icon.bmp");
+    add_image("speaker_icon", "assets/speaker_icon.bmp");
 
     add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);

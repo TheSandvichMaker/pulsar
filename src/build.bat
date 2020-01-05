@@ -30,6 +30,10 @@ set FLAGS=/nologo /Od /MTd /Gm- /Zi /Zo /Oi /GR- /EHa- /fp:fast /fp:except- ^
 set LINKER_FLAGS=/opt:ref /incremental:no
 set LINKER_LIBRARIES=user32.lib gdi32.lib opengl32.lib
 
+pushd ..
+build\pulsar_code_generator.exe
+popd
+
 REM 64 bit build
 cl ..\win32_pulsar.cpp %FLAGS% /link %LINKER_FLAGS% %LINKER_LIBRARIES%
 set LAST_ERROR=%ERRORLEVEL%

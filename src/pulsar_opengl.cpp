@@ -221,6 +221,7 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                     } break;
 
                     case Shape_Rectangle: {
+                        // @IMPORTANT @TODO: This produces inaccurate results! Why?
                         v2 x_axis = transform->rotation_arm*transform->scale;
                         v2 y_axis = perp(x_axis);
                         v2 dim = get_dim(shape->rect);

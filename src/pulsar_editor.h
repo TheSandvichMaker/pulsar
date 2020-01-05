@@ -1,6 +1,20 @@
 #ifndef PULSAR_EDITOR_H
 #define PULSAR_EDITOR_H
 
+#define MAX_ENTITY_COUNT 8192
+struct Level {
+    String name;
+
+    u32 last_used_guid;
+    u32 entity_count;
+    Entity entities[MAX_ENTITY_COUNT];
+};
+
+struct AddEntityResult {
+    EntityID guid;
+    Entity* ptr;
+};
+
 enum EditableFlag {
     Editable_IsMidiNote = 0x1,
     Editable_RangeLimited = 0x2,
@@ -15,6 +29,8 @@ enum EditableType {
     Editable_Rect2,
     Editable_EntityID,
     Editable_SoundtrackID,
+    Editable_EntityFlag,
+    Editable_EntityPtr,
 };
 
 struct EditableU32 {
@@ -40,10 +56,11 @@ struct EditableParameter {
     };
 };
 
-enum EditorWidgetType {
+introspect() enum EditorWidgetType {
     Widget_None,
     Widget_DragEditable,
     Widget_ManipulateEntity,
+    Widget_DragRect,
 };
 
 enum EntityManipulateType {
@@ -68,35 +85,12 @@ struct EditorWidget {
     };
 };
 
-inline char* widget_name(EditorWidgetType type) {
-    switch (type) {
-        enum_to_string(Widget_None);
-        enum_to_string(Widget_DragEditable);
-        enum_to_string(Widget_ManipulateEntity);
-    }
-    return "Unknown EditorWidgetType";
-}
-
-inline char* widget_name(EditorWidget widget) {
-    return widget_name(widget.type);
-}
-
-enum UndoType {
+introspect() enum UndoType {
     Undo_Null,
     Undo_SetData,
     Undo_CreateEntity,
     Undo_DeleteEntity,
 };
-
-inline char* undo_type_name(UndoType type) {
-    switch (type) {
-        enum_to_string(Undo_Null);
-        enum_to_string(Undo_SetData);
-        enum_to_string(Undo_CreateEntity);
-        enum_to_string(Undo_DeleteEntity);
-    }
-    return "Unknown UndoType";
-}
 
 struct UndoHeader {
     UndoType type;
@@ -105,6 +99,11 @@ struct UndoHeader {
     void* data_ptr;
 
     u32 prev;
+};
+
+struct EntityHash {
+    EntityID guid;
+    u32 index;
 };
 
 #define UNDO_BUFFER_SIZE KILOBYTES(512)
@@ -120,6 +119,9 @@ struct EditorState {
     RenderGroup render_group;
     Assets* assets;
 
+    Image* camera_icon;
+    Image* speaker_icon;
+
     Font* big_font;
     Font* font;
 
@@ -132,6 +134,10 @@ struct EditorState {
     v2 mouse_p_on_active;
     v2 world_mouse_p_on_active;
 
+    b32 grid_snapping_enabled;
+    v2 grid_size;
+
+    b32 panning;
     v2 world_mouse_p_on_pan;
     v2 camera_p_on_pan;
 
@@ -149,6 +155,8 @@ struct EditorState {
     EntityType current_editable_type;
     u32 editable_parameter_count[EntityType_Count];
     EditableParameter* editable_parameter_info[EntityType_Count];
+
+    EntityHash entity_hash[MAX_ENTITY_COUNT];
 
     u32 undo_watermark;
     u32 undo_buffer_last_header;
@@ -168,6 +176,7 @@ struct EditorLayout {
     f32 vertical_advance;
 
     b32 print_initialized;
+    u32 last_codepoint;
 
     f32 font_scale;
     Rect2 last_print_bounds;

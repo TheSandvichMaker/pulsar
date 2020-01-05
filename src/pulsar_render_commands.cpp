@@ -40,6 +40,12 @@ inline Transform2D screen_to_world(RenderGroup* render_group, Transform2D screen
     return result;
 }
 
+inline v4 transform_color(v4 color) {
+    v4 result = color;
+    result.rgb = srgb_to_linear(result.rgb);
+    return result;
+}
+
 #define push_render_command(commands, type) cast(RenderCommand##type*) push_render_command_(commands, RenderCommand_##type, sizeof(RenderCommand##type))
 inline void* push_render_command_(GameRenderCommands* commands, RenderCommandType type, u32 render_command_size) {
     void* result = 0;
@@ -59,7 +65,7 @@ inline void* push_render_command_(GameRenderCommands* commands, RenderCommandTyp
 inline RenderCommandClear* push_clear(RenderGroup* render_group, v4 color) {
     RenderCommandClear* result = push_render_command(render_group->commands, Clear);
     if (result) {
-        result->color = color;
+        result->color = transform_color(color);
     }
     return result;
 }
@@ -71,7 +77,7 @@ inline RenderCommandImage* push_image(RenderGroup* render_group, Transform2D wor
         transform.scale  *= image->scale / vec2(image->w, image->h);
         result->transform = transform;
         result->image = image;
-        result->color = color;
+        result->color = transform_color(color);
     }
     return result;
 }
@@ -82,7 +88,7 @@ inline RenderCommandShape* push_shape(RenderGroup* render_group, Transform2D wor
         Transform2D transform = world_to_screen(render_group, world_transform);
         result->transform = transform;
         result->shape = shape;
-        result->color = color;
+        result->color = transform_color(color);
         result->render_mode = render_mode;
     }
     return result;

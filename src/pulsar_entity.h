@@ -1,14 +1,14 @@
 #ifndef PULSAR_ENTITY_H
 #define PULSAR_ENTITY_H
 
-enum EntityFlag {
+introspect(flags: true) enum EntityFlag {
     EntityFlag_Physical = 0x1,
     EntityFlag_Collides = 0x2,
     EntityFlag_OnGround = 0x4,
     EntityFlag_Invisible = 0x8,
 };
 
-enum EntityType {
+introspect() enum EntityType {
     EntityType_Null,
 
     EntityType_Player,
@@ -35,7 +35,7 @@ inline char* entity_type_name(EntityType type) {
 struct EntityID { u32 value; };
 
 struct Entity {
-    EntityID id;
+    EntityID guid;
 
     EntityType type;
     v2 p;
@@ -47,6 +47,9 @@ struct Entity {
     // @Note: Player
     f32 off_ground_timer;
     f32 friction_of_last_touched_surface;
+    Entity* support;
+    v2 support_normal;
+    v2 local_p;
 
     // @Note: Wall
     Entity* sticking_entity;

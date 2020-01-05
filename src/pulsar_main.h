@@ -54,16 +54,8 @@
 
 #include "pulsar_assets.h"
 #include "pulsar_audio_mixer.h"
+#include "pulsar_gjk.h"
 #include "pulsar_entity.h"
-
-#define MAX_ENTITY_COUNT 8192
-struct Level {
-    String name;
-
-    u32 entity_count;
-    Entity entities[MAX_ENTITY_COUNT];
-};
-
 #include "pulsar_editor.h"
 
 enum GameMode {
@@ -109,9 +101,8 @@ struct GameState {
     Sound* test_music;
     Sound* test_sound;
 
-    // @Note: Editor Assets (should they go somewhere else?)
-    Image* camera_icon;
-    Image* speaker_icon;
+    v4 foreground_color;
+    v4 background_color;
 
     f32 rotation;
 
@@ -142,16 +133,9 @@ global GameState* dbg_game_state;
 
 global PlatformAPI platform;
 
-struct AddEntityResult {
-    EntityID id;
-    Entity* ptr;
-};
-
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
-inline AddEntityResult add_entity(Level* level, EntityType type);
-inline AddEntityResult add_player(GameState* game_state, Level* level, v2 starting_p);
-inline Entity* get_entity(Level* level, EntityID id);
-inline void delete_entity(Level* level, EntityID id);
+inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);
+inline void dbg_draw_arrow(v2 start, v2 end, v4 color);
 
 #define DEFINE_COLORS(MIDDLE_FIX, VALUE, COUNTER_VALUE) \
 static const v4 COLOR_##MIDDLE_FIX##RED    = { VALUE         , COUNTER_VALUE , COUNTER_VALUE , 1 }; \

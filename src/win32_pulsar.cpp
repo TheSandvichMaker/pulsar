@@ -621,6 +621,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                 win32_output_image(&render_commands, window_dc);
 
+                game_post_render(&game_memory, new_input, &render_commands);
+
                 //
 
                 GameInput* temp = new_input;

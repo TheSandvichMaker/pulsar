@@ -139,4 +139,7 @@ typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);
 #define GAME_GET_SOUND(name) void name(GameMemory* memory, GameSoundOutputBuffer* sound_buffer)
 typedef GAME_GET_SOUND(GameGetSound);
 
+#define GAME_POST_RENDER(name) void name(GameMemory* memory, GameInput* input, GameRenderCommands* render_commands)
+typedef GAME_POST_RENDER(GamePostRender);
+
 #endif /* PLATFORM_BRIDGE_H */

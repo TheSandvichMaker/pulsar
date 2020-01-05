@@ -1,3 +1,7 @@
+#include <windows.h>
+
+#define TokenType TokenType_
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <memory.h>
@@ -490,13 +494,6 @@ internal void eat_whitespaces(Tokenizer* tokenizer) {
     }
 }
 
-internal void parse_identifier(Tokenizer* tokenizer) {
-
-}
-
-internal void parse_number(Tokenizer* tokenizer) {
-}
-
 internal Token get_token(Tokenizer* tokenizer) {
     eat_whitespaces(tokenizer);
 
@@ -621,19 +618,40 @@ internal b32 match(Tokenizer* tokenizer, TokenType desired_type) {
     return result;
 }
 
-internal b32 parse_introspection_params(Tokenizer* tokenizer) {
-    b32 should_parse = true;
+struct IntrospectionParams {
+    b32 should_parse;
+    b32 is_flags;
+};
+
+internal IntrospectionParams parse_introspection_params(Tokenizer* tokenizer) {
+    IntrospectionParams result = {};
+    result.should_parse = true;
+
     for (;;) {
         Token token = get_token(tokenizer);
         if (token_equals(token, ')') || token.type == Token_EndOfStream) {
             break;
         }
+        if (token_equals(token, "flags")) {
+            if (match(tokenizer, ':')) {
+                Token value = get_token(tokenizer);
+                if (token_equals(value, "true")) {
+                    result.is_flags = true;
+                } else if (token_equals(value, "false")) {
+                    result.is_flags = false;
+                } else {
+                    error(tokenizer, "Unexpected value for 'flags'");
+                }
+            } else {
+                error(tokenizer, "Expected ':' after 'flags'");
+            }
+        }
         if (token_equals(token, "...")) {
-            should_parse = false;
+            result.should_parse = false;
             break;
         }
     }
-    return should_parse;
+    return result;
 }
 
 struct MetaType {
@@ -654,6 +672,7 @@ struct MetaStruct {
 struct MetaEnum {
     Token name;
     Array(Token) members;
+    b32 is_flags;
 };
 
 global Array(MetaType) meta_type_array;
@@ -712,7 +731,7 @@ internal StructMember parse_member(Tokenizer* tokenizer, Token struct_type_token
     return result;
 }
 
-internal void parse_struct(Tokenizer* tokenizer) {
+internal void parse_struct(Tokenizer* tokenizer, IntrospectionParams params) {
     Token name_token = get_token(tokenizer);
 
     MetaStruct meta;
@@ -742,12 +761,13 @@ internal void parse_struct(Tokenizer* tokenizer) {
     array_add(&meta_struct_array, meta);
 }
 
-internal void parse_enum(Tokenizer* tokenizer) {
+internal void parse_enum(Tokenizer* tokenizer, IntrospectionParams params) {
     Token name_token = get_token(tokenizer);
 
     MetaEnum meta;
     meta.name = name_token;
     meta.members = allocate_array(Token);
+    meta.is_flags = params.is_flags;
 
     add_meta_type_if_unique(&meta_type_array, meta.name);
 
@@ -756,6 +776,8 @@ internal void parse_enum(Tokenizer* tokenizer) {
             Token member_token = get_token(tokenizer);
             if (member_token.type == Token_EndOfStream || token_equals(member_token, '}')) {
                 break;
+            } else if (token_equals(member_token, '=')) {
+                while (!match(tokenizer, ',')) {}
             } else if (token_equals(member_token, ',')) {
                 continue;
             } else {
@@ -771,14 +793,14 @@ internal void parse_enum(Tokenizer* tokenizer) {
 
 internal void parse_introspectable(Tokenizer* tokenizer) {
     if (match(tokenizer, '(')) {
-        b32 should_parse = parse_introspection_params(tokenizer);
+        IntrospectionParams params = parse_introspection_params(tokenizer);
 
-        if (should_parse) {
+        if (params.should_parse) {
             Token type_token = get_token(tokenizer);
             if (token_equals(type_token, "struct")) {
-                parse_struct(tokenizer);
+                parse_struct(tokenizer, params);
             } else if (token_equals(type_token, "enum")) {
-                parse_enum(tokenizer);
+                parse_enum(tokenizer, params);
             } else {
                 error(tokenizer, "Introspection is only supported for structs and enums right now :(");
             }
@@ -798,101 +820,107 @@ int main(int argument_count, char** arguments) {
     meta_enum_array = allocate_array(MetaEnum, 8, arena_allocator, &general_arena);
     meta_struct_array = allocate_array(MetaStruct, 8, arena_allocator, &general_arena);
 
-    printf("#ifndef GENERATED_H\n");
-    printf("#define GENERATED_H\n\n");
+    fprintf(stderr, "Running code generator.\n");
 
-    char* file_names[] = {
-        "asset_pack_format.h"
-    };
+    WIN32_FIND_DATAA find_data;
+    HANDLE find_handle = FindFirstFileA("*.h", &find_data);
 
+    if (find_handle == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "No .h files found...\n");
+        return -1;
+    }
+
+    char* file_name = find_data.cFileName;
+
+    u32 file_count = 1;
     b32 had_error = false;
-    for (u32 file_index = 0; file_index < ARRAY_COUNT(file_names); file_index++) {
-        char* file_name = file_names[file_index];
-        EntireFile file = read_entire_file_and_null_terminate(file_name);
-        if (file.contents_size > 0) {
-            Tokenizer tokenizer = {};
-            tokenizer.source_file = wrap_cstr(file_name);
-            tokenizer.source_code = wrap_string(file.contents_size, (char*)file.contents);
-            tokenizer.at = (char*)file.contents;
+    while (file_name && !had_error) {
+        if (!strings_are_equal(file_name, "pulsar_code_generator.h")) {
+            EntireFile file = read_entire_file_and_null_terminate(file_name);
+            if (file.contents_size > 0) {
+                Tokenizer tokenizer = {};
+                tokenizer.source_file = wrap_cstr(file_name);
+                tokenizer.source_code = wrap_string(file.contents_size, (char*)file.contents);
+                tokenizer.at = (char*)file.contents;
 
-            fprintf(stderr, "preprocessing %s\n", file_name);
+                b32 parsing = true;
+                while (parsing) {
+                    Token token = get_token(&tokenizer);
+                    switch (token.type) {
+                        case Token_Unknown: {
+                        } break;
 
-            b32 parsing = true;
-            while (parsing) {
-                Token token = get_token(&tokenizer);
-                switch (token.type) {
-                    case Token_Unknown: {
-                    } break;
+                        case Token_Identifier: {
+                            if (token_equals(token, "introspect")) {
+                                parse_introspectable(&tokenizer);
+                            }
+                        } break;
 
-                    case Token_Identifier: {
-                        if (token_equals(token, "introspect")) {
-                            parse_introspectable(&tokenizer);
-                        }
-                    } break;
-
-                    case Token_Operator: {
-                        if (token_equals(token, '#')) {
-                            // TODO: Handle multiple levels of #if 0
-                            if (match(&tokenizer, "if") && match(&tokenizer, '0')) {
-                                Token next_token = get_token(&tokenizer);
-                                while (next_token.type != Token_EndOfStream) {
-                                    if (token_equals(next_token, '#') && match(&tokenizer, "endif")) {
-                                        break;
+                        case Token_Operator: {
+                            if (token_equals(token, '#')) {
+                                // TODO: Handle multiple levels of #if 0
+                                if (match(&tokenizer, "if") && match(&tokenizer, '0')) {
+                                    Token next_token = get_token(&tokenizer);
+                                    while (next_token.type != Token_EndOfStream) {
+                                        if (token_equals(next_token, '#') && match(&tokenizer, "endif")) {
+                                            break;
+                                        }
+                                        next_token = get_token(&tokenizer);
                                     }
-                                    next_token = get_token(&tokenizer);
-                                }
-                                if (next_token.type == Token_EndOfStream) {
-                                    error(&tokenizer, "Unmatched #if 0");
+                                    if (next_token.type == Token_EndOfStream) {
+                                        error(&tokenizer, "Unmatched #if 0");
+                                    }
                                 }
                             }
-                        }
-                    } break;
+                        } break;
 
-                    case Token_EndOfStream: {
-                        parsing = false;
-                    } break;
+                        case Token_EndOfStream: {
+                            parsing = false;
+                        } break;
 
-                    default: {
-                    } break;
+                        default: {
+                        } break;
+                    }
+                    if (tokenizer.had_error) {
+                        had_error = true;
+                    }
                 }
-                if (tokenizer.had_error) {
-                    had_error = true;
-                }
+            } else {
+                fprintf(stderr, "ERROR: Failed to open file '%s'", file_name);
             }
+        }
+
+        if (FindNextFileA(find_handle, &find_data)) {
+            file_count++;
+            file_name = find_data.cFileName;
         } else {
-            fprintf(stderr, "ERROR: Failed to open file '%s'", file_name);
+            file_name = 0;
         }
     }
 
-    if (!had_error) {
-        printf("#define CODE_GENERATION_SUCCEEDED 1\n\n");
+    FindClose(find_handle);
 
-        printf("enum MetaType {\n");
+    if (!had_error) {
+        FILE* pre_headers = fopen("pulsar_generated_pre_headers.h", "w");
+
+        fprintf(pre_headers, "#ifndef PULSAR_GENERATED_PRE_HEADERS_H\n");
+        fprintf(pre_headers, "#define PULSAR_GENERATED_PRE_HEADERS_H\n\n");
+
+        fprintf(pre_headers, "#define PULSAR_CODE_GENERATION_SUCCEEDED 1\n\n");
+
+        fprintf(pre_headers, "enum MetaType {\n");
         for (size_t type_index = 0; type_index < array_count(meta_type_array); type_index++) {
             MetaType type = array_get(meta_type_array, type_index);
-            printf("    MetaType_%.*s,\n", PRINTF_TOKEN(type.type));
+            fprintf(pre_headers, "    MetaType_%.*s,\n", PRINTF_TOKEN(type.type));
         }
-        printf("};\n\n");
-
-        for (size_t enum_index = 0; enum_index < array_count(meta_enum_array); enum_index++) {
-            MetaEnum meta = array_get(meta_enum_array, enum_index);
-            printf("char* GetEnumNameOf_%.*s(int value) {\n", PRINTF_TOKEN(meta.name));
-            printf("    switch (value) {\n");
-            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                Token member = array_get(meta.members, member_index);
-                printf("        case %.*s: return \"%.*s\";\n", PRINTF_TOKEN(member), PRINTF_TOKEN(member));
-            }
-            printf("        default: return \"Unknown value for %.*s\";\n", PRINTF_TOKEN(meta.name));
-            printf("    }\n");
-            printf("}\n\n");
-        }
+        fprintf(pre_headers, "};\n\n");
 
         for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
             MetaStruct meta = array_get(meta_struct_array, struct_index);
-            printf("static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
+            fprintf(pre_headers, "static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
             for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
                 auto member = array_get(meta.members, member_index);
-                printf("    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
+                fprintf(pre_headers, "    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
                     member.is_pointer ? "MetaMemberFlag_IsPointer" : "0",
                     PRINTF_TOKEN(member.type),
                     PRINTF_TOKEN(member.name),
@@ -900,35 +928,55 @@ int main(int argument_count, char** arguments) {
                     PRINTF_TOKEN(member.name)
                 );
             }
-            printf("};\n\n");
+            fprintf(pre_headers, "};\n\n");
 
-            printf("#define BodyOf_%.*s \\\n", PRINTF_TOKEN(meta.name));
+            fprintf(pre_headers, "#define BodyOf_%.*s \\\n", PRINTF_TOKEN(meta.name));
             for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
                 auto member = array_get(meta.members, member_index);
-                printf("    %.*s%s %.*s;%s\n",
+                fprintf(pre_headers, "    %.*s%s %.*s;%s\n",
                     PRINTF_TOKEN(member.type),
                     member.is_pointer ? "*" : "",
                     PRINTF_TOKEN(member.name),
                     (member_index + 1 < array_count(meta.members)) ? " \\" : ""
                 );
             }
-            printf("\n");
+            fprintf(pre_headers, "\n");
         }
 
-#if 0
-        printf("#define META_HANDLE_TYPE_DUMP(member_ptr, next_indent_level) \\\n");
-        for (size_t i = 0; i < array_count(meta_struct_array); i++) {
-            MetaStruct meta = array_get(meta_struct_array, i);
-            printf("    case MetaType_%.*s: { \\\n", PRINTF_TOKEN(meta.name));
-            printf("        debug_text(member->name); \\\n");
-            printf("        debug_dump_struct(MembersOf_%.*s, ARRAY_COUNT(MembersOf_%.*s), member_ptr, next_indent_level); \\\n", PRINTF_TOKEN(meta.name), PRINTF_TOKEN(meta.name));
-            printf("    } break;%s\n", (i + 1 < array_count(meta_struct_array)) ? " \\" : "");
+        fprintf(pre_headers, "#endif\n");
+
+        FILE* post_headers = fopen("pulsar_generated_post_headers.h", "w");
+
+        fprintf(post_headers, "#ifndef PULSAR_GENERATED_POST_HEADERS_H\n");
+        fprintf(post_headers, "#define PULSAR_GENERATED_POST_HEADERS_H\n\n");
+
+        for (size_t enum_index = 0; enum_index < array_count(meta_enum_array); enum_index++) {
+            MetaEnum meta = array_get(meta_enum_array, enum_index);
+            if (meta.is_flags) {
+                fprintf(post_headers, "int GetNextEnumFlagNameOf_%.*s(unsigned int* value, char** name) {\n", PRINTF_TOKEN(meta.name));
+                for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+                    Token member = array_get(meta.members, member_index);
+                    fprintf(post_headers, "    %s (*value & %.*s) { *name = \"%.*s\"; *value &= ~%.*s; return 1; }\n",
+                        member_index == 0 ? "if" : "else if",
+                        PRINTF_TOKEN(member), PRINTF_TOKEN(member), PRINTF_TOKEN(member)
+                    );
+                }
+                fprintf(post_headers, "    else { *name = 0; return 0; }\n}\n\n");
+            } else {
+                fprintf(post_headers, "char* GetEnumNameOf_%.*s(int value) {\n", PRINTF_TOKEN(meta.name));
+                fprintf(post_headers, "    switch (value) {\n");
+                for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+                    Token member = array_get(meta.members, member_index);
+                    fprintf(post_headers, "        case %.*s: return \"%.*s\";\n", PRINTF_TOKEN(member), PRINTF_TOKEN(member));
+                }
+                fprintf(post_headers, "        default: return \"Unknown value for %.*s\";\n", PRINTF_TOKEN(meta.name));
+                fprintf(post_headers, "    }\n");
+                fprintf(post_headers, "}\n\n");
+            }
         }
-        printf("\n");
-#endif
+
+        fprintf(post_headers, "#endif\n");
     } else {
-        printf("// Errors were had...\n\n");
+        fprintf(stderr, "Errors were had, no code generated.\n");
     }
-
-    printf("#endif\n");
 }
