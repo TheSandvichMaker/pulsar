@@ -225,12 +225,14 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                         v2 x_axis = transform->rotation_arm*transform->scale;
                         v2 y_axis = perp(x_axis);
                         v2 dim = get_dim(shape->rect);
-                        v2 min_p = transform->offset + get_min_corner(shape->rect) - 0.5f*x_axis*dim.x - 0.5f*y_axis*dim.y;
+                        x_axis *= dim.x;
+                        y_axis *= dim.y;
+                        v2 min_p = transform->offset + get_min_corner(shape->rect) - 0.5f*x_axis - 0.5f*y_axis;
 
                         v2 p00 = min_p;
-                        v2 p10 = min_p + x_axis*dim.x;
-                        v2 p01 = min_p + y_axis*dim.y;
-                        v2 p11 = min_p + x_axis*dim.x + y_axis*dim.y;
+                        v2 p10 = min_p + x_axis;
+                        v2 p01 = min_p + y_axis;
+                        v2 p11 = min_p + x_axis + y_axis;
 
                         glBegin(render_mode);
                         glColor4fv(command->color.e);
@@ -255,7 +257,7 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 Transform2D t = command->transform;
                 v2 x_axis = t.rotation_arm*t.scale;
                 v2 y_axis = perp(x_axis);
-                v2 align = t.scale*image->align*vec2(image->w, image->h);
+                v2 align = image->align*vec2(image->w, image->h);
                 v2 min_p = t.offset - x_axis*align.x - y_axis*align.y;
                 opengl_texture(cast(GLuint) image->handle, min_p, x_axis*cast(f32) image->w, y_axis*cast(f32) image->h, command->color);
             } break;

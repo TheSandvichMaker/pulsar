@@ -14,9 +14,6 @@
 #include "pulsar_entity.cpp"
 #include "pulsar_editor.cpp"
 
-// LSP Server: https://www.twitch.tv/videos/530103083?t=0h22m25s
-// @IMPORTANT @TODO: Figure out how entities are addressed!!!
-
 global v2 arrow_verts[] = { { 0, -0.05f }, { 0.8f, -0.05f }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f }, { 0.8f, 0.05f }, { 0, 0.05f } };
 global Shape2D arrow = polygon(ARRAY_COUNT(arrow_verts), arrow_verts);
 
@@ -34,7 +31,7 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
 inline void physics_move(GameState* game_state, Entity* entity, v2 ddp, f32 dt) {
     /*
      * @TODO: Figure out some of the cases in which the collision handling will
-     * fail, which I'm sure there are some, such as _very_ extreme velocities
+     * fail, which I'm sure there are some, such as extreme velocities
      * (which might happen in cases of frame drops if I choose to support
      * dynamic timesteps). One suspicion I have is that if an entity penetrates
      * deep enough into another, the collision might resolve to put it on the other
@@ -44,7 +41,6 @@ inline void physics_move(GameState* game_state, Entity* entity, v2 ddp, f32 dt) 
     f32 epsilon = 1.0e-3f;
 
     if (entity->flags & EntityFlag_Physical) {
-        // @TODO: Some kind of relationship with real world units, get away from using pixels.
         f32 gravity = 9.8f;
         ddp.y -= gravity;
 
@@ -408,7 +404,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         //
 
         if (game_state->game_mode == GameMode_Ingame) {
-            Entity* camera_target = game_state->entities + game_state->camera_target.value;
+            Entity* camera_target = game_state->camera_target;
             if (camera_target) {
                 render_group->camera_p = camera_target->p;
             }

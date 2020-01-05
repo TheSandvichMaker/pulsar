@@ -27,7 +27,7 @@ inline Entity* get_entity_from_guid(EditorState* editor, EntityID guid) {
     return result;
 }
 
-inline AddEntityResult add_entity(EditorState* editor, EntityType type) {
+inline AddEntityResult add_entity(EditorState* editor, EntityType type, EntityID guid = { 0 }) {
     Level* level = editor->active_level;
 
     assert(level->entity_count < ARRAY_COUNT(level->entities));
@@ -35,7 +35,12 @@ inline AddEntityResult add_entity(EditorState* editor, EntityType type) {
     u32 index = level->entity_count++;
     Entity* entity = level->entities + index;
 
-    entity->guid = { level->last_used_guid++ };
+    if (guid.value) {
+        entity->guid = guid;
+    } else {
+        entity->guid = { level->last_used_guid++ };
+    }
+
     entity->type = type;
 
     AddEntityResult result;
@@ -115,6 +120,31 @@ inline AddEntityResult add_camera_zone(EditorState* editor, Rect2 zone, f32 rota
     return result;
 }
 
+inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data);
+inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_history = true) {
+    EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
+
+    if (hash_slot) {
+        Level* level = editor->active_level;
+
+        assert(hash_slot->index < ARRAY_COUNT(level->entities));
+        Entity* entity = level->entities + hash_slot->index;
+
+        if (editor->selected_entity && editor->selected_entity->guid.value == guid.value) {
+            editor->selected_entity = 0;
+        }
+
+        if (with_undo_history) {
+            add_undo_history(editor, Undo_DeleteEntity, sizeof(*entity), entity);
+        }
+
+        hash_slot->guid = { 0 }; // Free deleted entity's hash slot
+
+        level->entities[hash_slot->index] = level->entities[--level->entity_count];
+        EntityHash* moved_entity_hash = get_entity_hash_slot(editor, level->entities[hash_slot->index].guid);
+        moved_entity_hash->index = hash_slot->index;
+    }
+}
 
 inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data) {
     assert(editor->undo_buffer_last_header + sizeof(UndoHeader) + data_size < ARRAY_COUNT(editor->undo_buffer));
@@ -149,20 +179,22 @@ inline void undo(EditorState* editor) {
                 copy(header->data_size, data, header->data_ptr);
                 copy(header->data_size, temp_redo_buffer, data);
             } break;
-#if 0
+
             case Undo_CreateEntity: {
-                Entity* entity = cast(Entity*) data;
-                delete_entity(editor->active_level, entity->id);
+                EntityID guid = (cast(Entity*) data)->guid;
+                Entity* entity = get_entity_from_guid(editor, guid);
+                if (entity) {
+                    assert(header->data_size == sizeof(*entity));
+                    copy(header->data_size, entity, data);
+                    delete_entity(editor, guid, false);
+                }
             } break;
+
             case Undo_DeleteEntity: {
                 Entity* entity_data = cast(Entity*) data;
-                AddEntityResult added_entity = add_entity(editor->active_level, EntityType_Null, entity_data->guid);
+                AddEntityResult added_entity = add_entity(editor, EntityType_Null, entity_data->guid);
                 copy(header->data_size, data, added_entity.ptr);
-
-                EntityHash* hash_slot = get_entity_hash_slot(editor, entity_data->guid);
-                hash_slot->index = added_entity.id;
             } break;
-#endif
         }
         end_temporary_memory(temp);
 
@@ -187,53 +219,26 @@ inline void redo(EditorState* editor) {
                 copy(header->data_size, data, header->data_ptr);
                 copy(header->data_size, temp_undo_buffer, data);
             } break;
-#if 0
+
             case Undo_CreateEntity: {
-                Entity* entity = cast(Entity*) data;
-                AddEntityResult added_entity = add_entity(editor->active_level, EntityType_Null);
-                entity->id = added_entity.id;
+                Entity* entity_data = cast(Entity*) data;
+                AddEntityResult added_entity = add_entity(editor, EntityType_Null, entity_data->guid);
                 copy(header->data_size, data, added_entity.ptr);
             } break;
+
             case Undo_DeleteEntity: {
                 EntityID guid = (cast(Entity*) data)->guid;
-                EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
-                Entity* entity = get_entity(editor->active_level, hash_slot->index);
+                Entity* entity = get_entity_from_guid(editor, guid);
                 if (entity) {
                     assert(header->data_size == sizeof(*entity));
                     copy(header->data_size, entity, data);
-                    delete_entity(editor->active_level, id);
+                    delete_entity(editor, guid, false);
                 }
             } break;
-#endif
         }
         end_temporary_memory(temp);
 
         editor->undo_buffer_last_header = next_header_index;
-    }
-}
-
-inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_history = true) {
-    EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
-
-    if (hash_slot) {
-        Level* level = editor->active_level;
-
-        assert(hash_slot->index < ARRAY_COUNT(level->entities));
-        Entity* entity = level->entities + hash_slot->index;
-
-        if (editor->selected_entity && editor->selected_entity->guid.value == guid.value) {
-            editor->selected_entity = 0;
-        }
-
-        if (with_undo_history) {
-            add_undo_history(editor, Undo_DeleteEntity, sizeof(*entity), entity);
-        }
-
-        hash_slot->guid = { 0 }; // Free deleted entity's hash slot
-
-        level->entities[hash_slot->index] = level->entities[--level->entity_count];
-        EntityHash* moved_entity_hash = get_entity_hash_slot(editor, level->entities[hash_slot->index].guid);
-        moved_entity_hash->index = hash_slot->index;
     }
 }
 
@@ -571,6 +576,10 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->arena = &game_state->transient_arena;
 
     editor->shown = true;
+
+    editor->camera_icon = get_image_by_name(editor->assets, "camera_icon");
+    editor->speaker_icon = get_image_by_name(editor->assets, "speaker_icon");
+
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
 
@@ -580,8 +589,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->grid_snapping_enabled = true;
     editor->grid_size = vec2(0.5f, 0.5f);
 
-    editor->camera_icon = get_image_by_name(&game_state->assets, "camera_icon");
-    editor->speaker_icon = get_image_by_name(&game_state->assets, "speaker_icon");
+    editor->zoom = 1.0f;
 
     set_up_editable_parameters(editor);
     load_level(editor, active_level);
@@ -591,16 +599,25 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 }
 
 internal void execute_editor(GameState* game_state, EditorState* editor, GameInput* input) {
-    if (!editor->shown) {
-        return;
-    }
-
     u32 width = editor->render_group.commands->width;
     u32 height = editor->render_group.commands->height;
 
     render_screenspace(&editor->render_group);
     editor->top_margin  = cast(f32) editor->render_group.commands->height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
+
+    if (game_state->game_mode == GameMode_Editor) {
+        if (input->shift.is_down) {
+            if (was_pressed(get_key(input, 'W'))) {
+                editor->zoom *= 2.0f;
+            }
+            if (was_pressed(get_key(input, 'D'))) {
+                editor->zoom *= 0.5f;
+            }
+        }
+
+        game_state->render_group.vertical_fov /= editor->zoom;
+    }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
     v2 world_mouse_p = screen_to_world(&game_state->render_group, transform2d(mouse_p)).offset;
@@ -622,6 +639,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->panning = false;
     }
 
+    if (!editor->shown) {
+        return;
+    }
+
     EditorLayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
 
     Level* level = editor->active_level;
@@ -634,9 +655,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     EditorLayout status_bar = make_layout(editor, vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)), true);
-    editor_print_line(&status_bar, COLOR_WHITE, "Entity Count: %u/%u | Grid Snapping: %s, Grid Size: { %f, %f }",
+    editor_print_line(&status_bar, COLOR_WHITE, "Entity Count: %u/%u | Grid Snapping: %s, Grid Size: { %f, %f } | Zoom: %gx",
         level->entity_count, ARRAY_COUNT(level->entities),
-        editor->grid_snapping_enabled ? "true" : "false", editor->grid_size.x, editor->grid_size.y
+        editor->grid_snapping_enabled ? "true" : "false", editor->grid_size.x, editor->grid_size.y,
+        editor->zoom
     );
 
     EditorLayout undo_log = make_layout(editor, vec2(500.0f, editor->top_margin));

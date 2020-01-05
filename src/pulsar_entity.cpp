@@ -16,6 +16,10 @@ internal void simulate_entity_logic(GameState* game_state, GameInput* input, f32
 
         switch (entity->type) {
             case EntityType_Player: {
+                if (!game_state->camera_target) {
+                    game_state->camera_target = entity;
+                }
+
                 GameController* controller = &input->controller;
                 f32 move_speed = entity->was_on_ground ? 50.0f : 10.0f;
                 if (controller->move_left.is_down) {
@@ -75,7 +79,7 @@ internal void simulate_entity_logic(GameState* game_state, GameInput* input, f32
             } break;
 
             case EntityType_CameraZone: {
-                Entity* camera_target = game_state->entities + game_state->camera_target.value;
+                Entity* camera_target = game_state->camera_target;
                 if (camera_target) {
                     if (is_in_rect(offset(entity->camera_zone, entity->p), camera_target->p)) {
                         render_group->camera_p = entity->p;

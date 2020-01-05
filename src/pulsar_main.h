@@ -114,7 +114,7 @@ struct GameState {
     u32 midi_event_buffer_count;
     ActiveMidiEvent midi_event_buffer[256];
 
-    EntityID camera_target;
+    Entity* camera_target;
 
     Level* active_level;
 

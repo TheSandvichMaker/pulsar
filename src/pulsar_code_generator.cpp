@@ -820,7 +820,7 @@ int main(int argument_count, char** arguments) {
     meta_enum_array = allocate_array(MetaEnum, 8, arena_allocator, &general_arena);
     meta_struct_array = allocate_array(MetaStruct, 8, arena_allocator, &general_arena);
 
-    fprintf(stderr, "Running code generator.\n");
+    fprintf(stderr, "Running code generator\n");
 
     WIN32_FIND_DATAA find_data;
     HANDLE find_handle = FindFirstFileA("*.h", &find_data);

@@ -2,8 +2,7 @@
 #define RENDER_COMMANDS_H
 
 struct RenderGroup {
-    f32 units_to_vertical_screen_percentage;
-    f32 vertical_screen_percentage_to_units;
+    f32 vertical_fov;
 
     v2 camera_p;
     v2 camera_rotation_arm;

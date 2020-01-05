@@ -125,6 +125,8 @@ struct EditorState {
     Font* big_font;
     Font* font;
 
+    f32 zoom;
+
     f32 top_margin;
     f32 left_margin;
 
