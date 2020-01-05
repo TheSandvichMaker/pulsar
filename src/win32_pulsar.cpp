@@ -14,7 +14,8 @@
 
 #include "common.h"
 
-#include "memory_arena.h"
+#include "pulsar_memory.h"
+#include "pulsar_memory_arena.h"
 #include "pulsar_platform_bridge.h"
 
 #include "string.h"

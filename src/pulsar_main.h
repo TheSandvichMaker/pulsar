@@ -1,6 +1,19 @@
 #ifndef PULSAR_MAIN_H
 #define PULSAR_MAIN_H
 
+// High level overview of @TODOs:
+// - Render entry sorting, render group sorting
+// - Make some kind entity system besides just the monolithic entities I've got now
+// - Add enough editor features to be actually able to make levels
+// - Level saving / loading
+// - Player movement / collision handling
+// - Midi timing (I believe the sync with samples isn't quite right since the
+//     platform asks for more than a frame's worth of audio)
+// - Sub-frame entity simulation (e.g. a platform might start moving halfway
+//     into the frame since that's when the midi note hits)
+// - Gameplay mechanics (checkpoints, hazards)
+// - Shaders?
+
 /* RESOURCES:
  * Audio and Music:
  *     test_sound: Handmade Hero
@@ -43,14 +56,13 @@
 
 #include "common.h"
 
-#include "memory_arena.h"
+#include "pulsar_memory.h"
+#include "pulsar_memory_arena.h"
 #include "pulsar_platform_bridge.h"
 
 #include "string.h"
 #include "math.h"
 #include "pulsar_opengl.h"
-
-#define using_struct(type, as) union { type as; struct { BodyOf_##type }; };
 
 #include "pulsar_assets.h"
 #include "pulsar_audio_mixer.h"

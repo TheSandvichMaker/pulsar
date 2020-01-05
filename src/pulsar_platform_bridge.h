@@ -1,6 +1,9 @@
 #ifndef PLATFORM_BRIDGE_H
 #define PLATFORM_BRIDGE_H
 
+#include "pulsar_code_generator.h"
+#include "pulsar_generated_pre_headers.h"
+
 #include "math.h"
 #include "file_io.h"
 #include "pulsar_asset_pack_file_format.h"

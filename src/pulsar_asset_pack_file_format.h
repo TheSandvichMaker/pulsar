@@ -1,5 +1,5 @@
-#ifndef ASSET_PACK_FORMAT_H
-#define ASSET_PACK_FORMAT_H
+#ifndef PULSAR_ASSET_PACK_FORMAT_H
+#define PULSAR_ASSET_PACK_FORMAT_H
 
 struct SoundID      { u32 value; };
 struct ImageID      { u32 value; };
@@ -23,44 +23,37 @@ enum PixelFormat {
     PixelFormat_A8,
 };
 
-#define BodyOf_PackedImage    \
-    PixelFormat pixel_format; \
-    u32 w, h;                 \
-    v2 align;                 \
+introspect() struct PackedImage {
+    PixelFormat pixel_format;
+     // @Note: I had written `u32 w, h;`, but right now the code generator doesn't handle multiple definitions on one line. That ought to be fixed.
+    u32 w;
+    u32 h;
+    v2 align;
     v2 scale;
-
-struct PackedImage {
-    BodyOf_PackedImage;
 
     /* Data:
      * PixelFormat* pixels[w*h];
      */
 };
 
-#define BodyOf_PackedSound \
-    u32 channel_count;     \
+introspect() struct PackedSound {
+    u32 channel_count;
     u32 sample_count;
-
-struct PackedSound {
-    BodyOf_PackedSound;
 
     /* Data:
      * s16* samples[channel_count];
      */
 };
 
-#define BodyOf_PackedFont        \
-    u32 first_codepoint;         \
-    u32 one_past_last_codepoint; \
-    u32 size;                    \
-    u32 oversample_amount;       \
-    f32 whitespace_width;        \
-    f32 ascent;                  \
-    f32 descent;                 \
+introspect() struct PackedFont {
+    u32 first_codepoint;
+    u32 one_past_last_codepoint;
+    u32 size;
+    u32 oversample_amount;
+    f32 whitespace_width;
+    f32 ascent;
+    f32 descent;
     f32 line_gap;
-
-struct PackedFont {
-    BodyOf_PackedFont;
 
     /* Data:
      * glyph_count = one_past_last_codepoint - first_codepoint;
@@ -70,27 +63,21 @@ struct PackedFont {
 };
 
 // @Note: A more complete implementation would allow time signature and bpm to vary across the track.
-#define BodyOf_PackedMidi           \
-    u32 ticks_per_second;           \
-    u32 beats_per_minute;           \
-    u16 time_signature_numerator;   \
-    u16 time_signature_denominator; \
+introspect() struct PackedMidi {
+    u32 ticks_per_second;
+    u32 beats_per_minute;
+    u16 time_signature_numerator;
+    u16 time_signature_denominator;
     u32 event_count;
-
-struct PackedMidi {
-    BodyOf_PackedMidi;
 
     /* Data:
      * MidiEvent events[event_count];
      */
 };
 
-#define BodyOf_PackedSoundtrack \
-    SoundID sound;              \
+introspect() struct PackedSoundtrack {
+    SoundID sound;
     u32 midi_track_count;
-
-struct PackedSoundtrack {
-    BodyOf_PackedSoundtrack;
 
     /* Data:
      * MidiID midi_tracks[midi_track_count];
@@ -102,15 +89,12 @@ enum MidiEventType {
     MidiEvent_NoteOff,
 };
 
-#define BodyOf_MidiEvent        \
-    u32 absolute_time_in_ticks; \
-    u8 channel;                 \
-    u8 type;                    \
-    u8 note_value;              \
+introspect() struct MidiEvent {
+    u32 absolute_time_in_ticks;
+    u8 channel;
+    u8 type;
+    u8 note_value;
     u8 velocity;
-
-struct MidiEvent {
-    BodyOf_MidiEvent;
 };
 
 struct PackedAsset {
@@ -139,4 +123,4 @@ struct AssetPackHeader {
     u32 asset_data;
 };
 
-#endif /* ASSET_PACK_FORMAT_H */
+#endif /* PULSAR_ASSET_PACK_FORMAT_H */

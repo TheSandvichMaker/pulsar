@@ -1,5 +1,3 @@
-#include "pulsar_code_generator.h"
-#include "pulsar_generated_pre_headers.h"
 #include "pulsar_main.h"
 #include "pulsar_generated_post_headers.h"
 
@@ -463,10 +461,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             Entity* entity = active_entities + entity_index;
             assert(entity->type != EntityType_Null);
 
-            // if (entity->flags & EntityFlag_Physical) {
-            //     physics_move(game_state, entity, entity->ddp, entity->sim_dt);
-            // }
-
+#if 1
+            if (entity->flags & EntityFlag_Physical) {
+                physics_move(game_state, entity, entity->ddp, entity->sim_dt);
+            }
+#else
             if (entity->type == EntityType_Player) {
                 /*
                  * @TODO: Figure out some of the cases in which the collision handling will
@@ -481,15 +480,15 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                 f32 epsilon = 1.0e-3f;
 
-                // @TODO: Some kind of relationship with real world units, get away from using pixels.
-                f32 gravity = 9.8f;
-                ddp.y -= gravity;
-
-                entity->support = 0;
+                if (!entity->support) {
+                    // @TODO: Some kind of relationship with real world units, get away from using pixels.
+                    f32 gravity = 9.8f;
+                    ddp.y -= gravity;
+                }
 
                 if (on_ground(entity)) {
                     ddp.x -= entity->friction_of_last_touched_surface*entity->dp.x;
-                    entity->flags &= ~EntityFlag_OnGround;
+                    // entity->flags &= ~EntityFlag_OnGround;
                     // f32 off_ground_time = 0.2f;
                     // if (entity->off_ground_timer < off_ground_time) {
                     //     entity->off_ground_timer += dt;
@@ -508,9 +507,9 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 v2 delta = t_left*total_delta;
 
                 v2 p = entity->p;
-                // if (entity->support) {
-                //     p = entity->support->p + entity->local_p + entity->support->dp;
-                // }
+                if (entity->support) {
+                    p = entity->support->p + entity->local_p + entity->support->dp;
+                }
 
                 if (entity->flags & EntityFlag_Collides) {
                     // @TODO: Optimized spatial indexing of sorts?
@@ -560,8 +559,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     }
                 }
 
+                entity->local_p += delta;
                 entity->p += delta;
             }
+#endif
 
             if (on_ground(entity)) {
                 entity->color = vec4(0, 0, 1, 1);

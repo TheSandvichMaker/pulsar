@@ -4,12 +4,14 @@
 
 #include "common.h"
 #include "intrinsics.h"
-#include "memory_arena.h"
-#include "template_array.h"
 #include "math.h"
 #include "string.h"
 #include "file_io.h"
 #include "asset_loading.h"
+
+#include "pulsar_memory.h"
+#include "pulsar_memory_arena.h"
+#include "pulsar_template_array.h"
 
 #include "file_io.cpp"
 #include "asset_loading.cpp"
@@ -213,7 +215,7 @@ int main(int argument_count, char** arguments) {
     memset(memory_pool, 0, MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
-    asset_descriptions = allocate_array<AssetDescription>(64, &global_arena);
+    asset_descriptions = allocate_array<AssetDescription>(2, allocator(arena_allocator, &global_arena));
 
     char* midi_files[] = { "assets/test_soundtrack.mid" };
     add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
@@ -278,7 +280,7 @@ int main(int argument_count, char** arguments) {
 
             EntireFile file = {};
             if (asset_desc->source_file) {
-                file = read_entire_file(asset_desc->source_file, 0, &global_arena);
+                file = read_entire_file(asset_desc->source_file, allocator(arena_allocator, &global_arena));
             }
 
             if (file.size || !asset_desc->source_file) {

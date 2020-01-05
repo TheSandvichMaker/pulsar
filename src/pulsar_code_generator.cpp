@@ -917,19 +917,6 @@ int main(int argument_count, char** arguments) {
 
         for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
             MetaStruct meta = array_get(meta_struct_array, struct_index);
-            fprintf(pre_headers, "static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
-            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                auto member = array_get(meta.members, member_index);
-                fprintf(pre_headers, "    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
-                    member.is_pointer ? "MetaMemberFlag_IsPointer" : "0",
-                    PRINTF_TOKEN(member.type),
-                    PRINTF_TOKEN(member.name),
-                    PRINTF_TOKEN(meta.name),
-                    PRINTF_TOKEN(member.name)
-                );
-            }
-            fprintf(pre_headers, "};\n\n");
-
             fprintf(pre_headers, "#define BodyOf_%.*s \\\n", PRINTF_TOKEN(meta.name));
             for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
                 auto member = array_get(meta.members, member_index);
@@ -973,6 +960,22 @@ int main(int argument_count, char** arguments) {
                 fprintf(post_headers, "    }\n");
                 fprintf(post_headers, "}\n\n");
             }
+        }
+
+        for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
+            MetaStruct meta = array_get(meta_struct_array, struct_index);
+            fprintf(post_headers, "static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
+            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+                auto member = array_get(meta.members, member_index);
+                fprintf(post_headers, "    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
+                    member.is_pointer ? "MetaMemberFlag_IsPointer" : "0",
+                    PRINTF_TOKEN(member.type),
+                    PRINTF_TOKEN(member.name),
+                    PRINTF_TOKEN(meta.name),
+                    PRINTF_TOKEN(member.name)
+                );
+            }
+            fprintf(post_headers, "};\n\n");
         }
 
         fprintf(post_headers, "#endif\n");

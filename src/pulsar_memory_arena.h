@@ -1,6 +1,8 @@
 #ifndef MEMORY_ARENA_H
 #define MEMORY_ARENA_H
 
+#define MEMORY_ARENA_DEFAULT_ALIGN 4
+
 struct LinearBuffer;
 struct MemoryArena {
     size_t size;
@@ -24,51 +26,8 @@ inline void initialize_arena(MemoryArena* arena, size_t size, void* base_ptr) {
     arena->active_linear_buffer = 0;
 }
 
-enum ArenaPushFlags {
-    ArenaFlag_ClearToZero = 0x1,
-};
-
-struct ArenaPushParams {
-    u32 flags;
-    u32 alignment;
-};
-
-inline ArenaPushParams default_arena_params() {
-    ArenaPushParams params;
-    params.flags = ArenaFlag_ClearToZero;
-    params.alignment = 4;
-    return params;
-}
-
-inline ArenaPushParams align_flags(u32 align, u32 flags) {
-    ArenaPushParams params = default_arena_params();
-    params.flags = flags;
-    params.alignment = align;
-    return params;
-}
-
-inline ArenaPushParams align(u32 align, b32 clear) {
-    ArenaPushParams params = default_arena_params();
-    params.flags = clear ? (params.flags | ArenaFlag_ClearToZero) : (params.flags & ~ArenaFlag_ClearToZero);
-    params.alignment = align;
-    return params;
-}
-
-inline ArenaPushParams no_clear() {
-    ArenaPushParams params = default_arena_params();
-    params.flags &= ~ArenaFlag_ClearToZero;
-    return params;
-}
-
-inline ArenaPushParams align_no_clear(u32 align) {
-    ArenaPushParams params = default_arena_params();
-    params.flags &= ~ArenaFlag_ClearToZero;
-    params.alignment = align;
-    return params;
-}
-
 inline size_t get_alignment_offset(MemoryArena* arena, size_t align, size_t at) {
-    size_t result_pointer = (size_t)arena->base_ptr + at;
+    size_t result_pointer = cast(size_t) arena->base_ptr + at;
 
     size_t align_offset = result_pointer & (align - 1);
     if (align_offset) {
@@ -83,8 +42,8 @@ inline size_t get_alignment_offset(MemoryArena* arena, size_t align) {
     return align_offset;
 }
 
-inline size_t get_arena_size_remaining(MemoryArena* arena, ArenaPushParams params = default_arena_params()) {
-    size_t result = arena->size - (arena->used + get_alignment_offset(arena, params.alignment));
+inline size_t get_arena_size_remaining(MemoryArena* arena, AllocateParams params = default_allocate_params()) {
+    size_t result = arena->size - (arena->used + get_alignment_offset(arena, align_or(params, MEMORY_ARENA_DEFAULT_ALIGN)));
     return result;
 }
 
@@ -99,19 +58,19 @@ inline void* zero_size(size_t size, void* ptr) {
     return ptr;
 }
 
-inline size_t get_effective_size_for(MemoryArena* arena, size_t size, ArenaPushParams params) {
-    size_t align_offset  = get_alignment_offset(arena, params.alignment);
+inline size_t get_effective_size_for(MemoryArena* arena, size_t size, AllocateParams params) {
+    size_t align_offset  = get_alignment_offset(arena, align_or(params, MEMORY_ARENA_DEFAULT_ALIGN));
     size_t adjusted_size = size + align_offset;
     return adjusted_size;
 }
 
-inline b32 arena_has_room_for(MemoryArena* arena, size_t size, ArenaPushParams params = default_arena_params()) {
+inline b32 arena_has_room_for(MemoryArena* arena, size_t size, AllocateParams params = default_allocate_params()) {
     size_t effective_size = get_effective_size_for(arena, size, params);
     b32 result = (arena->used + effective_size) <= arena->size;
     return result;
 }
 
-inline void* get_next_allocation_location(MemoryArena* arena, size_t align = 4) {
+inline void* get_next_allocation_location(MemoryArena* arena, size_t align = MEMORY_ARENA_DEFAULT_ALIGN) {
     size_t align_offset = get_alignment_offset(arena, align);
     void* result = cast(void*) (arena->base_ptr + arena->used + align_offset);
     return result;
@@ -121,18 +80,19 @@ inline void* get_next_allocation_location(MemoryArena* arena, size_t align = 4) 
 #define push_struct(arena, type, ...) (type*)push_size_(arena, sizeof(type), ##__VA_ARGS__)
 #define push_array(arena, count, type, ...) (type*)push_size_(arena, sizeof(type) * (count), ##__VA_ARGS__)
 #define push_size(arena, size, ...) push_size_(arena, size, ##__VA_ARGS__)
-// #define ZERO_AND_push_struct(arena, type, ...) (type*)zero_size(sizeof(type), push_size_(arena, sizeof(type), ##__VA_ARGS__))
-inline void* push_size_(MemoryArena* arena, size_t size_init, ArenaPushParams params = default_arena_params(), LinearBuffer* lb = 0) {
+inline void* push_size_(MemoryArena* arena, size_t size_init, AllocateParams params = default_allocate_params(), LinearBuffer* lb = 0) {
     assert(arena->active_linear_buffer == lb);
+
+    s32 align = align_or(params, MEMORY_ARENA_DEFAULT_ALIGN);
 
     size_t size = get_effective_size_for(arena, size_init, params);
 
     assert((arena->used + size) <= arena->size);
-    size_t align_offset = get_alignment_offset(arena, params.alignment);
+    size_t align_offset = get_alignment_offset(arena, align);
     void* result = (arena->base_ptr + arena->used + align_offset);
     arena->used += size;
 
-    if (params.flags & ArenaFlag_ClearToZero) {
+    if (params.flags & AllocateFlag_ClearToZero) {
         zero_size(size_init, result);
     }
 
@@ -147,10 +107,10 @@ struct LinearBuffer {
 };
 
 #define begin_linear_buffer(arena, type, ...) (cast(type*) begin_linear_buffer_(arena, ##__VA_ARGS__))
-inline void* begin_linear_buffer_(MemoryArena* arena, ArenaPushParams params = default_arena_params()) {
+inline void* begin_linear_buffer_(MemoryArena* arena, AllocateParams params = default_allocate_params()) {
     assert(!arena->active_linear_buffer);
 
-    LinearBuffer* header = push_struct(arena, LinearBuffer, align(params.alignment, false));
+    LinearBuffer* header = push_struct(arena, LinearBuffer, align(params.align_, false));
     header->arena = arena;
     header->flags = params.flags;
     header->count = 0;
@@ -197,7 +157,7 @@ inline char* push_string_and_null_terminate(MemoryArena* arena, size_t length, c
     return result;
 }
 
-inline void sub_arena(MemoryArena* result, MemoryArena* arena, size_t size, ArenaPushParams params = default_arena_params()) {
+inline void sub_arena(MemoryArena* result, MemoryArena* arena, size_t size, AllocateParams params = default_allocate_params()) {
     result->size = size;
     result->base_ptr = (u8*)push_size_(arena, size, params);
     result->used = 0;
@@ -235,6 +195,27 @@ inline void clear_arena(MemoryArena* arena) {
 inline void check_arena(MemoryArena* arena) {
     assert(arena->temp_count == 0);
     assert(arena->active_linear_buffer == 0);
+}
+
+// @Note: A good citizen would put this in a .cpp
+internal ALLOCATOR(arena_allocator) {
+    MemoryArena* arena = cast(MemoryArena*) user_data;
+    void* result = 0;
+    if (old_size) {
+        assert(old_ptr);
+        assert(new_size >= old_size);
+        if (cast(u8*) old_ptr + old_size == get_next_allocation_location(arena, align_or(params, MEMORY_ARENA_DEFAULT_ALIGN))) {
+            // @Note: If we can grow in place, we just push the difference and return the old_ptr
+            push_size(arena, new_size - old_size, params);
+            result = old_ptr;
+        } else {
+            result = push_size(arena, new_size, params);
+            copy(old_size, old_ptr, result);
+        }
+    } else {
+        result = push_size(arena, new_size, params);
+    }
+    return result;
 }
 
 #endif /* MEMORY_ARENA_H */

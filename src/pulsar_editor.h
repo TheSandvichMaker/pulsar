@@ -94,6 +94,7 @@ introspect() enum UndoType {
 
 struct UndoHeader {
     UndoType type;
+    char* description;
 
     u32 data_size;
     void* data_ptr;

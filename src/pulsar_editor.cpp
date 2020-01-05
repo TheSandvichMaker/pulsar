@@ -1,6 +1,10 @@
 inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
     EntityHash* result = 0;
 
+    // @TODO: Use external chaining and/or better hash function. Right now I
+    // believe this can easily end up so that this lookup can take a long time
+    // because the hash values are so densely packed. Any later insertion can
+    // end up having to jump many hash slots to find the right entry.
     u32 hash_value = guid.value;
 
     if (hash_value) {
@@ -120,7 +124,7 @@ inline AddEntityResult add_camera_zone(EditorState* editor, Rect2 zone, f32 rota
     return result;
 }
 
-inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data);
+inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description = 0);
 inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_history = true) {
     EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
 
@@ -146,7 +150,10 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
     }
 }
 
-inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data) {
+// @Incomplete: Right now, the undo buffer is simply linear and once you run out of
+// space, that's it. Needs to be made into a circular buffer or some other equivalent system.
+
+inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
     assert(editor->undo_buffer_last_header + sizeof(UndoHeader) + data_size < ARRAY_COUNT(editor->undo_buffer));
 
     UndoHeader* last_header = cast(UndoHeader*) (editor->undo_buffer + editor->undo_buffer_last_header);
@@ -155,6 +162,7 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
     UndoHeader* header = cast(UndoHeader*) (editor->undo_buffer + next_header_index);
 
     header->type = type;
+    header->description = description;
     header->data_size = data_size;
     header->data_ptr  = data;
 
@@ -680,10 +688,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         if (header_index > editor->undo_buffer_last_header) {
             color = vec4(1.0f, 1.0f, 0.5f, 1.0f);
         }
-        editor_print(&undo_log, color, "%s (%dB): ", enum_name(UndoType, header->type), header->data_size);
+        editor_print(&undo_log, color, "[%04u] %s: ", header_index, enum_name(UndoType, header->type));
         switch (header->type) {
             case Undo_SetData: {
-                editor_print(&undo_log, color, "0x%I64x", cast(u64) header->data_ptr);
+                if (header->description) {
+                    editor_print(&undo_log, color, "%s", header->description);
+                } else {
+                    editor_print(&undo_log, color, "0x%I64x", cast(u64) header->data_ptr);
+                }
             } break;
             case Undo_CreateEntity:
             case Undo_DeleteEntity: {
@@ -743,16 +755,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (is_hot(editor, manipulate_entity)) {
-        if (input->del.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-            editor->hot_widget.manipulate.type = Manipulate_DeleteEntity;
-            set_active(editor, editor->hot_widget);
-        } else if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-            manipulate_entity.manipulate.drag_offset = world_mouse_p - editor->hot_widget.manipulate.entity->p;
-            set_active(editor, editor->hot_widget);
-        }
-    }
-
     if (is_active(editor, manipulate_entity)) {
         EditorWidget* widget = &editor->active_widget;
         switch (widget->manipulate.type) {
@@ -761,7 +763,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 if (input->mouse_buttons[PlatformMouseButton_Left].is_down && drag_distance > 5.0f) {
                     editor->selected_entity = widget->manipulate.entity;
                     widget->manipulate.type = Manipulate_DragEntity;
-                    add_undo_history(editor, Undo_SetData, sizeof(widget->manipulate.entity->p), &widget->manipulate.entity->p);
+                    add_undo_history(editor, Undo_SetData, sizeof(widget->manipulate.entity->p), &widget->manipulate.entity->p, "Moved Entity");
                 } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     editor->selected_entity = moused_over;
                     clear_active(editor);
@@ -782,6 +784,15 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 delete_entity(editor, widget->manipulate.entity->guid);
                 clear_active(editor);
             } break;
+        }
+    } else if (is_hot(editor, manipulate_entity)) {
+        EditorWidget widget = editor->hot_widget;
+        if (input->del.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
+            widget.manipulate.type = Manipulate_DeleteEntity;
+            set_active(editor, widget);
+        } else if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            widget.manipulate.drag_offset = world_mouse_p - widget.manipulate.entity->p;
+            set_active(editor, widget);
         }
     }
 

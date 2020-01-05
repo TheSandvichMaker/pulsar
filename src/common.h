@@ -64,4 +64,6 @@ inline u32 safe_truncate_u64u32(u64 source) {
     return result;
 }
 
+#define introspect(...)
+
 #endif /* WIN32_MAIN_H */
