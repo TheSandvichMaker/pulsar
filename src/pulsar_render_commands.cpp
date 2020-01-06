@@ -44,32 +44,38 @@ inline v4 transform_color(v4 color) {
     return result;
 }
 
-#define push_render_command(commands, type) cast(RenderCommand##type*) push_render_command_(commands, RenderCommand_##type, sizeof(RenderCommand##type))
-inline void* push_render_command_(GameRenderCommands* commands, RenderCommandType type, u32 render_command_size) {
+#define push_render_command(commands, type, sort_key) cast(RenderCommand##type*) push_render_command_(commands, RenderCommand_##type, sizeof(RenderCommand##type), sort_key)
+inline void* push_render_command_(GameRenderCommands* commands, RenderCommandType type, u32 render_command_size, f32 sort_key) {
     void* result = 0;
-    if (commands->command_buffer_used + (render_command_size + sizeof(RenderCommandHeader)) < commands->command_buffer_size) {
-        RenderCommandHeader* header = cast(RenderCommandHeader*) (commands->command_buffer + commands->command_buffer_used);
-        header->type = cast(u8) type;
-        commands->command_buffer_used += sizeof(*header);
+    u32 next_command_index = commands->first_command - render_command_size - sizeof(RenderCommandHeader);
+    if (sizeof(SortEntry)*(commands->sort_entry_count + 1) < next_command_index) {
+        commands->first_command = next_command_index;
 
-        result = (commands->command_buffer + commands->command_buffer_used);
-        commands->command_buffer_used += render_command_size;
+        RenderCommandHeader* header = cast(RenderCommandHeader*) (commands->command_buffer + commands->first_command);
+        header->type = cast(u8) type;
+
+        result = header + 1;
+
+        SortEntry* sort_entry = cast(SortEntry*) commands->command_buffer + commands->sort_entry_count++;
+
+        sort_entry->sort_key = sort_key;
+        sort_entry->index = commands->first_command;
     } else {
         INVALID_CODE_PATH;
     }
     return result;
 }
 
-inline RenderCommandClear* push_clear(RenderGroup* render_group, v4 color) {
-    RenderCommandClear* result = push_render_command(render_group->commands, Clear);
+inline RenderCommandClear* push_clear(RenderGroup* render_group, v4 color, f32 sort_key = -F32_MAX) {
+    RenderCommandClear* result = push_render_command(render_group->commands, Clear, sort_key);
     if (result) {
         result->color = transform_color(color);
     }
     return result;
 }
 
-inline RenderCommandImage* push_image(RenderGroup* render_group, Transform2D world_transform, Image* image, v4 color = vec4(1, 1, 1, 1)) {
-    RenderCommandImage* result = push_render_command(render_group->commands, Image);
+inline RenderCommandImage* push_image(RenderGroup* render_group, Transform2D world_transform, Image* image, v4 color = vec4(1, 1, 1, 1), f32 sort_key = 0.0f) {
+    RenderCommandImage* result = push_render_command(render_group->commands, Image, sort_key);
     if (result) {
         Transform2D transform = world_to_screen(render_group, world_transform);
         transform.scale *= image->scale / vec2(image->w, image->h);
@@ -80,8 +86,8 @@ inline RenderCommandImage* push_image(RenderGroup* render_group, Transform2D wor
     return result;
 }
 
-inline RenderCommandShape* push_shape(RenderGroup* render_group, Transform2D world_transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1), ShapeRenderMode render_mode = ShapeRenderMode_Fill) {
-    RenderCommandShape* result = push_render_command(render_group->commands, Shape);
+inline RenderCommandShape* push_shape(RenderGroup* render_group, Transform2D world_transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1), ShapeRenderMode render_mode = ShapeRenderMode_Fill, f32 sort_key = 0.0f) {
+    RenderCommandShape* result = push_render_command(render_group->commands, Shape, sort_key);
     if (result) {
         Transform2D transform = world_to_screen(render_group, world_transform);
         result->transform = transform;

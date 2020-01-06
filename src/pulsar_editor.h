@@ -88,6 +88,7 @@ struct EditorWidget {
 introspect() enum UndoType {
     Undo_Null,
     Undo_SetData,
+    Undo_SetEntityData,
     Undo_CreateEntity,
     Undo_DeleteEntity,
 };

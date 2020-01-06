@@ -24,16 +24,17 @@
  *     speaker icon: Google images (@Copyright!)
  *
  * REFERENCES:
- * OpenGL:
- *     Handmade Hero for OpenGL setup and basic rendering (@TODO: be more specific)
- *     OpenGL wiki for everything else (@TODO: be more specific)
- * General Knowledge and Insight from watching Jonathan Blow streams:
- *     https://www.youtube.com/user/jblow888
  * Handmade Hero (@TODO: List the stuff directly used from handmade hero):
  *     https://handmadehero.org/
  *     A lot of the (win32) platform layer
  *     DirectSound setup and usage
  *     Input handling (@TODO: Start using raw input - set up an input thread?)
+ *     Sorting (pulsar_sort.cpp is a direct copy of handmade_sort.cpp)
+ * OpenGL:
+ *     Handmade Hero for OpenGL setup and basic rendering (@TODO: be more specific)
+ *     OpenGL wiki for everything else (@TODO: be more specific)
+ * General Knowledge and Insight from watching Jonathan Blow streams:
+ *     https://www.youtube.com/user/jblow888
  * Equations of motion:
  *     Handmade Hero (https://www.youtube.com/watch?v=LoTRzRFEk5I)
  *     Various wikipedia pages (e.g. https://en.wikipedia.org/wiki/Classical_mechanics)
@@ -50,6 +51,7 @@
  *     https://www.midi.org/specifications-old/item/the-midi-1-0-specification
  * Framerate Independence / Timing
  *     https://www.youtube.com/watch?v=fdAOPHgW7qM
+ *     https://www.youtube.com/watch?v=jTzIDmjkLQo
  */
 
 #include <stdarg.h>

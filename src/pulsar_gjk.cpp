@@ -143,10 +143,6 @@ inline EpaEdge epa_find_closest_edge(EpaPoint* p_sentinel, b32 simplex_wound_ccw
 inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2, CollisionInfo* info = 0, MemoryArena* temp_arena = 0) {
     b32 result = false;
 
-#if 0 // DEBUG_GJK_VISUALIZATION
-    v4 viz_color = vec4(1, 0, 1, 1);
-#endif
-
     TemporaryMemory temp = {};
     if (temp_arena) {
         temp = begin_temporary_memory(temp_arena);
@@ -154,28 +150,24 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
 
     u32 pc = 0;
     v2 p[3] = {};
-    v2 s = support(t1, s1, t2, s2, vec2(0, 1));
 
-    p[pc++] = s;
-    v2 d = -s;
-    for (;;) {
-        v2 a = support(t1, s1, t2, s2, d);
-        if (dot(a, d) <= 0) {
-            break;
-        }
-        p[pc++] = a;
+    {
+        v2 s = support(t1, s1, t2, s2, vec2(0, 1));
 
-#if 0 // DEBUG_GJK_VISUALIZATION
-        Shape2D dbg_shape = polygon(pc, p);
-        Transform2D dbg_transform = default_transform2d();
-        dbg_transform.offset = t1.offset;
-        push_shape(dbg_render_commands, dbg_transform, dbg_shape);
-#endif
-
-        if (gjk_do_simplex(&pc, p, &d)) {
-            result = true;
-            if (!info || pc == 3) {
+        p[pc++] = s;
+        v2 d = -s;
+        for (;;) {
+            v2 a = support(t1, s1, t2, s2, d);
+            if (dot(a, d) <= 0) {
                 break;
+            }
+            p[pc++] = a;
+
+            if (gjk_do_simplex(&pc, p, &d)) {
+                result = true;
+                if (!info || pc == 3) {
+                    break;
+                }
             }
         }
     }
@@ -189,9 +181,6 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
         assert(temp_arena);
 
         b32 simplex_wound_ccw = (((p[1].x - p[0].x)*(p[2].y - p[1].y)) - ((p[1].y - p[0].y)*(p[2].x-p[1].x))) > 0.0f;
-#if 0 // DEBUG_GJK_VISUALIZATION
-        viz_color = simplex_wound_ccw ? viz_color : vec4(1, 1, 0, 1);
-#endif
 
         // @TODO: If I get to it, profile the performance difference between
         // this linked list version and some variety of a dynamic array version
@@ -219,21 +208,7 @@ inline b32 gjk_intersect(Transform2D t1, Shape2D s1, Transform2D t2, Shape2D s2,
                 e.point->next = new_p;
             }
         }
-
-#if 0 // DEBUG_GJK_VISUALIZATION
-        glBegin(GL_LINE_LOOP);
-        glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
-        for (EpaPoint* test_p = epa_p; test_p; test_p = test_p->next) {
-            v2 vert = test_p->p + t1.offset;
-            glVertex2fv(vert.e);
-        }
-        glEnd();
-#endif
     }
-
-#if 0 // DEBUG_GJK_VISUALIZATION
-    dbg_draw_minkowski_difference_with_brute_force(t1, s1, t2, s2, viz_color);
-#endif
 
     if (temp_arena) {
         end_temporary_memory(temp);

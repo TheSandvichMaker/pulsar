@@ -25,6 +25,8 @@
 #include "pulsar_opengl.h"
 #include "win32_opengl.h"
 
+#include "pulsar_sort.cpp"
+
 #include "pulsar_opengl.cpp"
 #include "win32_opengl.cpp"
 
@@ -36,6 +38,12 @@ global OpenGLInfo opengl_info;
 global b32 running;
 global b32 in_focus;
 global b32 focus_changed;
+
+global MemoryArena platform_arena;
+
+internal DEBUG_PLATFORM_PRINT(win32_debug_print) {
+    OutputDebugStringA(text);
+}
 
 internal PLATFORM_ALLOCATE_MEMORY(win32_allocate_memory) {
     void* result = VirtualAlloc(NULL, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
@@ -404,8 +412,17 @@ internal void win32_handle_remaining_messages(GameInput* input) {
 }
 
 internal void win32_output_image(GameRenderCommands* commands, HDC window_dc) {
+    TemporaryMemory temp = begin_temporary_memory(&platform_arena);
+
+    SortEntry* sort_entries = cast(SortEntry*) commands->command_buffer;
+    SortEntry* sort_temp_space = push_array(&platform_arena, commands->sort_entry_count, SortEntry, no_clear());
+
+    radix_sort(commands->sort_entry_count, sort_entries, sort_temp_space);
+
     opengl_render_commands(commands);
     SwapBuffers(window_dc);
+
+    end_temporary_memory(temp);
 }
 
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
@@ -461,9 +478,14 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             win32_clear_sound_buffer(&sound_output);
             sound_output.buffer->Play(0, 0, DSBPLAY_LOOPING);
 
+            size_t platform_storage_size = MEGABYTES(128);
+            void* platform_storage = win32_allocate_memory(platform_storage_size);
+
+            initialize_arena(&platform_arena, platform_storage_size, platform_storage);
+
             GameRenderCommands render_commands = {};
             render_commands.command_buffer_size = MEGABYTES(32);
-            render_commands.command_buffer = cast(u8*) win32_allocate_memory(render_commands.command_buffer_size);
+            render_commands.command_buffer = cast(u8*) push_size(&platform_arena, render_commands.command_buffer_size);
 
             b32 sound_is_valid = false;
 
@@ -484,6 +506,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.deallocate = win32_deallocate_memory;
             game_memory.platform_api.allocate_texture = win32_allocate_texture;
             game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
+            game_memory.platform_api.debug_print = win32_debug_print;
 
             GameInput old_input_ = {};
             GameInput new_input_ = {};
@@ -498,7 +521,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 u32 width = window_rect.right - window_rect.left;
                 u32 height = window_rect.bottom - window_rect.top;
 
-                render_commands.command_buffer_used = 0;
+                render_commands.sort_entry_count = 0;
+                render_commands.first_command = render_commands.command_buffer_size;
                 render_commands.width = width;
                 render_commands.height = height;
 

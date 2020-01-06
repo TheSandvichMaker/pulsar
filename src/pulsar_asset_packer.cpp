@@ -220,6 +220,9 @@ int main(int argument_count, char** arguments) {
     char* midi_files[] = { "assets/test_soundtrack.mid" };
     add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
 
+    char* midi_files2[] = { "assets/ugly_loop.mid" };
+    add_soundtrack("ugly_loop", "assets/ugly_loop.wav", ARRAY_COUNT(midi_files2), midi_files2);
+
     add_sound("test_sound", "assets/test_sound.wav");
     add_sound("test_music", "assets/test_music.wav");
 

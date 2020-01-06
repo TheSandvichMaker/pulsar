@@ -15,6 +15,7 @@ char* GetEnumNameOf_UndoType(int value) {
     switch (value) {
         case Undo_Null: return "Undo_Null";
         case Undo_SetData: return "Undo_SetData";
+        case Undo_SetEntityData: return "Undo_SetEntityData";
         case Undo_CreateEntity: return "Undo_CreateEntity";
         case Undo_DeleteEntity: return "Undo_DeleteEntity";
         default: return "Unknown value for UndoType";

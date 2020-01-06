@@ -162,8 +162,10 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-    u8* at = commands->command_buffer;
-    while (at < (commands->command_buffer + commands->command_buffer_used)) {
+    for (u32 sort_entry_index = 0; sort_entry_index < commands->sort_entry_count; sort_entry_index++) {
+        SortEntry* entry = cast(SortEntry*) commands->command_buffer + sort_entry_index;
+        u8* at = commands->command_buffer + entry->index;
+
         RenderCommandHeader* header = cast(RenderCommandHeader*) at;
         at += sizeof(*header);
 

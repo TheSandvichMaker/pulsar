@@ -1,11 +1,21 @@
+inline void dbg_text(char* format_string, ...) {
+    va_list va_args;
+    va_start(va_args, format_string);
+
+    char buffer[8192];
+    stbsp_vsnprintf(buffer, sizeof(buffer), format_string, va_args);
+
+    va_end(va_args);
+
+    platform.debug_print(buffer);
+}
+
 inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
     EntityHash* result = 0;
 
-    // @TODO: Use external chaining and/or better hash function. Right now I
-    // believe this can easily end up so that this lookup can take a long time
-    // because the hash values are so densely packed. Any later insertion can
-    // end up having to jump many hash slots to find the right entry.
-    u32 hash_value = guid.value;
+    // @TODO: Use some kind of not totally superbly made-uppy hash? Who knows, maybe this is fine. Let's be honest, you're not gonna notice the difference.
+    u32 hash_constant = cast(u32) (1.6180339f*ARRAY_COUNT(editor->entity_hash)); // ...Whatever this is. Wrap by golden ratio, or something.
+    u32 hash_value = (guid.value * hash_constant) % ARRAY_COUNT(editor->entity_hash);
 
     if (hash_value) {
         for (u32 search = 0; search < ARRAY_COUNT(editor->entity_hash); search++) {
@@ -63,7 +73,12 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     Entity* entity = result.ptr;
 
     entity->p = starting_p;
-    entity->collision = circle(0.5f);
+    v2* verts = push_array(editor->arena, 4, v2, no_clear());
+    verts[0] = { -0.2f, 0.0f };
+    verts[1] = {  0.2f, 0.0f };
+    verts[2] = {  0.2f, 1.0f };
+    verts[3] = { -0.2f, 1.0f };
+    entity->collision = polygon(4, verts); // circle(0.5f);
     entity->color = vec4(1, 1, 1, 1);
 
     entity->flags |= EntityFlag_Physical|EntityFlag_Collides;
@@ -143,16 +158,17 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
             add_undo_history(editor, Undo_DeleteEntity, sizeof(*entity), entity);
         }
 
-        hash_slot->guid = { 0 }; // Free deleted entity's hash slot
+        hash_slot->guid = { 0 }; // Free the deleted entity's hash slot
 
-        level->entities[hash_slot->index] = level->entities[--level->entity_count];
-        EntityHash* moved_entity_hash = get_entity_hash_slot(editor, level->entities[hash_slot->index].guid);
-        moved_entity_hash->index = hash_slot->index;
+        if (level->entity_count > 1) {
+            level->entities[hash_slot->index] = level->entities[--level->entity_count];
+            EntityHash* moved_entity_hash = get_entity_hash_slot(editor, level->entities[hash_slot->index].guid);
+            moved_entity_hash->index = hash_slot->index;
+        } else {
+            level->entity_count--;
+        }
     }
 }
-
-// @Incomplete: Right now, the undo buffer is simply linear and once you run out of
-// space, that's it. Needs to be made into a circular buffer or some other equivalent system.
 
 inline void* get_undo_data(UndoFooter* footer) {
     void* result = cast(u8*) footer - footer->data_size;
@@ -164,7 +180,10 @@ inline UndoFooter* get_undo_footer(EditorState* editor, u32 offset) {
     return result;
 }
 
+// @TODO: Is this function overly complex?
 inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
+    assert(data_size + sizeof(UndoFooter) <= sizeof(editor->undo_buffer));
+
     UndoFooter* prev_footer = 0;
     u32 data_index = 0;
     if (editor->undo_most_recent) {
@@ -189,14 +208,15 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
             oldest_index += ARRAY_COUNT(editor->undo_buffer);
         }
         while (watermark > oldest_index - oldest->data_size) {
+            editor->undo_oldest = oldest->next;
+
+            oldest = get_undo_footer(editor, editor->undo_oldest);
+            oldest->prev = 0;
+
             oldest_index = editor->undo_oldest;
             if (oldest_index < editor->undo_most_recent) {
                 oldest_index += ARRAY_COUNT(editor->undo_buffer);
             }
-
-            editor->undo_oldest = oldest->next;
-            UndoFooter* oldest = get_undo_footer(editor, editor->undo_oldest);
-            oldest->prev = 0;
         }
     } else {
         editor->undo_oldest = footer_index;
@@ -213,7 +233,7 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
     footer->type = type;
     footer->description = description;
     footer->data_size = data_size;
-    footer->data_ptr  = data;
+    footer->data_ptr = data;
 
     copy(footer->data_size, footer->data_ptr, editor->undo_buffer + data_index);
 
@@ -226,7 +246,7 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
 }
 
 // @TODO: SetData is insufficient for operations on entities since they move around
-// in the entity array. Make a Undo_SetEntityData or something, and/or ponder the
+// in the entity array. Make an Undo_SetEntityData or something, and/or ponder the
 // way undo should work in general in regard to entities.
 
 inline void undo(EditorState* editor) {
@@ -325,6 +345,11 @@ inline Level* allocate_level(MemoryArena* arena, char* name) {
 }
 
 inline void load_level(EditorState* editor, Level* level) {
+    // @Note: Weird paranoid assert in case I ever change the hash from a fixed size array and forget to change this...
+    assert(sizeof(editor->entity_hash) == sizeof(EntityHash)*MAX_ENTITY_COUNT);
+
+    zero_size(sizeof(editor->entity_hash), editor->entity_hash);
+
     editor->active_level = level;
     for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
         Entity* entity = editor->active_level->entities + entity_index;
@@ -337,12 +362,12 @@ inline void load_level(EditorState* editor, Level* level) {
 inline void create_debug_level(EditorState* editor) {
     add_player(editor, vec2(2.0f, 1.5f));
 
-    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "test_soundtrack");
+    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "ugly_loop");
     add_soundtrack_player(editor, soundtrack_id);
 
     add_wall(editor, rect_min_max(vec2(-35.0f, -0.75f), vec2(1.25f, 0.75f)));
 
-    for (s32 i = 0; i < 12; i++) {
+    for (s32 i = 0; i < 13; i++) {
         Entity* wall = add_wall(editor, rect_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f))).ptr;
         wall->midi_note = 60 + i;
     }
@@ -392,8 +417,8 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
                 Image* glyph = get_image(editor->assets, glyph_id);
                 layout->at_p = vec2(roundf(layout->at_p.x), roundf(layout->at_p.y));
                 v2 p = layout->at_p + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
-                push_image(&editor->render_group, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f));
-                push_image(&editor->render_group, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
+                push_image(&editor->render_group, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f), 1000.0f);
+                push_image(&editor->render_group, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color, 1000.0f);
 
                 Rect2 glyph_rect = offset(get_aligned_image_rect(glyph), p);
                 layout->last_print_bounds = rect_union(layout->last_print_bounds, glyph_rect);

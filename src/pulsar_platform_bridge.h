@@ -27,6 +27,9 @@ typedef PLATFORM_ALLOCATE_TEXTURE(PlatformAllocateTexture);
 #define PLATFORM_DEALLOCATE_TEXTURE(name) void name(void* handle)
 typedef PLATFORM_DEALLOCATE_TEXTURE(PlatformDeallocateTexture);
 
+#define DEBUG_PLATFORM_PRINT(name) void name(char* text)
+typedef DEBUG_PLATFORM_PRINT(DebugPlatformPrint);
+
 struct PlatformAPI {
     PlatformReadEntireFile* read_entire_file;
     PlatformWriteEntireFile* write_entire_file;
@@ -34,6 +37,10 @@ struct PlatformAPI {
     PlatformDeallocateMemory* deallocate;
     PlatformAllocateTexture* allocate_texture;
     PlatformDeallocateTexture* deallocate_texture;
+
+#if PULSAR_DEBUG
+    DebugPlatformPrint* debug_print;
+#endif
 };
 
 /*
@@ -61,7 +68,10 @@ struct GameRenderCommands {
     u32 width, height;
 
     u32 command_buffer_size;
-    u32 command_buffer_used;
+    u32 sort_entry_count;
+    u32 first_command;
+    // @Note: The command buffer starts with sort_entry_count sort entries, then it contains
+    // render commands starting at first_command up until command_buffer_size
     u8* command_buffer;
 };
 

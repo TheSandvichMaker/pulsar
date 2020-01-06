@@ -42,8 +42,6 @@ struct Entity {
     v2 dp;
     v2 ddp;
 
-    f32 sim_dt;
-
     // @Note: Player
     f32 off_ground_timer;
     f32 friction_of_last_touched_surface;

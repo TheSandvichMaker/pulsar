@@ -3,7 +3,7 @@ inline b32 on_ground(Entity* entity) {
     return result;
 }
 
-internal void simulate_entity_logic(GameState* game_state, GameInput* input, f32 dt) {
+internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 frame_dt) {
     RenderGroup* render_group = &game_state->render_group;
     for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
@@ -11,8 +11,6 @@ internal void simulate_entity_logic(GameState* game_state, GameInput* input, f32
 
         entity->ddp = vec2(0, 0);
         entity->was_on_ground = on_ground(entity);
-
-        entity->sim_dt = dt;
 
         switch (entity->type) {
             case EntityType_Player: {
@@ -45,7 +43,6 @@ internal void simulate_entity_logic(GameState* game_state, GameInput* input, f32
                 for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
                     ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
                     if (event.note_value == entity->midi_note) {
-                        entity->sim_dt = event.dt_left;
                         if (event.type == MidiEvent_NoteOn) {
                             entity->midi_test_target.y += 0.5f*(event.note_value - 59);
                         } else if (event.type == MidiEvent_NoteOff) {
@@ -55,10 +52,10 @@ internal void simulate_entity_logic(GameState* game_state, GameInput* input, f32
                         }
                     }
                 }
-                movement = 5.0f*(entity->midi_test_target - entity->p);
+                movement = 10.0f*(entity->midi_test_target - entity->p);
                 // entity->p += entity->sim_dt*movement;
                 entity->dp = movement;
-                entity->movement_t += entity->sim_dt;
+                entity->movement_t += frame_dt;
 #if 0
                 Entity* sticking_entity = entity->sticking_entity;
                 if (sticking_entity) {
