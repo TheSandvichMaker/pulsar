@@ -65,4 +65,18 @@ inline s32 align_or(AllocateParams params, s32 fallback) {
     return result;
 }
 
+inline void* allocate(Allocator allocator, size_t new_size, AllocateParams params = default_allocate_params()) {
+    void* result = allocator.alloc(new_size, 0, 0, allocator.user_data, params);
+    return result;
+}
+
+inline void* reallocate(Allocator allocator, size_t new_size, size_t old_size, void* old_ptr, AllocateParams params = default_allocate_params()) {
+    void* result = allocator.alloc(new_size, old_size, old_ptr, allocator.user_data, params);
+    return result;
+}
+
+inline void deallocate(Allocator allocator, size_t size, void* memory, AllocateParams params = default_allocate_params()) {
+    allocator.alloc(0, size, memory, allocator.user_data, params);
+}
+
 #endif /* PULSAR_MEMORY_H */

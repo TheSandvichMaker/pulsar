@@ -27,7 +27,7 @@ internal void wgl_set_pixel_format(HDC window_dc, WglInfo* wgl_info, u32 msaa_co
                 attribute_list[attribute_cursor++] = WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB;
                 attribute_list[attribute_cursor++] = GL_TRUE;
             }
-            if (wgl_info->WGL_ARB_multisample) {
+            if (msaa_count && wgl_info->WGL_ARB_multisample) {
                 attribute_list[attribute_cursor++] = WGL_SAMPLE_BUFFERS_ARB;
                 attribute_list[attribute_cursor++] = 1;
                 attribute_list[attribute_cursor++] = WGL_SAMPLES_ARB;

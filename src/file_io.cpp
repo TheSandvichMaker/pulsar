@@ -1,11 +1,3 @@
-/*
- * @TODO: Make these not rely on the CRT
- */
-
-enum ReadEntireFileFlag {
-    ReadFileEntireFile_NullTerminate = 0x1,
-};
-
 internal EntireFile read_entire_file(char* file_name, Allocator allocator, u32 flags = 0) {
     EntireFile result = {};
 
@@ -20,11 +12,16 @@ internal EntireFile read_entire_file(char* file_name, Allocator allocator, u32 f
             alloc_size += 1;
         }
 
-        result.data = allocator.alloc(alloc_size, 0, 0, allocator.user_data, no_clear());
-        fread(result.data, result.size, 1, in);
+        result.data = allocate(allocator, alloc_size, no_clear());
 
-        if (flags & ReadFileEntireFile_NullTerminate) {
-            (cast(u8*) result.data)[result.size] = 0;
+        if (result.data) {
+            fread(result.data, result.size, 1, in);
+
+            if (flags & ReadFileEntireFile_NullTerminate) {
+                (cast(u8*) result.data)[result.size] = 0;
+            }
+        } else {
+            result.size = 0;
         }
 
         fclose(in);

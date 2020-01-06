@@ -1,5 +1,5 @@
-#ifndef MEMORY_ARENA_H
-#define MEMORY_ARENA_H
+#ifndef PULSAR_MEMORY_ARENA_H
+#define PULSAR_MEMORY_ARENA_H
 
 #define MEMORY_ARENA_DEFAULT_ALIGN 4
 
@@ -201,21 +201,23 @@ inline void check_arena(MemoryArena* arena) {
 internal ALLOCATOR(arena_allocator) {
     MemoryArena* arena = cast(MemoryArena*) user_data;
     void* result = 0;
-    if (old_size) {
-        assert(old_ptr);
-        assert(new_size >= old_size);
-        if (cast(u8*) old_ptr + old_size == get_next_allocation_location(arena, align_or(params, MEMORY_ARENA_DEFAULT_ALIGN))) {
-            // @Note: If we can grow in place, we just push the difference and return the old_ptr
-            push_size(arena, new_size - old_size, params);
-            result = old_ptr;
+    if (new_size) {
+        if (old_size) {
+            assert(old_ptr);
+            assert(new_size >= old_size);
+            if (cast(u8*) old_ptr + old_size == get_next_allocation_location(arena, align_or(params, MEMORY_ARENA_DEFAULT_ALIGN))) {
+                // @Note: If we can grow in place, we just push the difference and return the old_ptr
+                push_size(arena, new_size - old_size, params);
+                result = old_ptr;
+            } else {
+                result = push_size(arena, new_size, params);
+                copy(old_size, old_ptr, result);
+            }
         } else {
             result = push_size(arena, new_size, params);
-            copy(old_size, old_ptr, result);
         }
-    } else {
-        result = push_size(arena, new_size, params);
     }
     return result;
 }
 
-#endif /* MEMORY_ARENA_H */
+#endif /* PULSAR_MEMORY_ARENA_H */

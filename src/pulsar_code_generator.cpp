@@ -415,6 +415,7 @@ enum TokenType {
     // Token_Pound,
     // Token_Equals,
     Token_Operator,
+    Token_DotDotDot,
 
     Token_String,
     Token_Identifier,
@@ -519,6 +520,14 @@ internal Token get_token(Tokenizer* tokenizer) {
         // case ',': { token.type = Token_Comma; } break;
         // case '#': { token.type = Token_Pound; } break;
         // case '=': { token.type = Token_Equals; } break;
+
+        case '.': {
+            if (tokenizer->at[0] == '.' && tokenizer->at[1] == '.') {
+                token.type = Token_DotDotDot;
+                token.length = 3;
+                tokenizer->at += 2;
+            }
+        } break;
 
         case '"': {
             token.type = Token_String;
@@ -900,86 +909,82 @@ int main(int argument_count, char** arguments) {
 
     FindClose(find_handle);
 
-    if (!had_error) {
-        FILE* pre_headers = fopen("pulsar_generated_pre_headers.h", "w");
+    FILE* pre_headers = fopen("pulsar_generated_pre_headers.h", "w");
 
-        fprintf(pre_headers, "#ifndef PULSAR_GENERATED_PRE_HEADERS_H\n");
-        fprintf(pre_headers, "#define PULSAR_GENERATED_PRE_HEADERS_H\n\n");
+    fprintf(pre_headers, "#ifndef PULSAR_GENERATED_PRE_HEADERS_H\n");
+    fprintf(pre_headers, "#define PULSAR_GENERATED_PRE_HEADERS_H\n\n");
 
-        fprintf(pre_headers, "#define PULSAR_CODE_GENERATION_SUCCEEDED 1\n\n");
+    fprintf(pre_headers, "#define PULSAR_CODE_GENERATION_SUCCEEDED 1\n\n");
 
-        fprintf(pre_headers, "enum MetaType {\n");
-        for (size_t type_index = 0; type_index < array_count(meta_type_array); type_index++) {
-            MetaType type = array_get(meta_type_array, type_index);
-            fprintf(pre_headers, "    MetaType_%.*s,\n", PRINTF_TOKEN(type.type));
-        }
-        fprintf(pre_headers, "};\n\n");
-
-        for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
-            MetaStruct meta = array_get(meta_struct_array, struct_index);
-            fprintf(pre_headers, "#define BodyOf_%.*s \\\n", PRINTF_TOKEN(meta.name));
-            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                auto member = array_get(meta.members, member_index);
-                fprintf(pre_headers, "    %.*s%s %.*s;%s\n",
-                    PRINTF_TOKEN(member.type),
-                    member.is_pointer ? "*" : "",
-                    PRINTF_TOKEN(member.name),
-                    (member_index + 1 < array_count(meta.members)) ? " \\" : ""
-                );
-            }
-            fprintf(pre_headers, "\n");
-        }
-
-        fprintf(pre_headers, "#endif\n");
-
-        FILE* post_headers = fopen("pulsar_generated_post_headers.h", "w");
-
-        fprintf(post_headers, "#ifndef PULSAR_GENERATED_POST_HEADERS_H\n");
-        fprintf(post_headers, "#define PULSAR_GENERATED_POST_HEADERS_H\n\n");
-
-        for (size_t enum_index = 0; enum_index < array_count(meta_enum_array); enum_index++) {
-            MetaEnum meta = array_get(meta_enum_array, enum_index);
-            if (meta.is_flags) {
-                fprintf(post_headers, "int GetNextEnumFlagNameOf_%.*s(unsigned int* value, char** name) {\n", PRINTF_TOKEN(meta.name));
-                for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                    Token member = array_get(meta.members, member_index);
-                    fprintf(post_headers, "    %s (*value & %.*s) { *name = \"%.*s\"; *value &= ~%.*s; return 1; }\n",
-                        member_index == 0 ? "if" : "else if",
-                        PRINTF_TOKEN(member), PRINTF_TOKEN(member), PRINTF_TOKEN(member)
-                    );
-                }
-                fprintf(post_headers, "    else { *name = 0; return 0; }\n}\n\n");
-            } else {
-                fprintf(post_headers, "char* GetEnumNameOf_%.*s(int value) {\n", PRINTF_TOKEN(meta.name));
-                fprintf(post_headers, "    switch (value) {\n");
-                for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                    Token member = array_get(meta.members, member_index);
-                    fprintf(post_headers, "        case %.*s: return \"%.*s\";\n", PRINTF_TOKEN(member), PRINTF_TOKEN(member));
-                }
-                fprintf(post_headers, "        default: return \"Unknown value for %.*s\";\n", PRINTF_TOKEN(meta.name));
-                fprintf(post_headers, "    }\n");
-                fprintf(post_headers, "}\n\n");
-            }
-        }
-
-        for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
-            MetaStruct meta = array_get(meta_struct_array, struct_index);
-            fprintf(post_headers, "static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
-            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                auto member = array_get(meta.members, member_index);
-                fprintf(post_headers, "    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
-                    member.is_pointer ? "MetaMemberFlag_IsPointer" : "0",
-                    PRINTF_TOKEN(member.type),
-                    PRINTF_TOKEN(member.name),
-                    PRINTF_TOKEN(meta.name),
-                    PRINTF_TOKEN(member.name)
-                );
-            }
-            fprintf(post_headers, "};\n\n");
-        }
-
-        fprintf(post_headers, "#endif\n");
-    } else {
-        fprintf(stderr, "Errors were had, no code generated.\n");
+    fprintf(pre_headers, "enum MetaType {\n");
+    for (size_t type_index = 0; type_index < array_count(meta_type_array); type_index++) {
+        MetaType type = array_get(meta_type_array, type_index);
+        fprintf(pre_headers, "    MetaType_%.*s,\n", PRINTF_TOKEN(type.type));
     }
+    fprintf(pre_headers, "};\n\n");
+
+    for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
+        MetaStruct meta = array_get(meta_struct_array, struct_index);
+        fprintf(pre_headers, "#define BodyOf_%.*s \\\n", PRINTF_TOKEN(meta.name));
+        for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+            auto member = array_get(meta.members, member_index);
+            fprintf(pre_headers, "    %.*s%s %.*s;%s\n",
+                PRINTF_TOKEN(member.type),
+                member.is_pointer ? "*" : "",
+                PRINTF_TOKEN(member.name),
+                (member_index + 1 < array_count(meta.members)) ? " \\" : ""
+            );
+        }
+        fprintf(pre_headers, "\n");
+    }
+
+    fprintf(pre_headers, "#endif\n");
+
+    FILE* post_headers = fopen("pulsar_generated_post_headers.h", "w");
+
+    fprintf(post_headers, "#ifndef PULSAR_GENERATED_POST_HEADERS_H\n");
+    fprintf(post_headers, "#define PULSAR_GENERATED_POST_HEADERS_H\n\n");
+
+    for (size_t enum_index = 0; enum_index < array_count(meta_enum_array); enum_index++) {
+        MetaEnum meta = array_get(meta_enum_array, enum_index);
+        if (meta.is_flags) {
+            fprintf(post_headers, "int GetNextEnumFlagNameOf_%.*s(unsigned int* value, char** name) {\n", PRINTF_TOKEN(meta.name));
+            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+                Token member = array_get(meta.members, member_index);
+                fprintf(post_headers, "    %s (*value & %.*s) { *name = \"%.*s\"; *value &= ~%.*s; return 1; }\n",
+                    member_index == 0 ? "if" : "else if",
+                    PRINTF_TOKEN(member), PRINTF_TOKEN(member), PRINTF_TOKEN(member)
+                );
+            }
+            fprintf(post_headers, "    else { *name = 0; return 0; }\n}\n\n");
+        } else {
+            fprintf(post_headers, "char* GetEnumNameOf_%.*s(int value) {\n", PRINTF_TOKEN(meta.name));
+            fprintf(post_headers, "    switch (value) {\n");
+            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+                Token member = array_get(meta.members, member_index);
+                fprintf(post_headers, "        case %.*s: return \"%.*s\";\n", PRINTF_TOKEN(member), PRINTF_TOKEN(member));
+            }
+            fprintf(post_headers, "        default: return \"Unknown value for %.*s\";\n", PRINTF_TOKEN(meta.name));
+            fprintf(post_headers, "    }\n");
+            fprintf(post_headers, "}\n\n");
+        }
+    }
+
+    for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
+        MetaStruct meta = array_get(meta_struct_array, struct_index);
+        fprintf(post_headers, "static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
+        for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
+            auto member = array_get(meta.members, member_index);
+            fprintf(post_headers, "    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
+                member.is_pointer ? "MetaMemberFlag_IsPointer" : "0",
+                PRINTF_TOKEN(member.type),
+                PRINTF_TOKEN(member.name),
+                PRINTF_TOKEN(meta.name),
+                PRINTF_TOKEN(member.name)
+            );
+        }
+        fprintf(post_headers, "};\n\n");
+    }
+
+    fprintf(post_headers, "#endif\n");
 }

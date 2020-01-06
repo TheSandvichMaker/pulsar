@@ -215,7 +215,7 @@ int main(int argument_count, char** arguments) {
     memset(memory_pool, 0, MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
-    asset_descriptions = allocate_array<AssetDescription>(2, allocator(arena_allocator, &global_arena));
+    asset_descriptions = allocate_array<AssetDescription>(64, allocator(arena_allocator, &global_arena));
 
     char* midi_files[] = { "assets/test_soundtrack.mid" };
     add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);

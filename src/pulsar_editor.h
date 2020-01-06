@@ -92,7 +92,7 @@ introspect() enum UndoType {
     Undo_DeleteEntity,
 };
 
-struct UndoHeader {
+struct UndoFooter {
     UndoType type;
     char* description;
 
@@ -100,6 +100,7 @@ struct UndoHeader {
     void* data_ptr;
 
     u32 prev;
+    u32 next;
 };
 
 struct EntityHash {
@@ -107,7 +108,7 @@ struct EntityHash {
     u32 index;
 };
 
-#define UNDO_BUFFER_SIZE KILOBYTES(512)
+#define UNDO_BUFFER_SIZE MEGABYTES(2)
 
 struct EditorState {
     b32 initialized;
@@ -161,8 +162,8 @@ struct EditorState {
 
     EntityHash entity_hash[MAX_ENTITY_COUNT];
 
-    u32 undo_watermark;
-    u32 undo_buffer_last_header;
+    u32 undo_most_recent;
+    u32 undo_oldest;
     u8 undo_buffer[UNDO_BUFFER_SIZE];
 };
 

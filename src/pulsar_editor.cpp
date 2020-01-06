@@ -38,6 +38,7 @@ inline AddEntityResult add_entity(EditorState* editor, EntityType type, EntityID
 
     u32 index = level->entity_count++;
     Entity* entity = level->entities + index;
+    zero_struct(*entity);
 
     if (guid.value) {
         entity->guid = guid;
@@ -153,47 +154,101 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
 // @Incomplete: Right now, the undo buffer is simply linear and once you run out of
 // space, that's it. Needs to be made into a circular buffer or some other equivalent system.
 
-inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
-    assert(editor->undo_buffer_last_header + sizeof(UndoHeader) + data_size < ARRAY_COUNT(editor->undo_buffer));
-
-    UndoHeader* last_header = cast(UndoHeader*) (editor->undo_buffer + editor->undo_buffer_last_header);
-    u32 next_header_index = editor->undo_buffer_last_header + sizeof(*last_header) + last_header->data_size;
-
-    UndoHeader* header = cast(UndoHeader*) (editor->undo_buffer + next_header_index);
-
-    header->type = type;
-    header->description = description;
-    header->data_size = data_size;
-    header->data_ptr  = data;
-
-    copy(header->data_size, header->data_ptr, header + 1);
-
-    header->prev = editor->undo_buffer_last_header;
-    editor->undo_buffer_last_header = next_header_index;
-
-    editor->undo_watermark = editor->undo_buffer_last_header;
+inline void* get_undo_data(UndoFooter* footer) {
+    void* result = cast(u8*) footer - footer->data_size;
+    return result;
 }
 
+inline UndoFooter* get_undo_footer(EditorState* editor, u32 offset) {
+    UndoFooter* result = offset ? cast(UndoFooter*) (editor->undo_buffer + offset) : 0;
+    return result;
+}
+
+inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
+    UndoFooter* prev_footer = 0;
+    u32 data_index = 0;
+    if (editor->undo_most_recent) {
+        prev_footer = get_undo_footer(editor, editor->undo_most_recent);
+        data_index = editor->undo_most_recent + sizeof(UndoFooter);
+    }
+
+    u32 footer_index = data_index + data_size;
+    u32 watermark = footer_index + sizeof(UndoFooter);
+
+    b32 wrapped = false;
+    if (watermark > ARRAY_COUNT(editor->undo_buffer)) {
+        wrapped = true;
+        watermark = ARRAY_COUNT(editor->undo_buffer) + data_size + sizeof(UndoFooter);
+    }
+
+    UndoFooter* oldest = get_undo_footer(editor, editor->undo_oldest);
+
+    if (oldest) {
+        u32 oldest_index = editor->undo_oldest;
+        if (oldest_index <= editor->undo_most_recent) {
+            oldest_index += ARRAY_COUNT(editor->undo_buffer);
+        }
+        while (watermark > oldest_index - oldest->data_size) {
+            oldest_index = editor->undo_oldest;
+            if (oldest_index < editor->undo_most_recent) {
+                oldest_index += ARRAY_COUNT(editor->undo_buffer);
+            }
+
+            editor->undo_oldest = oldest->next;
+            UndoFooter* oldest = get_undo_footer(editor, editor->undo_oldest);
+            oldest->prev = 0;
+        }
+    } else {
+        editor->undo_oldest = footer_index;
+    }
+
+    if (wrapped) {
+        data_index = 0;
+        footer_index = data_index + data_size;
+    }
+
+    UndoFooter* footer = get_undo_footer(editor, footer_index);
+
+    zero_struct(*footer);
+    footer->type = type;
+    footer->description = description;
+    footer->data_size = data_size;
+    footer->data_ptr  = data;
+
+    copy(footer->data_size, footer->data_ptr, editor->undo_buffer + data_index);
+
+    if (prev_footer) {
+        prev_footer->next = footer_index;
+    }
+    footer->prev = editor->undo_most_recent;
+
+    editor->undo_most_recent = footer_index;
+}
+
+// @TODO: SetData is insufficient for operations on entities since they move around
+// in the entity array. Make a Undo_SetEntityData or something, and/or ponder the
+// way undo should work in general in regard to entities.
+
 inline void undo(EditorState* editor) {
-    UndoHeader* header = cast(UndoHeader*) (editor->undo_buffer + editor->undo_buffer_last_header);
-    if (header->type != Undo_Null) {
-        void* data = header + 1;
+    UndoFooter* footer = get_undo_footer(editor, editor->undo_most_recent);
+    if (footer) {
+        void* data = get_undo_data(footer);
 
         TemporaryMemory temp = begin_temporary_memory(editor->arena);
-        switch (header->type) {
+        switch (footer->type) {
             case Undo_SetData: {
-                void* temp_redo_buffer = push_size(editor->arena, header->data_size, no_clear());
-                copy(header->data_size, header->data_ptr, temp_redo_buffer);
-                copy(header->data_size, data, header->data_ptr);
-                copy(header->data_size, temp_redo_buffer, data);
+                void* temp_redo_buffer = push_size(editor->arena, footer->data_size, no_clear());
+                copy(footer->data_size, footer->data_ptr, temp_redo_buffer);
+                copy(footer->data_size, data, footer->data_ptr);
+                copy(footer->data_size, temp_redo_buffer, data);
             } break;
 
             case Undo_CreateEntity: {
                 EntityID guid = (cast(Entity*) data)->guid;
                 Entity* entity = get_entity_from_guid(editor, guid);
                 if (entity) {
-                    assert(header->data_size == sizeof(*entity));
-                    copy(header->data_size, entity, data);
+                    assert(footer->data_size == sizeof(*entity));
+                    copy(footer->data_size, entity, data);
                     delete_entity(editor, guid, false);
                 }
             } break;
@@ -201,52 +256,57 @@ inline void undo(EditorState* editor) {
             case Undo_DeleteEntity: {
                 Entity* entity_data = cast(Entity*) data;
                 AddEntityResult added_entity = add_entity(editor, EntityType_Null, entity_data->guid);
-                copy(header->data_size, data, added_entity.ptr);
+                copy(footer->data_size, data, added_entity.ptr);
             } break;
         }
         end_temporary_memory(temp);
 
-        editor->undo_buffer_last_header = header->prev;
+        editor->undo_most_recent = footer->prev;
     }
 }
 
 inline void redo(EditorState* editor) {
-    if (editor->undo_buffer_last_header < editor->undo_watermark) {
-        UndoHeader* last_header = cast(UndoHeader*) (editor->undo_buffer + editor->undo_buffer_last_header);
-        u32 next_header_index = editor->undo_buffer_last_header + sizeof(*last_header) + last_header->data_size;
+    u32 footer_index = 0;
+    if (!editor->undo_most_recent) {
+        footer_index = editor->undo_oldest;
+    } else {
+        UndoFooter* prev_footer = get_undo_footer(editor, editor->undo_most_recent);
+        assert(prev_footer);
+        footer_index = prev_footer->next;
+    }
 
-        UndoHeader* header = cast(UndoHeader*) (editor->undo_buffer + next_header_index);
-
-        void* data = header + 1;
+    if (footer_index) {
+        UndoFooter* footer = get_undo_footer(editor, footer_index);
+        void* data = get_undo_data(footer);
 
         TemporaryMemory temp = begin_temporary_memory(editor->arena);
-        switch (header->type) {
+        switch (footer->type) {
             case Undo_SetData: {
-                void* temp_undo_buffer = push_size(editor->arena, header->data_size, no_clear());
-                copy(header->data_size, header->data_ptr, temp_undo_buffer);
-                copy(header->data_size, data, header->data_ptr);
-                copy(header->data_size, temp_undo_buffer, data);
+                void* temp_undo_buffer = push_size(editor->arena, footer->data_size, no_clear());
+                copy(footer->data_size, footer->data_ptr, temp_undo_buffer);
+                copy(footer->data_size, data, footer->data_ptr);
+                copy(footer->data_size, temp_undo_buffer, data);
             } break;
 
             case Undo_CreateEntity: {
                 Entity* entity_data = cast(Entity*) data;
                 AddEntityResult added_entity = add_entity(editor, EntityType_Null, entity_data->guid);
-                copy(header->data_size, data, added_entity.ptr);
+                copy(footer->data_size, data, added_entity.ptr);
             } break;
 
             case Undo_DeleteEntity: {
                 EntityID guid = (cast(Entity*) data)->guid;
                 Entity* entity = get_entity_from_guid(editor, guid);
                 if (entity) {
-                    assert(header->data_size == sizeof(*entity));
-                    copy(header->data_size, entity, data);
+                    assert(footer->data_size == sizeof(*entity));
+                    copy(footer->data_size, entity, data);
                     delete_entity(editor, guid, false);
                 }
             } break;
         }
         end_temporary_memory(temp);
 
-        editor->undo_buffer_last_header = next_header_index;
+        editor->undo_most_recent = footer_index;
     }
 }
 
@@ -671,41 +731,44 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     EditorLayout undo_log = make_layout(editor, vec2(500.0f, editor->top_margin));
 
-    u32 undo_buffer_used = editor->undo_buffer_last_header + (cast(UndoHeader*) (editor->undo_buffer + editor->undo_buffer_last_header))->data_size;
+    u32 undo_buffer_location = editor->undo_most_recent ? editor->undo_most_recent + sizeof(UndoFooter) : 0;
     u32 undo_buffer_size = ARRAY_COUNT(editor->undo_buffer);
-    editor_print_line(&undo_log, COLOR_WHITE, "Undo Buffer Usage: %dKB/%dKB (%.02f%%)",
-        undo_buffer_used / 1024,
-        undo_buffer_size / 1024,
-        100.0f*(cast(f32) undo_buffer_used / cast(f32) undo_buffer_size)
-    );
+    editor_print_line(&undo_log, COLOR_WHITE, "Undo Buffer Location: %dKB/%dKB", undo_buffer_location / 1024, undo_buffer_size / 1024);
 
     undo_log.depth++;
 
     u32 undo_log_count = 0;
-    for (u32 header_index = editor->undo_watermark; header_index > 0 && undo_log_count < 5;) {
-        UndoHeader* header = cast(UndoHeader*) (editor->undo_buffer + header_index);
-        v4 color = vec4(0.85f, 0.85f, 0.85f, 1.0f);
-        if (header_index > editor->undo_buffer_last_header) {
-            color = vec4(1.0f, 1.0f, 0.5f, 1.0f);
+    for (u32 footer_index = editor->undo_most_recent; undo_log_count < 5;) {
+        UndoFooter* footer = get_undo_footer(editor, footer_index);
+
+        if (footer) {
+            void* data = get_undo_data(footer);
+
+            v4 color = vec4(0.85f, 0.85f, 0.85f, 1.0f - (cast(f32) undo_log_count / 5.0f));
+
+            editor_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name(UndoType, footer->type));
+            switch (footer->type) {
+                case Undo_SetData: {
+                    if (footer->description) {
+                        editor_print(&undo_log, color, "%s", footer->description);
+                    } else {
+                        editor_print(&undo_log, color, "0x%I64x", cast(u64) footer->data_ptr);
+                    }
+                } break;
+                case Undo_CreateEntity:
+                case Undo_DeleteEntity: {
+                    EntityID id = (cast(Entity*) data)->guid;
+                    editor_print(&undo_log, color, "EntityID { %d }", id.value);
+                } break;
+            }
+            editor_finish_print(&undo_log);
+
+            undo_log_count++;
+
+            footer_index = footer->prev;
+        } else {
+            break;
         }
-        editor_print(&undo_log, color, "[%04u] %s: ", header_index, enum_name(UndoType, header->type));
-        switch (header->type) {
-            case Undo_SetData: {
-                if (header->description) {
-                    editor_print(&undo_log, color, "%s", header->description);
-                } else {
-                    editor_print(&undo_log, color, "0x%I64x", cast(u64) header->data_ptr);
-                }
-            } break;
-            case Undo_CreateEntity:
-            case Undo_DeleteEntity: {
-                EntityID id = (cast(Entity*) (header + 1))->guid;
-                editor_print(&undo_log, color, "EntityID { %d }", id.value);
-            } break;
-        }
-        editor_finish_print(&undo_log);
-        header_index = header->prev;
-        undo_log_count++;
     }
 
     u32 entity_count = 0;
