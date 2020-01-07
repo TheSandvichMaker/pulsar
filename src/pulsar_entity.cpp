@@ -84,7 +84,7 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
                 Entity* camera_target = game_state->camera_target;
                 if (camera_target) {
                     if (is_in_aab(offset(entity->camera_zone, entity->p), camera_target->p)) {
-                        render_context->camera_p = entity->p;
+                        render_context->camera_p = get_center(offset(entity->camera_zone, entity->p));
                         render_context->camera_rotation_arm = entity->camera_rotation_arm;
                         render_worldspace(render_context, get_dim(entity->camera_zone).y);
                     }

@@ -315,7 +315,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     f32 aspect_ratio = cast(f32) width / cast(f32) height;
                     f32 zone_height = get_dim(entity->camera_zone).y;
                     AxisAlignedBox2 visible_zone = aab_center_dim(get_center(entity->camera_zone), vec2(aspect_ratio*zone_height, zone_height));
-                    push_shape(render_context, transform, rectangle(visible_zone), entity->color, ShapeRenderMode_Outline);
+                    push_shape(render_context, transform, rectangle(visible_zone), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
                 } break;
 
                 case EntityType_Checkpoint: {

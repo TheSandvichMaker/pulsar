@@ -75,6 +75,35 @@ struct EditorWidgetManipulateEntity {
     v2 drag_offset;
 };
 
+/*
+  If one's dragging corner B, this is the setup:
+    D ------------ C < connected_x
+    |              |
+    |              |
+    A ------------ B
+    ^              ^
+    connected_y    corner_p
+
+  If one's dragging an edge, point_b is always counter-clockwise to point_a
+    D ------------ C
+    |              |
+    |              |
+    A ------------ B
+    ^              ^
+    point_a        point_b
+*/
+
+struct EditorWidgetDragAxisAlignedBox {
+    AxisAlignedBox2* box;
+    b32 keep_aspect_ratio;
+
+    f32 original_x;
+    f32 original_y;
+
+    f32* connected_x;
+    f32* connected_y;
+};
+
 struct EditorWidget {
     void* guid;
 
@@ -82,6 +111,7 @@ struct EditorWidget {
     union {
         void* start_value;
         EditorWidgetManipulateEntity manipulate;
+        EditorWidgetDragAxisAlignedBox drag_aab;
     };
 };
 
@@ -128,6 +158,8 @@ struct EditorState {
 
     Font* big_font;
     Font* font;
+
+    Shape2D default_collision;
 
     f32 zoom;
 

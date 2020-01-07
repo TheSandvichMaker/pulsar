@@ -22,6 +22,13 @@
 //    how do we know we're still being supported by the same entity, how do we handle it when
 //    we get smacked off the side by something else?
 //
+//    Movement ideas:
+//     The player's speed while jumping needs to be limited, because the player's run speed is
+//      currently limited by surface friction, but unbounded in the air. I'm not sure if friction
+//      should be the governing factor anyway.
+//     The player probably should never lose contact with a platform they're standing on unless
+//      they either jump off or are bumped off by an obstacle.
+//
 // - Get the mixer back to full spec (smooth volume fade and (smooth?) variable playback speed)
 //
 // - Add enough editor features to be actually able to make levels

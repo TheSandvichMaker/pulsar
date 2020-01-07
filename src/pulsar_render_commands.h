@@ -7,6 +7,8 @@ struct RenderContext {
     v2 camera_p;
     v2 camera_rotation_arm;
 
+    f32 sort_key_bias;
+
     struct GameRenderCommands* commands;
 };
 

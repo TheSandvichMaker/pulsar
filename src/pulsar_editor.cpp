@@ -109,7 +109,9 @@ inline AddEntityResult add_soundtrack_player(EditorState* editor, SoundtrackID s
     entity->soundtrack_id  = soundtrack_id;
     entity->playback_flags = playback_flags;
     entity->sprite = editor->speaker_icon;
-    entity->collision = circle(1.0f);
+
+    entity->collision = editor->default_collision;
+
     entity->flags |= EntityFlag_Invisible;
 
     return result;
@@ -125,7 +127,7 @@ inline AddEntityResult add_camera_zone(EditorState* editor, AxisAlignedBox2 zone
     entity->camera_zone = offset(zone, -entity->p);
     entity->camera_rotation_arm = arm2(rotation);
 
-    entity->collision = circle(1.0f);
+    entity->collision = editor->default_collision;
 
     entity->flags |= EntityFlag_Invisible;
 
@@ -140,7 +142,8 @@ inline AddEntityResult add_checkpoint(EditorState* editor, AxisAlignedBox2 zone)
     entity->checkpoint_zone = offset(zone, -entity->p);
 
     entity->sprite = editor->checkpoint_icon;
-    entity->collision = circle(1.0f);
+
+    entity->collision = editor->default_collision;
 
     entity->flags |= EntityFlag_Invisible;
 
@@ -690,6 +693,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     EditorState* editor = push_struct(&game_state->permanent_arena, EditorState);
 
     initialize_render_context(&editor->render_context, render_commands, 0.0f);
+    editor->render_context.sort_key_bias = 32000.0f;
 
     editor->assets = &game_state->assets;
     editor->arena = &game_state->transient_arena;
@@ -702,6 +706,8 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
+
+    editor->default_collision = rectangle(aab_center_dim(vec2(0, 0), vec2(1, 1)));
 
     editor->top_margin  = cast(f32) render_commands->height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
@@ -743,20 +749,22 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     v2 world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
 
     editor->mouse_p = mouse_p;
-    editor->world_mouse_p = mouse_p;
+    editor->world_mouse_p = world_mouse_p;
 
-    if (input->space.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-        if (!editor->panning) {
+    if (!editor->panning) {
+        if (input->space.is_down && was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
             editor->panning = true;
             editor->world_mouse_p_on_pan = world_mouse_p;
             editor->camera_p_on_pan = game_state->render_context.camera_p;
-        } else {
-            game_state->render_context.camera_p = editor->camera_p_on_pan;
-            v2 pan_world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
-            game_state->render_context.camera_p += editor->world_mouse_p_on_pan - pan_world_mouse_p;
         }
     } else {
-        editor->panning = false;
+        game_state->render_context.camera_p = editor->camera_p_on_pan;
+        v2 pan_world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
+        game_state->render_context.camera_p += editor->world_mouse_p_on_pan - pan_world_mouse_p;
+        // @TODO: The hackyness of this here suggests these kinds of actions should use widgets too.
+        if (!input->mouse_buttons[PlatformMouseButton_Left].is_down && !was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+            editor->panning = false;
+        }
     }
 
     if (!editor->shown) {
@@ -971,27 +979,88 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             AxisAlignedBox2 zone = selected->camera_zone;
 
             {
-                v2 corner = corner_a(zone);
-                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
+                EditorWidgetDragAxisAlignedBox* drag_aab = &drag_camera_zone.drag_aab;
+                drag_aab->box = &selected->camera_zone;
+                drag_aab->keep_aspect_ratio = true;
+
+                v4 corner_color = is_hot(editor, drag_camera_zone) ? COLOR_RED : COLOR_YELLOW;
+
+                {
+                    v2 corner = corner_a(zone);
+                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
+                        drag_aab->original_x = drag_aab->box->min.x;
+                        drag_aab->original_y = drag_aab->box->min.y;
+                        drag_aab->connected_x = &drag_aab->box->min.x;
+                        drag_aab->connected_y = &drag_aab->box->min.y;
+
+                        editor->next_hot_widget = drag_camera_zone;
+                    }
+                }
+
+                {
+                    v2 corner = corner_b(zone);
+                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
+                        drag_aab->original_x = drag_aab->box->max.x;
+                        drag_aab->original_y = drag_aab->box->min.y;
+                        drag_aab->connected_x = &drag_aab->box->max.x;
+                        drag_aab->connected_y = &drag_aab->box->min.y;
+
+                        editor->next_hot_widget = drag_camera_zone;
+                    }
+                }
+
+                {
+                    v2 corner = corner_c(zone);
+                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
+                        drag_aab->original_x = drag_aab->box->max.x;
+                        drag_aab->original_y = drag_aab->box->max.y;
+                        drag_aab->connected_x = &drag_aab->box->max.x;
+                        drag_aab->connected_y = &drag_aab->box->max.y;
+
+                        editor->next_hot_widget = drag_camera_zone;
+                    }
+                }
+
+                {
+                    v2 corner = corner_d(zone);
+                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
+                        drag_aab->original_x = drag_aab->box->min.x;
+                        drag_aab->original_y = drag_aab->box->max.y;
+                        drag_aab->connected_x = &drag_aab->box->min.x;
+                        drag_aab->connected_y = &drag_aab->box->max.y;
+
+                        editor->next_hot_widget = drag_camera_zone;
+                    }
+                }
             }
 
-            {
-                v2 corner = vec2(zone.max.x, zone.min.y);
-                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
-            }
-
-            {
-                v2 corner = zone.max;
-                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
-            }
-
-            {
-                v2 corner = vec2(zone.min.x, zone.max.y);
-                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
+            if (is_active(editor, drag_camera_zone)) {
+                EditorWidgetDragAxisAlignedBox* drag_aab = &editor->active_widget.drag_aab;
+                v2 mouse_delta = snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
+                *drag_aab->connected_x = drag_aab->original_x + mouse_delta.x;
+                *drag_aab->connected_y = drag_aab->original_y + mouse_delta.y;
+                // @TODO: Keep aspect ratio
+                if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    clear_active(editor);
+                }
+            } else if (is_hot(editor, drag_camera_zone)) {
+                EditorWidgetDragAxisAlignedBox* drag_aab = &editor->hot_widget.drag_aab;
+                if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    add_undo_history(editor, Undo_SetData, sizeof(AxisAlignedBox2), drag_aab->box, "Change Camera Zone Size");
+                    set_active(editor, editor->hot_widget);
+                }
             }
         }
 
@@ -1078,12 +1147,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (moused_over) {
-        push_shape(&game_state->render_context, transform2d(moused_over->p), moused_over->collision, vec4(1, 0, 1, 1), ShapeRenderMode_Outline, 100.0f);
-    }
+    if (game_state->game_mode == GameMode_Editor) {
+        if (moused_over) {
+            push_shape(&game_state->render_context, transform2d(moused_over->p), moused_over->collision, vec4(1, 0, 1, 1), ShapeRenderMode_Outline, 100.0f);
+        }
 
-    if (selected && selected != moused_over) {
-        push_shape(&game_state->render_context, transform2d(selected->p), selected->collision, vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
+        if (selected && selected != moused_over) {
+            push_shape(&game_state->render_context, transform2d(selected->p), selected->collision, vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
+        }
     }
 
     editor->hot_widget = editor->next_hot_widget;

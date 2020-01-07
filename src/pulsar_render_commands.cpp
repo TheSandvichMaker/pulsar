@@ -75,7 +75,7 @@ inline RenderCommandClear* push_clear(RenderContext* render_context, v4 color, f
 }
 
 inline RenderCommandImage* push_image(RenderContext* render_context, Transform2D world_transform, Image* image, v4 color = vec4(1, 1, 1, 1), f32 sort_key = 0.0f) {
-    RenderCommandImage* result = push_render_command(render_context->commands, Image, sort_key);
+    RenderCommandImage* result = push_render_command(render_context->commands, Image, render_context->sort_key_bias + sort_key);
     if (result) {
         Transform2D transform = world_to_screen(render_context, world_transform);
         transform.scale *= image->scale / vec2(image->w, image->h);
@@ -87,7 +87,7 @@ inline RenderCommandImage* push_image(RenderContext* render_context, Transform2D
 }
 
 inline RenderCommandShape* push_shape(RenderContext* render_context, Transform2D world_transform, Shape2D shape, v4 color = vec4(1, 1, 1, 1), ShapeRenderMode render_mode = ShapeRenderMode_Fill, f32 sort_key = 0.0f) {
-    RenderCommandShape* result = push_render_command(render_context->commands, Shape, sort_key);
+    RenderCommandShape* result = push_render_command(render_context->commands, Shape, render_context->sort_key_bias + sort_key);
     if (result) {
         Transform2D transform = world_to_screen(render_context, world_transform);
         result->transform = transform;
