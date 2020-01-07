@@ -220,14 +220,15 @@ int main(int argument_count, char** arguments) {
     char* midi_files[] = { "assets/test_soundtrack.mid" };
     add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
 
-    char* midi_files2[] = { "assets/ugly_loop.mid" };
-    add_soundtrack("ugly_loop", "assets/ugly_loop.wav", ARRAY_COUNT(midi_files2), midi_files2);
+    char* midi_files2[] = { "assets/track1_1.mid" };
+    add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files2), midi_files2);
 
     add_sound("test_sound", "assets/test_sound.wav");
     add_sound("test_music", "assets/test_music.wav");
 
     add_image("camera_icon", "assets/camera_icon.bmp");
     add_image("speaker_icon", "assets/speaker_icon.bmp");
+    add_image("checkpoint_icon", "assets/checkpoint_icon.bmp");
 
     add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
@@ -481,19 +482,19 @@ int main(int argument_count, char** arguments) {
 
                             switch (chunk.type) {
                                 case MIDI_TYPE("MThd"): {
-                                    MidiHeader header;
-                                    header.format = midi_read_u16(&data);
-                                    header.ntrcks = midi_read_u16(&data);
-                                    header.division = midi_read_u16(&data);
+                                    MidiHeader midi_header;
+                                    midi_header.format = midi_read_u16(&data);
+                                    midi_header.ntrcks = midi_read_u16(&data);
+                                    midi_header.division = midi_read_u16(&data);
 
                                     // @TODO: Handle invalid formats mildly more elegantly.
-                                    assert(header.format == 0);
-                                    assert(header.ntrcks == 1);
+                                    assert(midi_header.format == 0);
+                                    assert(midi_header.ntrcks == 1);
 
-                                    if ((header.division >> 15) & 0x1) {
+                                    if ((midi_header.division >> 15) & 0x1) {
                                         NOT_IMPLEMENTED;
                                     } else {
-                                        ticks_per_quarter_note = header.division;
+                                        ticks_per_quarter_note = midi_header.division;
                                         samples_per_delta_time = samples_per_microsecond*(cast(f64) microseconds_per_quarter_note / cast(f64) ticks_per_quarter_note);
                                     }
                                 } break;

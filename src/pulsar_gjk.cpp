@@ -28,10 +28,10 @@ inline v2 get_furthest_point_along(Transform2D t, Shape2D s, v2 d) {
         case Shape_Rectangle: {
             // @TODO: There ought to be a good efficient way to do this
             v2 p[4] = {
-                s.rect.min,
-                vec2(s.rect.min.x, s.rect.max.y),
-                vec2(s.rect.max.x, s.rect.min.y),
-                s.rect.max,
+                s.bounding_box.min,
+                vec2(s.bounding_box.min.x, s.bounding_box.max.y),
+                vec2(s.bounding_box.max.x, s.bounding_box.min.y),
+                s.bounding_box.max,
             };
             f32 best_dist = dot(p[0], d);
             result = p[0];

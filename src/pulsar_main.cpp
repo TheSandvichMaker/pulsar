@@ -23,7 +23,7 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     t.scale = vec2(scale, scale);
     t.rotation_arm = dir;
 
-    push_shape(&dbg_game_state->render_group, t, arrow, color, ShapeRenderMode_Outline);
+    push_shape(&dbg_game_state->render_context, t, arrow, color, ShapeRenderMode_Outline);
 }
 
 #define MAX_COLLISION_ITERATIONS 4
@@ -115,6 +115,8 @@ inline void stop_all_midi_tracks(GameState* game_state) {
         game_state->first_free_playing_midi = game_state->first_playing_midi;
         game_state->first_playing_midi = 0;
     }
+
+    game_state->midi_event_buffer_count = 0;
 }
 
 inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
@@ -122,12 +124,28 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
         case GameMode_Ingame: {
             if (game_state->game_mode == GameMode_Editor) {
                 EditorState* editor = game_state->editor_state;
-                editor->camera_p_on_exit = game_state->render_group.camera_p;
+                editor->camera_p_on_exit = game_state->render_context.camera_p;
             }
+
+            game_state->last_activated_checkpoint = 0;
 
             Level* level = game_state->active_level;
             for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
-                game_state->entities[entity_index] = level->entities[entity_index];
+                Entity* source = level->entities + entity_index;
+                Entity* dest = game_state->entities + entity_index;
+
+                *dest = *source;
+
+                // dest->guid = { entity_index };
+
+                if (dest->type == EntityType_Player) {
+                    if (!game_state->player) {
+                        game_state->player = dest;
+                    } else {
+                        // You can only have one player!
+                        INVALID_CODE_PATH;
+                    }
+                }
             }
             game_state->entity_count = level->entity_count;
         } break;
@@ -135,11 +153,12 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
         case GameMode_Editor: {
             if (game_state->game_mode == GameMode_Ingame) {
                 EditorState* editor = game_state->editor_state;
-                game_state->render_group.camera_p = editor->camera_p_on_exit;
+                game_state->render_context.camera_p = editor->camera_p_on_exit;
             }
 
             stop_all_sounds(&game_state->audio_mixer);
             game_state->entity_count = 0;
+            game_state->player = 0;
         } break;
     }
 
@@ -194,32 +213,31 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         switch_gamemode(game_state, GameMode_Editor);
 
-        initialize_render_group(&game_state->render_group, render_commands, 30.0f);
+        initialize_render_context(&game_state->render_context, render_commands, 30.0f);
 
         memory->initialized = true;
     }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
-    f32 dt = input->frame_dt;
-    f32 rcp_dt = 1.0f / dt;
+    f32 frame_dt = input->frame_dt;
 
-    RenderGroup* render_group = &game_state->render_group;
+    RenderContext* render_context = &game_state->render_context;
 
-    render_worldspace(render_group, 30.0f);
-    game_state->render_group.camera_rotation_arm = vec2(1, 0);
+    render_worldspace(render_context, 30.0f);
+    game_state->render_context.camera_rotation_arm = vec2(1, 0);
 
 #if 0
     game_state->rotation += dt;
     if (game_state->rotation > PI_32) {
         game_state->rotation -= TAU_32;
     }
-    game_state->render_group.camera_rotation_arm = arm2(game_state->rotation);
+    game_state->render_context.camera_rotation_arm = arm2(game_state->rotation);
 #endif
 
-    push_clear(render_group, game_state->background_color);
+    push_clear(render_context, game_state->background_color);
 
     if (game_state->game_mode == GameMode_Ingame) {
-        run_simulation(game_state, input, dt);
+        run_simulation(game_state, input, frame_dt);
 
         if (was_pressed(input->debug_fkeys[1])) {
             switch_gamemode(game_state, GameMode_Editor);
@@ -238,10 +256,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     execute_editor(game_state, editor, input);
 
-    //
-    // Physics & Rendering
-    //
-
     u32 active_entity_count = 0;
     Entity* active_entities = 0;
     if (game_state->game_mode == GameMode_Ingame) {
@@ -254,28 +268,66 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         INVALID_CODE_PATH;
     }
 
+    //
+    // Post-Sim logic
+    //
+
+    if (game_state->player && game_state->player->dead) {
+        if (game_state->player_respawn_timer > 0.0f) {
+            game_state->player_respawn_timer -= frame_dt;
+        } else {
+            game_state->player->dead = false;
+            if (game_state->last_activated_checkpoint) {
+                game_state->player->p = game_state->last_activated_checkpoint->most_recent_player_position;
+                game_state->player->dp = game_state->player->ddp = vec2(0, 0);
+            } else {
+                // @Note: I suspect I won't have this case, instead you just always start with the first checkpoint activated.
+                INVALID_CODE_PATH;
+            }
+        }
+    }
+
     for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
         Entity* entity = active_entities + entity_index;
         assert(entity->type != EntityType_Null);
 
-        if (!(entity->flags & EntityFlag_Invisible) || (game_state->game_mode == GameMode_Editor && editor->shown)) {
+        //
+        // Rendering
+        //
+
+        b32 should_draw = !entity->dead && !(entity->flags & EntityFlag_Invisible);
+
+        if (editor->shown) {
+            should_draw = !entity->dead;
+            if (game_state->game_mode == GameMode_Editor) {
+                should_draw = true;
+            }
+        }
+
+        if (should_draw) {
             Transform2D transform = transform2d(entity->p);
             switch (entity->type) {
                 case EntityType_CameraZone: {
-                    f32 aspect_ratio = cast(f32) width / cast(f32) height;
                     transform.rotation_arm = entity->camera_rotation_arm;
-                    push_image(render_group, transform, entity->sprite, entity->color);
-                    push_shape(render_group, transform, rectangle(entity->camera_zone), entity->color, ShapeRenderMode_Outline);
+                    push_image(render_context, transform, entity->sprite, entity->color);
+                    push_shape(render_context, transform, rectangle(entity->camera_zone), entity->color, ShapeRenderMode_Outline);
+
+                    f32 aspect_ratio = cast(f32) width / cast(f32) height;
                     f32 zone_height = get_dim(entity->camera_zone).y;
-                    Rect2 visible_zone = rect_center_dim(get_center(entity->camera_zone), vec2(aspect_ratio*zone_height, zone_height));
-                    push_shape(render_group, transform, rectangle(visible_zone), entity->color, ShapeRenderMode_Outline);
+                    AxisAlignedBox2 visible_zone = aab_center_dim(get_center(entity->camera_zone), vec2(aspect_ratio*zone_height, zone_height));
+                    push_shape(render_context, transform, rectangle(visible_zone), entity->color, ShapeRenderMode_Outline);
+                } break;
+
+                case EntityType_Checkpoint: {
+                    push_image(render_context, transform, entity->sprite, entity->color);
+                    push_shape(render_context, transform, rectangle(entity->checkpoint_zone), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
                 } break;
 
                 default: {
                     if (entity->sprite) {
-                        push_image(render_group, transform, entity->sprite, entity->color);
+                        push_image(render_context, transform, entity->sprite, entity->color);
                     } else {
-                        push_shape(render_group, transform, entity->collision, entity->color);
+                        push_shape(render_context, transform, entity->collision, entity->color);
                     }
                 } break;
             }
@@ -284,7 +336,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         if (entity->sprite) {
             entity->color = COLOR_WHITE;
         } else {
-            entity->color = game_state->foreground_color;
+            entity->color = (entity->flags & EntityFlag_Hazard) ? COLOR_RED : game_state->foreground_color;
         }
     }
 }

@@ -4,12 +4,17 @@ inline b32 on_ground(Entity* entity) {
 }
 
 internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 frame_dt) {
-    RenderGroup* render_group = &game_state->render_group;
+    RenderContext* render_context = &game_state->render_context;
     for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
         assert(entity->type != EntityType_Null);
 
         entity->ddp = vec2(0, 0);
+
+        if (entity->dead) {
+            continue;
+        }
+
         entity->was_on_ground = on_ground(entity);
 
         switch (entity->type) {
@@ -52,7 +57,7 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
                         }
                     }
                 }
-                movement = 10.0f*(entity->midi_test_target - entity->p);
+                movement = 5.0f*(entity->midi_test_target - entity->p);
                 // entity->p += entity->sim_dt*movement;
                 entity->dp = movement;
                 entity->movement_t += frame_dt;
@@ -78,11 +83,20 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
             case EntityType_CameraZone: {
                 Entity* camera_target = game_state->camera_target;
                 if (camera_target) {
-                    if (is_in_rect(offset(entity->camera_zone, entity->p), camera_target->p)) {
-                        render_group->camera_p = entity->p;
-                        render_group->camera_rotation_arm = entity->camera_rotation_arm;
-                        render_worldspace(render_group, get_dim(entity->camera_zone).y);
+                    if (is_in_aab(offset(entity->camera_zone, entity->p), camera_target->p)) {
+                        render_context->camera_p = entity->p;
+                        render_context->camera_rotation_arm = entity->camera_rotation_arm;
+                        render_worldspace(render_context, get_dim(entity->camera_zone).y);
                     }
+                }
+            } break;
+
+            case EntityType_Checkpoint: {
+                AxisAlignedBox2 checkpoint_box = offset(entity->checkpoint_zone, entity->p);
+                AxisAlignedBox2 player_box = offset(game_state->player->collision.bounding_box, game_state->player->p);
+                if (aab_contained_in_aab(checkpoint_box, player_box)) {
+                    game_state->last_activated_checkpoint = entity;
+                    entity->most_recent_player_position = game_state->player->p;
                 }
             } break;
 

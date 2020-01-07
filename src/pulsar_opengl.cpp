@@ -14,7 +14,7 @@ inline void opengl_set_screenspace(u32 width, u32 height) {
 inline void opengl_rectangle(v2 min_p, v2 x_axis, v2 y_axis, v4 color, GLuint render_mode, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(0, 0)) {
     glBegin(render_mode);
 
-    glColor4f(color.r, color.g, color.b, color.a);
+    glColor4fv(color.e);
 
     v2 min_x_min_y = min_p;
     v2 min_x_max_y = min_p + y_axis;
@@ -40,9 +40,9 @@ inline void opengl_rectangle(v2 min_p, v2 x_axis, v2 y_axis, v4 color, GLuint re
     glEnd();
 }
 
-inline void opengl_rectangle(Rect2 rect, v4 color, GLuint render_mode, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
-    v2 dim = get_dim(rect);
-    opengl_rectangle(get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, render_mode, min_uv, max_uv);
+inline void opengl_rectangle(AxisAlignedBox2 aab, v4 color, GLuint render_mode, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
+    v2 dim = get_dim(aab);
+    opengl_rectangle(get_min_corner(aab), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, render_mode, min_uv, max_uv);
 }
 
 inline void opengl_texture(GLuint handle, v2 min_p, v2 x_axis, v2 y_axis, v4 color, v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
@@ -52,9 +52,9 @@ inline void opengl_texture(GLuint handle, v2 min_p, v2 x_axis, v2 y_axis, v4 col
     glDisable(GL_TEXTURE_2D);
 }
 
-inline void opengl_texture(GLuint handle, Rect2 rect, v4 color = vec4(1, 1, 1, 1), v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
-    v2 dim = get_dim(rect);
-    opengl_texture(handle, get_min_corner(rect), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
+inline void opengl_texture(GLuint handle, AxisAlignedBox2 aab, v4 color = vec4(1, 1, 1, 1), v2 min_uv = vec2(0, 0), v2 max_uv = vec2(1, 1)) {
+    v2 dim = get_dim(aab);
+    opengl_texture(handle, get_min_corner(aab), vec2(dim.x, 0.0f), vec2(0.0f, dim.y), color, min_uv, max_uv);
 }
 
 internal GLuint opengl_load_texture(OpenGLInfo* opengl_info, u32 w, u32 h, void* pixels) {
@@ -159,6 +159,12 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
     glViewport(0, 0, width, height);
     opengl_set_screenspace(width, height);
 
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -223,18 +229,16 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                     } break;
 
                     case Shape_Rectangle: {
-                        // @IMPORTANT @TODO: This produces inaccurate results! Why?
                         v2 x_axis = transform->rotation_arm*transform->scale;
                         v2 y_axis = perp(x_axis);
-                        v2 dim = get_dim(shape->rect);
-                        x_axis *= dim.x;
-                        y_axis *= dim.y;
-                        v2 min_p = transform->offset + get_min_corner(shape->rect) - 0.5f*x_axis - 0.5f*y_axis;
+                        v2 base = transform->scale*(x_axis + y_axis);
 
-                        v2 p00 = min_p;
-                        v2 p10 = min_p + x_axis;
-                        v2 p01 = min_p + y_axis;
-                        v2 p11 = min_p + x_axis + y_axis;
+                        AxisAlignedBox2 aab = shape->bounding_box;
+
+                        v2 p00 = transform->offset + x_axis*corner_a(aab).x + y_axis*corner_a(aab).y;
+                        v2 p10 = transform->offset + x_axis*corner_b(aab).x + y_axis*corner_b(aab).y;
+                        v2 p11 = transform->offset + x_axis*corner_c(aab).x + y_axis*corner_c(aab).y;
+                        v2 p01 = transform->offset + x_axis*corner_d(aab).x + y_axis*corner_d(aab).y;
 
                         glBegin(render_mode);
                         glColor4fv(command->color.e);
@@ -245,8 +249,6 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                         glVertex2fv(p01.e);
 
                         glEnd();
-
-                        // opengl_rectangle(min_p, x_axis*dim.x, y_axis*dim.y, command->color, render_mode);
                     } break;
                 }
             } break;

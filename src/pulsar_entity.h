@@ -2,35 +2,27 @@
 #define PULSAR_ENTITY_H
 
 introspect(flags: true) enum EntityFlag {
-    EntityFlag_Physical = 0x1,
-    EntityFlag_Collides = 0x2,
-    EntityFlag_OnGround = 0x4,
+    EntityFlag_Physical  = 0x1,
+    EntityFlag_Collides  = 0x2,
+    EntityFlag_OnGround  = 0x4,
     EntityFlag_Invisible = 0x8,
+    EntityFlag_Hazard    = 0x10,
 };
 
 introspect() enum EntityType {
     EntityType_Null,
 
+    // @Note: Physical Entities
     EntityType_Player,
     EntityType_Wall,
+
+    // @Note: Non-physical Entities
     EntityType_SoundtrackPlayer,
     EntityType_CameraZone,
+    EntityType_Checkpoint,
 
     EntityType_Count,
 };
-
-#define enum_to_string(enum_name) case enum_name: { return #enum_name; }
-inline char* entity_type_name(EntityType type) {
-    switch (type) {
-        enum_to_string(EntityType_Null);
-        enum_to_string(EntityType_Player);
-        enum_to_string(EntityType_Wall);
-        enum_to_string(EntityType_SoundtrackPlayer);
-        enum_to_string(EntityType_CameraZone);
-        enum_to_string(EntityType_Count);
-    }
-    return "Unknown EntityType";
-}
 
 struct EntityID { u32 value; };
 
@@ -41,6 +33,8 @@ struct Entity {
     v2 p;
     v2 dp;
     v2 ddp;
+
+    b32 dead;
 
     // @Note: Player
     f32 off_ground_timer;
@@ -67,8 +61,12 @@ struct Entity {
     u32 playback_flags;
 
     // @Note: Camera Zone;
-    Rect2 camera_zone;
+    AxisAlignedBox2 camera_zone;
     v2 camera_rotation_arm;
+
+    // @Note: Checkpoint
+    AxisAlignedBox2 checkpoint_zone;
+    v2 most_recent_player_position;
 
     u32 flags;
 

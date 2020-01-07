@@ -6,7 +6,7 @@ char* GetEnumNameOf_EditorWidgetType(int value) {
         case Widget_None: return "Widget_None";
         case Widget_DragEditable: return "Widget_DragEditable";
         case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
-        case Widget_DragRect: return "Widget_DragRect";
+        case Widget_DragAxisAlignedBox: return "Widget_DragAxisAlignedBox";
         default: return "Unknown value for EditorWidgetType";
     }
 }
@@ -27,6 +27,7 @@ int GetNextEnumFlagNameOf_EntityFlag(unsigned int* value, char** name) {
     else if (*value & EntityFlag_Collides) { *name = "EntityFlag_Collides"; *value &= ~EntityFlag_Collides; return 1; }
     else if (*value & EntityFlag_OnGround) { *name = "EntityFlag_OnGround"; *value &= ~EntityFlag_OnGround; return 1; }
     else if (*value & EntityFlag_Invisible) { *name = "EntityFlag_Invisible"; *value &= ~EntityFlag_Invisible; return 1; }
+    else if (*value & EntityFlag_Hazard) { *name = "EntityFlag_Hazard"; *value &= ~EntityFlag_Hazard; return 1; }
     else { *name = 0; return 0; }
 }
 
@@ -37,6 +38,7 @@ char* GetEnumNameOf_EntityType(int value) {
         case EntityType_Wall: return "EntityType_Wall";
         case EntityType_SoundtrackPlayer: return "EntityType_SoundtrackPlayer";
         case EntityType_CameraZone: return "EntityType_CameraZone";
+        case EntityType_Checkpoint: return "EntityType_Checkpoint";
         case EntityType_Count: return "EntityType_Count";
         default: return "Unknown value for EntityType";
     }

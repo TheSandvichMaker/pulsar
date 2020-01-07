@@ -73,12 +73,7 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     Entity* entity = result.ptr;
 
     entity->p = starting_p;
-    v2* verts = push_array(editor->arena, 4, v2, no_clear());
-    verts[0] = { -0.2f, 0.0f };
-    verts[1] = {  0.2f, 0.0f };
-    verts[2] = {  0.2f, 1.0f };
-    verts[3] = { -0.2f, 1.0f };
-    entity->collision = polygon(4, verts); // circle(0.5f);
+    entity->collision = rectangle(aab_min_max(vec2(-0.2f, 0.0f), vec2(0.2f, 1.0f)));
     entity->color = vec4(1, 1, 1, 1);
 
     entity->flags |= EntityFlag_Physical|EntityFlag_Collides;
@@ -86,26 +81,23 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     return result;
 }
 
-inline AddEntityResult add_wall(EditorState* editor, Rect2 rect) {
+inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 deadly_wall = false) {
     AddEntityResult result = add_entity(editor, EntityType_Wall);
     Entity* entity = result.ptr;
 
-    entity->p = get_center(rect);
+    entity->p = get_center(aab);
     entity->color = vec4(1, 1, 1, 1);
     entity->surface_friction = 5.0f;
     entity->midi_test_target = entity->p;
 
     entity->flags |= EntityFlag_Collides;
+    if (deadly_wall) {
+        entity->flags |= EntityFlag_Hazard;
+    }
 
-    rect = offset(rect, -entity->p);
+    aab = offset(aab, -entity->p);
 
-    v2* verts = push_array(editor->arena, 4, v2, no_clear());
-    verts[0] = { rect.min.x, rect.min.y };
-    verts[1] = { rect.max.x, rect.min.y };
-    verts[2] = { rect.max.x, rect.max.y };
-    verts[3] = { rect.min.x, rect.max.y };
-    entity->collision = polygon(4, verts);
-    // entity->collision = rectangle(rect);
+    entity->collision = rectangle(aab);
 
     return result;
 }
@@ -123,7 +115,7 @@ inline AddEntityResult add_soundtrack_player(EditorState* editor, SoundtrackID s
     return result;
 }
 
-inline AddEntityResult add_camera_zone(EditorState* editor, Rect2 zone, f32 rotation = 0.0f) {
+inline AddEntityResult add_camera_zone(EditorState* editor, AxisAlignedBox2 zone, f32 rotation = 0.0f) {
     AddEntityResult result = add_entity(editor, EntityType_CameraZone);
     Entity* entity = result.ptr;
 
@@ -133,6 +125,21 @@ inline AddEntityResult add_camera_zone(EditorState* editor, Rect2 zone, f32 rota
     entity->camera_zone = offset(zone, -entity->p);
     entity->camera_rotation_arm = arm2(rotation);
 
+    entity->collision = circle(1.0f);
+
+    entity->flags |= EntityFlag_Invisible;
+
+    return result;
+}
+
+inline AddEntityResult add_checkpoint(EditorState* editor, AxisAlignedBox2 zone) {
+    AddEntityResult result = add_entity(editor, EntityType_Checkpoint);
+    Entity* entity = result.ptr;
+
+    entity->p = get_center(zone);
+    entity->checkpoint_zone = offset(zone, -entity->p);
+
+    entity->sprite = editor->checkpoint_icon;
     entity->collision = circle(1.0f);
 
     entity->flags |= EntityFlag_Invisible;
@@ -180,7 +187,23 @@ inline UndoFooter* get_undo_footer(EditorState* editor, u32 offset) {
     return result;
 }
 
-// @TODO: Is this function overly complex?
+// @TODO: Is add_undo_history overly complex?
+// Here's how I would simplify it:
+// Have two ring buffers instead of one, one for undo and one for redo
+// RingBuffer undo_buffer[UNDO_BUFFER_SIZE];
+// RingBuffer redo_buffer[UNDO_BUFFER_SIZE];
+// Every time you read from the undo buffer, you write the respective redo data to the redo buffer,
+//  and every time you read from the redo buffer, you write the respective undo data to the undo buffer.
+// This would get you the same functionality for twice the memory profile, but it would be tremendously
+//  more simple and would be able to use a generic ring buffer implementation for both buffers.
+// The ring buffer would look like this:
+// struct RingBuffer {
+//     size_t size;
+//     u8* buffer;
+//
+//     size_t write_cursor;
+//     size_t read_cursor;
+// };
 inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
     assert(data_size + sizeof(UndoFooter) <= sizeof(editor->undo_buffer));
 
@@ -360,23 +383,25 @@ inline void load_level(EditorState* editor, Level* level) {
 }
 
 inline void create_debug_level(EditorState* editor) {
-    add_player(editor, vec2(2.0f, 1.5f));
+    add_player(editor, vec2(-8.0f, 1.5f));
 
-    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "ugly_loop");
+    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "track1_1");
     add_soundtrack_player(editor, soundtrack_id);
 
-    add_wall(editor, rect_min_max(vec2(-35.0f, -0.75f), vec2(1.25f, 0.75f)));
+    add_wall(editor, aab_min_max(vec2(-35.0f, -0.75f), vec2(1.25f, 0.75f)));
 
     for (s32 i = 0; i < 13; i++) {
-        Entity* wall = add_wall(editor, rect_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f))).ptr;
+        Entity* wall = add_wall(editor, aab_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f)), (i / 4) % 2 == 1).ptr;
         wall->midi_note = 60 + i;
     }
 
-    u32 width = editor->render_group.commands->width;
-    u32 height = editor->render_group.commands->height;
+    add_checkpoint(editor, aab_min_dim(vec2(-6.0f, 0.75f), vec2(4.0f, 8.0f)));
+
+    u32 width = editor->render_context.commands->width;
+    u32 height = editor->render_context.commands->height;
 
     f32 aspect_ratio = cast(f32) width / cast(f32) height;
-    add_camera_zone(editor, rect_center_dim(vec2(6.0f, 2.0f), vec2(aspect_ratio*20.0f, 20.0f)));
+    add_camera_zone(editor, aab_center_dim(vec2(0.0f, 2.0f), vec2(aspect_ratio*20.0f, 20.0f)));
 }
 
 internal void editor_print_va(EditorLayout* layout, v4 color, char* format_string, va_list va_args) {
@@ -396,7 +421,7 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
     Font* font = layout->active_font;
 
     if (!layout->print_initialized) {
-        layout->last_print_bounds = inverted_infinity_rectangle2();
+        layout->last_print_bounds = inverted_infinity_aab2();
         layout->print_initialized = true;
     } else {
         if (layout->last_codepoint && text[0]) {
@@ -417,11 +442,11 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
                 Image* glyph = get_image(editor->assets, glyph_id);
                 layout->at_p = vec2(roundf(layout->at_p.x), roundf(layout->at_p.y));
                 v2 p = layout->at_p + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
-                push_image(&editor->render_group, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f), 1000.0f);
-                push_image(&editor->render_group, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color, 1000.0f);
+                push_image(&editor->render_context, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f), 1000.0f);
+                push_image(&editor->render_context, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color, 1000.0f);
 
-                Rect2 glyph_rect = offset(get_aligned_image_rect(glyph), p);
-                layout->last_print_bounds = rect_union(layout->last_print_bounds, glyph_rect);
+                AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
+                layout->last_print_bounds = aab_union(layout->last_print_bounds, glyph_aab);
 
                 if (at[1] && in_font_range(font, at[1])) {
                     layout->at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
@@ -430,7 +455,7 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
         }
     }
 
-    layout->total_bounds = rect_union(layout->total_bounds, layout->last_print_bounds);
+    layout->total_bounds = aab_union(layout->total_bounds, layout->last_print_bounds);
 
     end_temporary_memory(temp);
 }
@@ -442,10 +467,10 @@ inline void editor_print(EditorLayout* layout, v4 color, char* format_string, ..
     va_end(va_args);
 }
 
-internal Rect2 editor_finish_print(EditorLayout* layout) {
+internal AxisAlignedBox2 editor_finish_print(EditorLayout* layout) {
     assert(layout->print_initialized);
 
-    Rect2 result = layout->last_print_bounds;
+    AxisAlignedBox2 result = layout->last_print_bounds;
     layout->print_initialized = false;
     layout->last_codepoint = 0;
 
@@ -471,7 +496,7 @@ internal Rect2 editor_finish_print(EditorLayout* layout) {
 DECLARE_EDITABLE_TYPE_INFERENCER(u32)
 DECLARE_EDITABLE_TYPE_INFERENCER(s32)
 DECLARE_EDITABLE_TYPE_INFERENCER(v2)
-DECLARE_EDITABLE_TYPE_INFERENCER(Rect2)
+DECLARE_EDITABLE_TYPE_INFERENCER(AxisAlignedBox2)
 DECLARE_EDITABLE_TYPE_INFERENCER(EntityID)
 DECLARE_EDITABLE_TYPE_INFERENCER(SoundtrackID)
 typedef Entity* EntityPtr;
@@ -522,6 +547,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
     {
         add_viewable(editables, Entity, guid);
         add_viewable(editables, Entity, p);
+        add_viewable(editables, Entity, dead, Editable_IsBool);
         add_viewable(editables, Entity, support);
         editable = add_viewable(editables, Entity, flags);
         editable->type = Editable_EntityFlag;
@@ -585,8 +611,8 @@ inline void print_editable(EditorLayout* layout, EditableParameter* editable, vo
             editor_print(layout, color, "{ %f, %f }", value.x, value.y);
         } break;
 
-        case Editable_Rect2: {
-            Rect2 value = *(cast(Rect2*) editable_ptr);
+        case Editable_AxisAlignedBox2: {
+            AxisAlignedBox2 value = *(cast(AxisAlignedBox2*) editable_ptr);
             editor_print(layout, color, "{ min: { %f, %f }, max{ %f, %f } }", value.min.x, value.min.y, value.max.x, value.max.y);
         } break;
 
@@ -663,7 +689,7 @@ inline v2 snap_to_grid(EditorState* editor, v2 p) {
 inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* render_commands, Level* active_level) {
     EditorState* editor = push_struct(&game_state->permanent_arena, EditorState);
 
-    initialize_render_group(&editor->render_group, render_commands, 0.0f);
+    initialize_render_context(&editor->render_context, render_commands, 0.0f);
 
     editor->assets = &game_state->assets;
     editor->arena = &game_state->transient_arena;
@@ -672,6 +698,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     editor->camera_icon = get_image_by_name(editor->assets, "camera_icon");
     editor->speaker_icon = get_image_by_name(editor->assets, "speaker_icon");
+    editor->checkpoint_icon = get_image_by_name(editor->assets, "checkpoint_icon");
 
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
@@ -692,11 +719,11 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 }
 
 internal void execute_editor(GameState* game_state, EditorState* editor, GameInput* input) {
-    u32 width = editor->render_group.commands->width;
-    u32 height = editor->render_group.commands->height;
+    u32 width = editor->render_context.commands->width;
+    u32 height = editor->render_context.commands->height;
 
-    render_screenspace(&editor->render_group);
-    editor->top_margin  = cast(f32) editor->render_group.commands->height - get_baseline_from_top(editor->font);
+    render_screenspace(&editor->render_context);
+    editor->top_margin  = cast(f32) editor->render_context.commands->height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
 
     if (game_state->game_mode == GameMode_Editor) {
@@ -709,11 +736,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             }
         }
 
-        game_state->render_group.vertical_fov /= editor->zoom;
+        game_state->render_context.vertical_fov /= editor->zoom;
     }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
-    v2 world_mouse_p = screen_to_world(&game_state->render_group, transform2d(mouse_p)).offset;
+    v2 world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
 
     editor->mouse_p = mouse_p;
     editor->world_mouse_p = mouse_p;
@@ -722,11 +749,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         if (!editor->panning) {
             editor->panning = true;
             editor->world_mouse_p_on_pan = world_mouse_p;
-            editor->camera_p_on_pan = game_state->render_group.camera_p;
+            editor->camera_p_on_pan = game_state->render_context.camera_p;
         } else {
-            game_state->render_group.camera_p = editor->camera_p_on_pan;
-            v2 pan_world_mouse_p = screen_to_world(&game_state->render_group, transform2d(mouse_p)).offset;
-            game_state->render_group.camera_p += editor->world_mouse_p_on_pan - pan_world_mouse_p;
+            game_state->render_context.camera_p = editor->camera_p_on_pan;
+            v2 pan_world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
+            game_state->render_context.camera_p += editor->world_mouse_p_on_pan - pan_world_mouse_p;
         }
     } else {
         editor->panning = false;
@@ -742,6 +769,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     editor_print_line(&layout, COLOR_WHITE, "Editing level '%s'", level->name.data);
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
+    editor_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
 
     if (was_pressed(get_key(input, 'S'))) {
         editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
@@ -817,7 +845,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 // } else {
                     moused_over = entity;
                 // }
-                moused_over->color = vec4(1, 0, 1, 1);
             }
         }
     }
@@ -898,7 +925,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             v4 color = (editor->type_to_spawn == entity_type) ? vec4(1, 0, 1, 1) : vec4(1, 1, 1, 1);
             editor_print_line(&spawn_menu, color, enum_name(EntityType, entity_type));
 
-            if (is_in_rect(spawn_menu.last_print_bounds, mouse_p)) {
+            if (is_in_aab(spawn_menu.last_print_bounds, mouse_p)) {
                 highlighted_type = entity_type;
             }
         }
@@ -911,7 +938,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             } break;
             case EntityType_CameraZone: {
                 f32 aspect_ratio = cast(f32) width / cast(f32) height;
-                created_entity = add_camera_zone(editor, rect_center_dim(snap_to_grid(editor, world_mouse_p), vec2(aspect_ratio*20.0f, 20.0f))).ptr;
+                created_entity = add_camera_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(aspect_ratio*20.0f, 20.0f))).ptr;
             } break;
         }
 
@@ -925,7 +952,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     Entity* selected = 0;
     if (editor->selected_entity) {
         selected = editor->selected_entity;
-        selected->color = vec4(0, 1, 0, 1);
     } else {
         selected = moused_over;
     }
@@ -939,32 +965,33 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         if (selected->type == EntityType_CameraZone) {
             EditorWidget drag_camera_zone;
             drag_camera_zone.guid = selected;
-            drag_camera_zone.type = Widget_DragRect;
+            drag_camera_zone.type = Widget_DragAxisAlignedBox;
 
-            Rect2 zone = offset(selected->camera_zone, selected->p);
+            Transform2D t = transform2d(selected->p);
+            AxisAlignedBox2 zone = selected->camera_zone;
 
             {
-                v2 corner = zone.min;
-                Rect2 corner_rect = rect_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_group, transform2d(corner), rectangle(corner_rect), COLOR_YELLOW, ShapeRenderMode_Outline);
+                v2 corner = corner_a(zone);
+                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
+                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
             }
 
             {
                 v2 corner = vec2(zone.max.x, zone.min.y);
-                Rect2 corner_rect = rect_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_group, transform2d(corner), rectangle(corner_rect), COLOR_YELLOW, ShapeRenderMode_Outline);
+                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
+                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
             }
 
             {
                 v2 corner = zone.max;
-                Rect2 corner_rect = rect_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_group, transform2d(corner), rectangle(corner_rect), COLOR_YELLOW, ShapeRenderMode_Outline);
+                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
+                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
             }
 
             {
                 v2 corner = vec2(zone.min.x, zone.max.y);
-                Rect2 corner_rect = rect_center_dim(corner, vec2(0.5f, 0.5f));
-                push_shape(&game_state->render_group, transform2d(corner), rectangle(corner_rect), COLOR_YELLOW, ShapeRenderMode_Outline);
+                AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.5f, 0.5f));
+                push_shape(&game_state->render_context, t, rectangle(corner_box), COLOR_YELLOW, ShapeRenderMode_Outline);
             }
         }
 
@@ -1033,7 +1060,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     }
                 }
 
-                if (is_in_rect(layout.last_print_bounds, mouse_p)) {
+                if (is_in_aab(layout.last_print_bounds, mouse_p)) {
                     editor->next_hot_widget = widget;
                 }
 
@@ -1049,6 +1076,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         if (was_pressed(input->del)) {
             delete_entity(editor, selected->guid);
         }
+    }
+
+    if (moused_over) {
+        push_shape(&game_state->render_context, transform2d(moused_over->p), moused_over->collision, vec4(1, 0, 1, 1), ShapeRenderMode_Outline, 100.0f);
+    }
+
+    if (selected && selected != moused_over) {
+        push_shape(&game_state->render_context, transform2d(selected->p), selected->collision, vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
     }
 
     editor->hot_widget = editor->next_hot_widget;

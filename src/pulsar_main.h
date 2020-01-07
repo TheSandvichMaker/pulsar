@@ -2,17 +2,42 @@
 #define PULSAR_MAIN_H
 
 // High level overview of @TODOs:
-// - Render entry sorting, render group sorting
-// - Make some kind entity system besides just the monolithic entities I've got now
+// TODAY:
+// - Actual gameplay mechanics (checkpoints, hazards, audio zones)
+//
+// IMPORTANT:
+// - Fix collision once and for all!!!! The way it stands now, GJK and EPA are not enough
+//    for collision handling, because once I intersect two shapes, the collision info I
+//    get back does not consider the direction the shape came from at all, it only looks
+//    at how to most quickly get the shapes to stop intersecting. This results in
+//    collisions resolving in the wrong direction.
+//    How to fix? Does the info I get by expanding GJK empower me? Do I need to understand
+//    EPA better? Or do I need a different algorithm altogether.
+//
+//    If this is not done by 14/01/2020, SWITCH TO AXIS ALIGNED BOXES!!!!
+//
+// - Find the cause of and fix the infinite loop condition in GJK
+//
+// - How the hell do we make player movement feel good? If we use the support entity scheme,
+//    how do we know we're still being supported by the same entity, how do we handle it when
+//    we get smacked off the side by something else?
+//
+// - Get the mixer back to full spec (smooth volume fade and (smooth?) variable playback speed)
+//
 // - Add enough editor features to be actually able to make levels
 // - Level saving / loading
-// - Player movement / collision handling
-// - Midi timing (I believe the sync with samples isn't quite right since the
-//     platform asks for more than a frame's worth of audio)
+//
+// - Metagame features (savegames, menu, options)
+//
+// Probably also important:
 // - Sub-frame entity simulation (e.g. a platform might start moving halfway
 //     into the frame since that's when the midi note hits)
-// - Gameplay mechanics (checkpoints, hazards)
+// - Midi timing (I believe the sync with samples isn't quite right since the
+//     platform asks for more than a frame's worth of audio)
+//
+// Low importance:
 // - Shaders?
+// - Make some kind entity system besides just the monolithic entities I've got now
 
 /* RESOURCES:
  * Audio and Music:
@@ -52,6 +77,8 @@
  * Framerate Independence / Timing
  *     https://www.youtube.com/watch?v=fdAOPHgW7qM
  *     https://www.youtube.com/watch?v=jTzIDmjkLQo
+ * Ring buffers (not used for reference in the actual codebase yet, but my idea for simplifying the undo system was sparked by reading this post):
+ *     https://fgiesen.wordpress.com/2010/12/14/ring-buffers-and-queues/
  */
 
 #include <stdarg.h>
@@ -64,6 +91,9 @@
 
 #include "string.h"
 #include "math.h"
+
+#include "pulsar_shapes.h"
+#include "pulsar_render_commands.h"
 #include "pulsar_opengl.h"
 
 #include "pulsar_assets.h"
@@ -103,7 +133,7 @@ struct GameState {
     MemoryArena permanent_arena;
     MemoryArena transient_arena;
 
-    RenderGroup render_group;
+    RenderContext render_context;
 
     EditorState* editor_state;
 
@@ -118,6 +148,10 @@ struct GameState {
     v4 foreground_color;
     v4 background_color;
 
+    f32 frame_dt_left;
+
+    f32 player_respawn_timer;
+
     f32 rotation;
 
     Soundtrack* test_soundtrack;
@@ -128,7 +162,10 @@ struct GameState {
     u32 midi_event_buffer_count;
     ActiveMidiEvent midi_event_buffer[256];
 
+    Entity* player;
     Entity* camera_target;
+
+    Entity* last_activated_checkpoint;
 
     Level* active_level;
 

@@ -7,7 +7,6 @@
 #include "math.h"
 #include "file_io.h"
 #include "pulsar_asset_pack_file_format.h"
-#include "pulsar_render_commands.h"
 
 #define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name)
 typedef PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile);

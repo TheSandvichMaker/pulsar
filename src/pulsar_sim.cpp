@@ -98,17 +98,40 @@ inline b32 physics_move(GameState* game_state, Entity* entity, f32 dt, PhysicsMo
     return did_collide;
 }
 
-internal void simulate_entity(GameState* game_state, Entity* entity, PhysicsMoveResult* move, f32 dt) {
-    if (entity->flags & EntityFlag_Physical) {
-        assert(move);
-        entity->p = move->p;
-        entity->dp = move->dp;
-    } else {
-        entity->p += entity->dp*dt;
+inline void kill_player(GameState* game_state) {
+    assert(game_state->player);
+    if (!game_state->player->dead) {
+        game_state->player->dead = true;
+        game_state->player_respawn_timer = 5.0f - game_state->frame_dt_left;
     }
 }
 
-internal f32 simulate_timestep(GameState* game_state, f32 dt) {
+internal void simulate_entity(GameState* game_state, Entity* entity, PhysicsMoveResult* move, f32 dt) {
+    if (!entity->dead) {
+        if (entity->flags & EntityFlag_Physical) {
+            assert(move);
+            entity->p = move->p;
+            entity->dp = move->dp;
+            if (move->colliding_entity) {
+                move->colliding_entity->color = vec4(0, 0.5f, 0, 1);
+            }
+        } else {
+            entity->p += entity->dp*dt;
+        }
+
+        switch (entity->type) {
+            case EntityType_Player: {
+                if (move && move->colliding_entity) {
+                    if (move->colliding_entity->flags & EntityFlag_Hazard) {
+                        kill_player(game_state);
+                    }
+                }
+            } break;
+        }
+    }
+}
+
+internal void simulate_timestep(GameState* game_state, f32 dt) {
     TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
 
     PhysicsMoveResult* moves = push_array(&game_state->transient_arena, game_state->entity_count, PhysicsMoveResult, no_clear());
@@ -130,15 +153,18 @@ internal f32 simulate_timestep(GameState* game_state, f32 dt) {
         }
     }
 
+    game_state->frame_dt_left -= earliest_dt;
+
     for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
         PhysicsMoveResult* move = moves + entity_index;
         simulate_entity(game_state, entity, move, earliest_dt);
+        if (on_ground(entity)) {
+            entity->color = vec4(0, 0, 1, 1);
+        }
     }
 
     end_temporary_memory(temp);
-
-    return earliest_dt;
 }
 
 internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_dt) {
@@ -189,14 +215,13 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
 
     Entity* camera_target = game_state->camera_target;
     if (camera_target) {
-        game_state->render_group.camera_p = camera_target->p;
+        game_state->render_context.camera_p = camera_target->p;
     }
 
     execute_entity_logic(game_state, input, frame_dt);
 
-    f32 frame_dt_left = frame_dt;
-    while (frame_dt_left > 0.0f) {
-        f32 dt = simulate_timestep(game_state, frame_dt_left);
-        frame_dt_left -= dt;
+    game_state->frame_dt_left = frame_dt;
+    while (game_state->frame_dt_left > 0.0f) {
+        simulate_timestep(game_state, game_state->frame_dt_left);
     }
 }

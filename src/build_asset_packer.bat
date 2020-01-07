@@ -24,7 +24,7 @@ REM /opt:ref: Cull unused functions
 
 REM NOTE: /MTd for getting the debug version of the CRT. Should be /MT for release.
 set FLAGS=/nologo /Od /MTd /Gm- /Zi /Zo /Oi /GR- /EHa- /fp:fast /fp:except- ^
-    /WX /W4 /wd4201 /wd4100 /wd4189 /wd4577 /wd4505 /wd4702 /wd4456 /wd4311 /wd4302 /wd4127 /wd4312 ^
+    /WX /W4 /wd4201 /wd4100 /wd4189 /wd4577 /wd4505 /wd4702 /wd4311 /wd4302 /wd4127 /wd4312 ^
     /D_CRT_SECURE_NO_WARNINGS=1
 
 set LINKER_FLAGS=/opt:ref /incremental:no

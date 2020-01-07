@@ -27,6 +27,9 @@
 
 #include "pulsar_sort.cpp"
 
+#include "pulsar_shapes.h"
+#include "pulsar_render_commands.h"
+
 #include "pulsar_opengl.cpp"
 #include "win32_opengl.cpp"
 

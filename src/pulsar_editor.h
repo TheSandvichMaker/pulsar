@@ -26,7 +26,7 @@ enum EditableType {
     Editable_u32,
     Editable_s32,
     Editable_v2,
-    Editable_Rect2,
+    Editable_AxisAlignedBox2,
     Editable_EntityID,
     Editable_SoundtrackID,
     Editable_EntityFlag,
@@ -60,7 +60,7 @@ introspect() enum EditorWidgetType {
     Widget_None,
     Widget_DragEditable,
     Widget_ManipulateEntity,
-    Widget_DragRect,
+    Widget_DragAxisAlignedBox,
 };
 
 enum EntityManipulateType {
@@ -119,11 +119,12 @@ struct EditorState {
 
     Level* active_level;
 
-    RenderGroup render_group;
+    RenderContext render_context;
     Assets* assets;
 
     Image* camera_icon;
     Image* speaker_icon;
+    Image* checkpoint_icon;
 
     Font* big_font;
     Font* font;
@@ -184,8 +185,8 @@ struct EditorLayout {
     u32 last_codepoint;
 
     f32 font_scale;
-    Rect2 last_print_bounds;
-    Rect2 total_bounds;
+    AxisAlignedBox2 last_print_bounds;
+    AxisAlignedBox2 total_bounds;
 };
 
 inline EditorLayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = false) {
@@ -203,8 +204,8 @@ inline EditorLayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = 
     }
 
     layout.font_scale = 1.0f;
-    layout.last_print_bounds = inverted_infinity_rectangle2();
-    layout.total_bounds = inverted_infinity_rectangle2();
+    layout.last_print_bounds = inverted_infinity_aab2();
+    layout.total_bounds = inverted_infinity_aab2();
 
     return layout;
 }

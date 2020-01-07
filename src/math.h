@@ -192,12 +192,14 @@ union v4 {
     f32 e[4];
 };
 
-struct Rect2 {
+// @Note: The convention is that the rectangle bounds are [min,max): max is exclusive.
+
+struct AxisAlignedBox2 {
     v2 min;
     v2 max;
 };
 
-struct Rect3 {
+struct AxisAlignedBox3 {
     v3 min;
     v3 max;
 };
@@ -446,114 +448,142 @@ inline v2 rotate_clockwise(v2 v, v2 cos_sin) {
 }
 
 //
-// NOTE: Rect2
+// NOTE: AxisAlignedBox2
 //
 
-inline v2 get_dim(Rect2 rect) {
-    v2 result = rect.max - rect.min;
+/*
+ I'm saying AABs start bottom left, wound counter clockwise, regarding the naming of corners.
+    D --------- C
+    |           |
+    |           |
+    A --------- B
+*/
+
+inline v2 corner_a(AxisAlignedBox2 aab) {
+    v2 result = aab.min;
     return result;
 }
 
-inline v2 get_min_corner(Rect2 rect) {
-    v2 result = rect.min;
+inline v2 corner_b(AxisAlignedBox2 aab) {
+    v2 result = vec2(aab.max.x, aab.min.y);
     return result;
 }
 
-inline v2 get_max_corner(Rect2 rect) {
-    v2 result = rect.max;
+inline v2 corner_c(AxisAlignedBox2 aab) {
+    v2 result = aab.max;
     return result;
 }
 
-inline v2 get_center(Rect2 rect) {
-    v2 result = 0.5f * (rect.min + rect.max);
+inline v2 corner_d(AxisAlignedBox2 aab) {
+    v2 result = vec2(aab.min.x, aab.max.y);
     return result;
 }
 
-inline Rect2 rect_min_max(v2 min, v2 max) {
-    Rect2 result;
+inline v2 get_dim(AxisAlignedBox2 aab) {
+    v2 result = aab.max - aab.min;
+    return result;
+}
+
+inline v2 get_min_corner(AxisAlignedBox2 aab) {
+    v2 result = aab.min;
+    return result;
+}
+
+inline v2 get_max_corner(AxisAlignedBox2 aab) {
+    v2 result = aab.max;
+    return result;
+}
+
+inline v2 get_center(AxisAlignedBox2 aab) {
+    v2 result = 0.5f * (aab.min + aab.max);
+    return result;
+}
+
+inline AxisAlignedBox2 aab_min_max(v2 min, v2 max) {
+    AxisAlignedBox2 result;
     result.min = min;
     result.max = max;
     return result;
 }
 
-inline Rect2 rect_center_half_dim(v2 center, v2 half_dim) {
-    Rect2 result;
+inline AxisAlignedBox2 aab_center_half_dim(v2 center, v2 half_dim) {
+    AxisAlignedBox2 result;
     result.min = center - half_dim;
     result.max = center + half_dim;
     return result;
 }
 
-inline Rect2 rect_center_dim(v2 center, v2 dim) {
-    Rect2 result;
+inline AxisAlignedBox2 aab_center_dim(v2 center, v2 dim) {
+    AxisAlignedBox2 result;
     result.min = center - dim * 0.5f;
     result.max = center + dim * 0.5f;
     return result;
 }
 
-inline Rect2 rect_min_dim(v2 min, v2 dim) {
-    Rect2 result;
+inline AxisAlignedBox2 aab_min_dim(v2 min, v2 dim) {
+    AxisAlignedBox2 result;
     result.min = min;
     result.max = min + dim;
     return result;
 }
 
-inline Rect2 multiply_dimensions(Rect2 rect, v2 mul) {
-    Rect2 result;
-    result.min = rect.min * mul;
-    result.max = rect.max * mul;
+inline AxisAlignedBox2 multiply_dimensions(AxisAlignedBox2 aab, v2 mul) {
+    AxisAlignedBox2 result;
+    result.min = aab.min * mul;
+    result.max = aab.max * mul;
     return result;
 }
 
-inline Rect2 grow_by_radius(Rect2 rect, v2 r_dim) {
-    Rect2 result;
-    result.min = rect.min - r_dim;
-    result.max = rect.max + r_dim;
+inline AxisAlignedBox2 grow_by_radius(AxisAlignedBox2 aab, v2 r_dim) {
+    AxisAlignedBox2 result;
+    result.min = aab.min - r_dim;
+    result.max = aab.max + r_dim;
     return result;
 }
 
-inline Rect2 grow_by_diameter(Rect2 rect, v2 d_dim) {
-    Rect2 result;
-    result.min = rect.min - d_dim * 0.5f;
-    result.max = rect.max + d_dim * 0.5f;
+inline AxisAlignedBox2 grow_by_diameter(AxisAlignedBox2 aab, v2 d_dim) {
+    AxisAlignedBox2 result;
+    result.min = aab.min - d_dim * 0.5f;
+    result.max = aab.max + d_dim * 0.5f;
     return result;
 }
 
-inline Rect2 offset(Rect2 a, v2 offset) {
-    Rect2 result;
+inline AxisAlignedBox2 offset(AxisAlignedBox2 a, v2 offset) {
+    AxisAlignedBox2 result;
     result.min = a.min + offset;
     result.max = a.max + offset;
     return result;
 }
 
-inline b32 is_in_rect(Rect2 rect, v2 test) {
-    b32 result = (test.x >= rect.min.x && test.x < rect.max.x) &&
-                  (test.y >= rect.min.y && test.y < rect.max.y);
+inline b32 is_in_aab(AxisAlignedBox2 aab, v2 test) {
+    b32 result = (test.x >= aab.min.x && test.x < aab.max.x) &&
+                 (test.y >= aab.min.y && test.y < aab.max.y);
     return result;
 }
 
-inline b32 rect_contained_in_rect(Rect2 outer, Rect2 inner) {
-    b32 result = (outer.min.x >= inner.min.x && outer.max.x <= inner.max.x) &&
-                  (outer.min.y >= inner.min.y && outer.max.y <= inner.max.y);
+inline b32 aab_contained_in_aab(AxisAlignedBox2 outer, AxisAlignedBox2 inner) {
+    b32 result = (outer.min.x <= inner.min.x && outer.max.x >= inner.max.x) &&
+                 (outer.min.y <= inner.min.y && outer.max.y >= inner.max.y);
     return result;
 }
 
-inline b32 rects_intersect(Rect2 a, Rect2 b) {
+inline b32 aab_intersect(AxisAlignedBox2 a, AxisAlignedBox2 b) {
     b32 result = !(b.max.x <= a.min.x ||
-                    b.min.x >= a.max.x ||
-                    b.max.y <= a.min.y ||
-                    b.min.y >= a.max.y);
+                   b.min.x >= a.max.x ||
+                   b.max.y <= a.min.y ||
+                   b.min.y >= a.max.y);
     return result;
 }
 
-inline v2 get_barycentric(Rect2 rect, v2 p) {
+inline v2 get_barycentric(AxisAlignedBox2 aab, v2 p) {
     v2 result;
-    result.x = safe_ratio_0(p.x - rect.min.x, rect.max.x - rect.min.x);
-    result.y = safe_ratio_0(p.y - rect.min.y, rect.max.y - rect.min.y);
+    result.x = safe_ratio_0(p.x - aab.min.x, aab.max.x - aab.min.x);
+    result.y = safe_ratio_0(p.y - aab.min.y, aab.max.y - aab.min.y);
     return result;
 }
 
-inline Rect2 rect_union(Rect2 a, Rect2 b) {
-    Rect2 result;
+inline AxisAlignedBox2 aab_union(AxisAlignedBox2 a, AxisAlignedBox2 b) {
+    AxisAlignedBox2 result;
     result.min.x = min(a.min.x, b.min.x);
     result.min.y = min(a.min.y, b.min.y);
     result.max.x = max(a.max.x, b.max.x);
@@ -561,8 +591,8 @@ inline Rect2 rect_union(Rect2 a, Rect2 b) {
     return result;
 }
 
-inline Rect2 intersect(Rect2 a, Rect2 b) {
-    Rect2 result;
+inline AxisAlignedBox2 intersect(AxisAlignedBox2 a, AxisAlignedBox2 b) {
+    AxisAlignedBox2 result;
     result.min.x = max(a.min.x, b.min.x);
     result.min.y = max(a.min.y, b.min.y);
     result.max.x = min(a.max.x, b.max.x);
@@ -570,24 +600,31 @@ inline Rect2 intersect(Rect2 a, Rect2 b) {
     return result;
 }
 
-inline Rect2 inverted_infinity_rectangle2() {
-    Rect2 result;
+inline AxisAlignedBox2 grow_to_contain(AxisAlignedBox2 aab, v2 p) {
+    AxisAlignedBox2 result = aab;
+    result.min = min(result.min, p);
+    result.max = max(result.max, p);
+    return result;
+}
+
+inline AxisAlignedBox2 inverted_infinity_aab2() {
+    AxisAlignedBox2 result;
     result.min.x = result.min.y =  F32_MAX;
     result.max.x = result.max.y = -F32_MAX;
     return result;
 }
 
 //
-// NOTE: Rect2i
+// NOTE: AxisAlignedBox2i
 //
 
-struct Rect2i {
+struct AxisAlignedBox2i {
     s32 min_x, min_y;
     s32 max_x, max_y;
 };
 
-inline Rect2i rect_union(Rect2i a, Rect2i b) {
-    Rect2i result;
+inline AxisAlignedBox2i aab_union(AxisAlignedBox2i a, AxisAlignedBox2i b) {
+    AxisAlignedBox2i result;
     result.min_x = MIN(a.min_x, b.min_x);
     result.min_y = MIN(a.min_y, b.min_y);
     result.max_x = MAX(a.max_x, b.max_x);
@@ -595,8 +632,8 @@ inline Rect2i rect_union(Rect2i a, Rect2i b) {
     return result;
 }
 
-inline Rect2i intersect(Rect2i a, Rect2i b) {
-    Rect2i result;
+inline AxisAlignedBox2i intersect(AxisAlignedBox2i a, AxisAlignedBox2i b) {
+    AxisAlignedBox2i result;
     result.min_x = MAX(a.min_x, b.min_x);
     result.min_y = MAX(a.min_y, b.min_y);
     result.max_x = MIN(a.max_x, b.max_x);
@@ -604,18 +641,18 @@ inline Rect2i intersect(Rect2i a, Rect2i b) {
     return result;
 }
 
-inline s32 get_area(Rect2i a) {
-    s32 w = (a.max_x - a.min_x);
-    s32 h = (a.max_y - a.min_y);
+inline s32 get_area(AxisAlignedBox2i box) {
+    s32 w = (box.max_x - box.min_x);
+    s32 h = (box.max_y - box.min_y);
     s32 area = 0;
     if (w > 0 && h > 0) {
-        area = w * h;
+        area = w*h;
     }
     return area;
 }
 
-inline Rect2i inverted_infinity_rectangle2i() {
-    Rect2i result;
+inline AxisAlignedBox2i inverted_infinity_aab2i() {
+    AxisAlignedBox2i result;
     result.min_x = result.min_y =  INT32_MAX;
     result.max_x = result.max_y = -INT32_MAX;
     return result;
@@ -873,100 +910,100 @@ inline v3 clamp(v3 n, f32 lo, f32 hi) {
 }
 
 //
-// NOTE: Rect3
+// NOTE: AxisAlignedBox3
 //
 
-inline v3 get_dim(Rect3 rect) {
-    v3 result = rect.max - rect.min;
+inline v3 get_dim(AxisAlignedBox3 aab) {
+    v3 result = aab.max - aab.min;
     return result;
 }
 
-inline v3 get_min_corner(Rect3 rect) {
-    v3 result = rect.min;
+inline v3 get_min_corner(AxisAlignedBox3 aab) {
+    v3 result = aab.min;
     return result;
 }
 
-inline v3 get_max_corner(Rect3 rect) {
-    v3 result = rect.max;
+inline v3 get_max_corner(AxisAlignedBox3 aab) {
+    v3 result = aab.max;
     return result;
 }
 
-inline v3 get_center(Rect3 rect) {
-    v3 result = 0.5f * (rect.min + rect.max);
+inline v3 get_center(AxisAlignedBox3 aab) {
+    v3 result = 0.5f * (aab.min + aab.max);
     return result;
 }
 
-inline Rect3 rect_min_max(v3 min, v3 max) {
-    Rect3 result;
+inline AxisAlignedBox3 aab_min_max(v3 min, v3 max) {
+    AxisAlignedBox3 result;
     result.min = min;
     result.max = max;
     return result;
 }
 
-inline Rect3 rect_center_half_dim(v3 center, v3 half_dim) {
-    Rect3 result;
+inline AxisAlignedBox3 aab_center_half_dim(v3 center, v3 half_dim) {
+    AxisAlignedBox3 result;
     result.min = center - half_dim;
     result.max = center + half_dim;
     return result;
 }
 
-inline Rect3 rect_center_dim(v3 center, v3 dim) {
-    Rect3 result;
+inline AxisAlignedBox3 aab_center_dim(v3 center, v3 dim) {
+    AxisAlignedBox3 result;
     result.min = center - dim * 0.5f;
     result.max = center + dim * 0.5f;
     return result;
 }
 
-inline Rect3 rect_min_dim(v3 min, v3 dim) {
-    Rect3 result;
+inline AxisAlignedBox3 aab_min_dim(v3 min, v3 dim) {
+    AxisAlignedBox3 result;
     result.min = min;
     result.max = min + dim;
     return result;
 }
 
-inline Rect3 multiply_dimensions(Rect3 rect, v3 mul) {
-    Rect3 result;
-    result.min = rect.min * mul;
-    result.max = rect.max * mul;
+inline AxisAlignedBox3 multiply_dimensions(AxisAlignedBox3 aab, v3 mul) {
+    AxisAlignedBox3 result;
+    result.min = aab.min * mul;
+    result.max = aab.max * mul;
     return result;
 }
 
-inline Rect3 grow_by_radius(Rect3 rect, v3 r_dim) {
-    Rect3 result;
-    result.min = rect.min - r_dim;
-    result.max = rect.max + r_dim;
+inline AxisAlignedBox3 grow_by_radius(AxisAlignedBox3 aab, v3 r_dim) {
+    AxisAlignedBox3 result;
+    result.min = aab.min - r_dim;
+    result.max = aab.max + r_dim;
     return result;
 }
 
-inline Rect3 grow_by_diameter(Rect3 rect, v3 d_dim) {
-    Rect3 result;
-    result.min = rect.min - d_dim * 0.5f;
-    result.max = rect.max + d_dim * 0.5f;
+inline AxisAlignedBox3 grow_by_diameter(AxisAlignedBox3 aab, v3 d_dim) {
+    AxisAlignedBox3 result;
+    result.min = aab.min - d_dim * 0.5f;
+    result.max = aab.max + d_dim * 0.5f;
     return result;
 }
 
-inline Rect3 offset(Rect3 a, v3 offset) {
-    Rect3 result;
+inline AxisAlignedBox3 offset(AxisAlignedBox3 a, v3 offset) {
+    AxisAlignedBox3 result;
     result.min = a.min + offset;
     result.max = a.max + offset;
     return result;
 }
 
-inline b32 is_in_rect(Rect3 rect, v3 test) {
-    b32 result = (test.x >= rect.min.x && test.x < rect.max.x) &&
-                  (test.y >= rect.min.y && test.y < rect.max.y) &&
-                  (test.z >= rect.min.z && test.z < rect.max.z);
+inline b32 is_in_aab(AxisAlignedBox3 aab, v3 test) {
+    b32 result = (test.x >= aab.min.x && test.x < aab.max.x) &&
+                  (test.y >= aab.min.y && test.y < aab.max.y) &&
+                  (test.z >= aab.min.z && test.z < aab.max.z);
     return result;
 }
 
-inline b32 rect_contained_in_rect(Rect3 outer, Rect3 inner) {
+inline b32 aab_contained_in_aab(AxisAlignedBox3 outer, AxisAlignedBox3 inner) {
     b32 result = (outer.min.x >= inner.min.x && outer.max.x <= inner.max.x) &&
                   (outer.min.y >= inner.min.y && outer.max.y <= inner.max.y) &&
                   (outer.min.z >= inner.min.z && outer.max.z <= inner.max.z);
     return result;
 }
 
-inline b32 rects_intersect(Rect3 a, Rect3 b) {
+inline b32 aab_intersect(AxisAlignedBox3 a, AxisAlignedBox3 b) {
     b32 result = !(b.max.x <= a.min.x ||
                     b.min.x >= a.max.x ||
                     b.max.y <= a.min.y ||
@@ -976,18 +1013,18 @@ inline b32 rects_intersect(Rect3 a, Rect3 b) {
     return result;
 }
 
-inline v3 get_barycentric(Rect3 rect, v3 p) {
+inline v3 get_barycentric(AxisAlignedBox3 aab, v3 p) {
     v3 result;
-    result.x = safe_ratio_0(p.x - rect.min.x, rect.max.x - rect.min.x);
-    result.y = safe_ratio_0(p.y - rect.min.y, rect.max.y - rect.min.y);
-    result.z = safe_ratio_0(p.z - rect.min.z, rect.max.z - rect.min.z);
+    result.x = safe_ratio_0(p.x - aab.min.x, aab.max.x - aab.min.x);
+    result.y = safe_ratio_0(p.y - aab.min.y, aab.max.y - aab.min.y);
+    result.z = safe_ratio_0(p.z - aab.min.z, aab.max.z - aab.min.z);
     return result;
 }
 
-inline Rect2 to_rect2_xy(Rect3 rect) {
-    Rect2 result;
-    result.min = rect.min.xy;
-    result.max = rect.max.xy;
+inline AxisAlignedBox2 to_aab2_xy(AxisAlignedBox3 aab) {
+    AxisAlignedBox2 result;
+    result.min = aab.min.xy;
+    result.max = aab.max.xy;
     return result;
 }
 
