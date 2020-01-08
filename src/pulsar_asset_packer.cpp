@@ -20,7 +20,7 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
-#include "stb_truetype.h"
+#include "external/stb_truetype.h"
 
 #define GAMMA_CORRECT_FONTS 1
 #define FONT_OVERSAMPLING 1
@@ -51,7 +51,6 @@ global MemoryArena global_arena;
 global Array<AssetDescription> asset_descriptions;
 global u32 packed_asset_count = 1; // @Note: Reserving the 0th index for the null asset
 
-// @Note: Neither asset name nor file name is mandatory, because font glyphs have no need for them.
 internal AssetDescription* add_asset(char* asset_name = 0, char* file_name = 0) {
     AssetDataType data_type = AssetDataType_Unknown;
     if (file_name) {
@@ -159,7 +158,7 @@ inline u32 flip_endianness_u32(u32 value) {
 }
 
 inline u32 midi_read_variable_length_quantity(MidiStream* stream) {
-    u32 result = (*stream->at++) & 0x7F;
+    u32 result = (*stream->at++);
 
     if (result & 0x80) {
         u8 c;
@@ -217,11 +216,17 @@ int main(int argument_count, char** arguments) {
 
     asset_descriptions = allocate_array<AssetDescription>(64, allocator(arena_allocator, &global_arena));
 
-    char* midi_files[] = { "assets/test_soundtrack.mid" };
-    add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
+    {
+#if 0
+        char* midi_files[] = { "assets/test_soundtrack.mid" };
+        add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
+#endif
+    }
 
-    char* midi_files2[] = { "assets/track1_1.mid" };
-    add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files2), midi_files2);
+    {
+        char* midi_files[] = { "assets/track1_1.mid" };
+        add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files), midi_files);
+    }
 
     add_sound("test_sound", "assets/test_sound.wav");
     add_sound("test_music", "assets/test_music.wav");
@@ -557,30 +562,41 @@ int main(int argument_count, char** arguments) {
                                             // @Note: Data Byte
 parse_data_bytes:
                                             // @TODO: I think this will barf if I hit an unhandled midi channel message status
-                                            MidiEvent* event = lb_push(events);
+                                            MidiEvent event = {};
+
                                             f64 delta_time_in_samples = samples_per_delta_time * cast(f64) delta_time;
                                             running_sample_index += delta_time_in_samples;
-                                            event->absolute_time_in_ticks = safe_truncate_u64u32(round_f64_to_u64(running_sample_index));
-                                            event->channel = cast(u8) channel;
 
+                                            b32 handled = true;
                                             switch (running_status) {
                                                 case 0x80: {
                                                     // @Note: Note-Off
-                                                    event->type = cast(u8) MidiEvent_NoteOff;
-                                                    event->note_value = byte;
-                                                    event->velocity = midi_read_u8(&data);
+                                                    event.type = cast(u8) MidiEvent_NoteOff;
+                                                    event.note_value = byte;
+                                                    event.velocity = midi_read_u8(&data);
                                                 } break;
 
                                                 case 0x90: {
                                                     // @Note: Note-On
-                                                    event->type = cast(u8) MidiEvent_NoteOn;
-                                                    event->note_value = byte;
-                                                    event->velocity = midi_read_u8(&data);
+                                                    event.type = cast(u8) MidiEvent_NoteOn;
+                                                    event.note_value = byte;
+                                                    event.velocity = midi_read_u8(&data);
 
-                                                    if (event->velocity == 0) {
-                                                        event->type = cast(u8) MidiEvent_NoteOff;
+                                                    if (event.velocity == 0) {
+                                                        event.type = cast(u8) MidiEvent_NoteOff;
                                                     }
                                                 } break;
+
+                                                default: {
+                                                    handled = false;
+                                                } break;
+                                            }
+
+                                            if (handled) {
+                                                event.absolute_time_in_ticks = safe_truncate_u64u32(round_f64_to_u64(running_sample_index));
+                                                event.channel = cast(u8) channel;
+
+                                                lb_add(events, event);
                                             }
                                         }
                                     }

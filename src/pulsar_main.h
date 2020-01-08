@@ -3,7 +3,8 @@
 
 // High level overview of @TODOs:
 // TODAY:
-// - Actual gameplay mechanics (checkpoints, hazards, audio zones)
+// - Debug the midi parser in asset packing
+// - Actual gameplay mechanics (checkpoints+, hazards+, audio zones)
 //
 // IMPORTANT:
 // - Fix collision once and for all!!!! The way it stands now, GJK and EPA are not enough
@@ -43,6 +44,7 @@
 //     platform asks for more than a frame's worth of audio)
 //
 // Low importance:
+// - Templatize LinearBuffer? Maybe?? Maybe not.
 // - Shaders?
 // - Make some kind entity system besides just the monolithic entities I've got now
 

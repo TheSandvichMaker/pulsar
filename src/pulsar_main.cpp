@@ -3,7 +3,7 @@
 
 #define STB_SPRINTF_STATIC 1
 #define STB_SPRINTF_IMPLEMENTATION 1
-#include "stb_sprintf.h"
+#include "external/stb_sprintf.h"
 
 #include "pulsar_assets.cpp"
 #include "pulsar_audio_mixer.cpp"

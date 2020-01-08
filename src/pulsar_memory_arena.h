@@ -121,11 +121,11 @@ inline void* begin_linear_buffer_(MemoryArena* arena, AllocateParams params = de
     return header->data;
 }
 
-#define lb_header(buffer) (cast(LinearBuffer*) (cast(u8*) buffer - sizeof(LinearBuffer)))
+#define lb_header(buffer) (cast(LinearBuffer*) buffer - 1)
 #define lb_arena(buffer) lb_header(buffer)->arena
 #define lb_count(buffer) lb_header(buffer)->count
 #define lb_push(buffer) (push_size(lb_arena(buffer), sizeof(*buffer), align(1, lb_header(buffer)->flags), lb_header(buffer)), &buffer[lb_count(buffer)++])
-// #define lb_push(buffer, item) (lb_add(buffer), buffer[lb_count(buffer)-1] = item)
+#define lb_add(buffer, item) (lb_push(buffer), buffer[lb_count(buffer) - 1] = item)
 
 inline size_t end_linear_buffer(void* buffer) {
     LinearBuffer* header = lb_header(buffer);

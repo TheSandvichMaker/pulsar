@@ -499,6 +499,12 @@ inline v2 get_center(AxisAlignedBox2 aab) {
     return result;
 }
 
+inline f32 get_aspect_ratio(AxisAlignedBox2 aab) {
+    v2 dim = get_dim(aab);
+    f32 aspect_ratio = dim.x/dim.y;
+    return aspect_ratio;
+}
+
 inline AxisAlignedBox2 aab_min_max(v2 min, v2 max) {
     AxisAlignedBox2 result;
     result.min = min;
