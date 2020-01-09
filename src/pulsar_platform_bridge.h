@@ -50,6 +50,11 @@ struct DebugFrameTimeHistory {
     u32 valid_entry_count;
 };
 
+struct DebugProfilingEvent {
+    char* name;
+    u64 cycles;
+};
+
 struct PlatformDebugInfo {
     DebugFrameTimeHistory* frame_history;
 };
@@ -168,8 +173,6 @@ inline b32 was_released(GameButtonState button) {
 #define GAME_UPDATE_AND_RENDER(name) void name(GameMemory* memory, GameInput* input, GameRenderCommands* render_commands)
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);
 
-// @Note: At the moment, this has to be a very fast function. Not more than ~1ms.
-// @TODO: Reduce the pressure on this function's performance by measuring it / asking about it.
 #define GAME_GET_SOUND(name) void name(GameMemory* memory, GameSoundOutputBuffer* sound_buffer)
 typedef GAME_GET_SOUND(GameGetSound);
 

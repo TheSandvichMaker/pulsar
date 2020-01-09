@@ -188,6 +188,8 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 RenderCommandShape* command = cast(RenderCommandShape*) at;
                 at += sizeof(*command);
 
+                glLineWidth(2.0f);
+
                 Transform2D* transform = &command->transform;
                 Shape2D* shape = &command->shape;
 

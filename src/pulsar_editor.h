@@ -61,6 +61,7 @@ introspect() enum EditorWidgetType {
     Widget_DragEditable,
     Widget_ManipulateEntity,
     Widget_DragAxisAlignedBox,
+    Widget_DragV2,
 };
 
 enum EntityManipulateType {
@@ -104,6 +105,12 @@ struct EditorWidgetDragAxisAlignedBox {
     f32* connected_y;
 };
 
+struct EditorWidgetDragV2 {
+    v2 scaling;
+    v2 original;
+    v2* target;
+};
+
 struct EditorWidget {
     void* guid;
 
@@ -112,6 +119,7 @@ struct EditorWidget {
         void* start_value;
         EditorWidgetManipulateEntity manipulate;
         EditorWidgetDragAxisAlignedBox drag_aab;
+        EditorWidgetDragV2 drag_v2;
     };
 };
 
@@ -141,6 +149,27 @@ struct EntityHash {
 
 #define UNDO_BUFFER_SIZE MEGABYTES(2)
 
+introspect() struct EditorAssets {
+    Image* camera_icon;
+    Image* speaker_icon;
+    Image* checkpoint_icon;
+};
+
+struct EditorState {
+    /* ... */
+
+#if 0
+    Image* camera_icon;
+    Image* speaker_icon;
+    Image* checkpoint_icon;
+#else
+    using_struct(EditorAssets, asset_dependencies);
+#endif
+
+    /* ... */
+}
+
+
 struct EditorState {
     b32 initialized;
     b32 shown;
@@ -152,9 +181,13 @@ struct EditorState {
     RenderContext render_context;
     Assets* assets;
 
+#if 0
     Image* camera_icon;
     Image* speaker_icon;
     Image* checkpoint_icon;
+#else
+    using_struct(EditorAssets, asset_dependencies);
+#endif
 
     Font* big_font;
     Font* font;

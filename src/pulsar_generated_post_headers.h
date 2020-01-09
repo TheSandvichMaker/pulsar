@@ -7,6 +7,7 @@ char* GetEnumNameOf_EditorWidgetType(int value) {
         case Widget_DragEditable: return "Widget_DragEditable";
         case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
         case Widget_DragAxisAlignedBox: return "Widget_DragAxisAlignedBox";
+        case Widget_DragV2: return "Widget_DragV2";
         default: return "Unknown value for EditorWidgetType";
     }
 }
@@ -87,6 +88,12 @@ static MemberDefinition MembersOf_MidiEvent[] = {
     { 0, MetaType_u8, "type", (u32)&((MidiEvent*)0)->type },
     { 0, MetaType_u8, "note_value", (u32)&((MidiEvent*)0)->note_value },
     { 0, MetaType_u8, "velocity", (u32)&((MidiEvent*)0)->velocity },
+};
+
+static MemberDefinition MembersOf_EditorAssets[] = {
+    { MetaMemberFlag_IsPointer, MetaType_Image, "camera_icon", (u32)&((EditorAssets*)0)->camera_icon },
+    { MetaMemberFlag_IsPointer, MetaType_Image, "speaker_icon", (u32)&((EditorAssets*)0)->speaker_icon },
+    { MetaMemberFlag_IsPointer, MetaType_Image, "checkpoint_icon", (u32)&((EditorAssets*)0)->checkpoint_icon },
 };
 
 #endif

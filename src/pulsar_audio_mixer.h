@@ -6,6 +6,7 @@ enum PlaybackFlag {
 };
 
 struct PlayingSound {
+    b32 initialized;
     f32 current_volume[2];
     u32 samples_played;
 

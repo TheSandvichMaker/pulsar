@@ -647,9 +647,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                         sound_is_valid = true;
                     }
 
-                    DWORD safety_bytes = cast(DWORD) (sound_output.bytes_per_sample*(sound_output.sample_rate / game_update_rate));
-
-                    DWORD padded_write_cursor = (write_cursor + safety_bytes) % sound_output.buffer_size;
+                    // @TODO: Investigate small occasional pop and midi desync: Consider that I haven't yet
+                    // actually done anything about the fact that the write cursor has likely moved by the
+                    // time game_get_sound is done.
 
                     DWORD bytes_to_write;
                     {
@@ -678,10 +678,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                     DWORD byte_to_lock = write_cursor;
 
-                    s16* unadjusted_samples_position = sound_buffer.samples;
-
                     win32_fill_sound_buffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
-                    sound_buffer.samples = unadjusted_samples_position;
 
                     previous_write_cursor = write_cursor;
                 }

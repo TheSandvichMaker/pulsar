@@ -15,7 +15,7 @@ internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0
     PlayingSound* playing_sound = mixer->first_free_playing_sound;
     mixer->first_free_playing_sound = playing_sound->next;
 
-    playing_sound->samples_played = 0;
+    zero_struct(*playing_sound);
     playing_sound->current_volume[0] = 0.5f;
     playing_sound->current_volume[1] = 0.5f;
     playing_sound->sound = sound;
@@ -54,21 +54,9 @@ inline void stop_all_sounds(AudioMixer* mixer) {
 }
 
 internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* sound_buffer, MemoryArena* temp_arena) {
-    /* TODO:
-     * Formalize the handling of channels in the mixer.
-     *
-     * Restore Handmade Hero functionality.
-     *
-     * ..
-     *
-     * Handmade Hero functionality TODOs:
-     * Have volume exposed as a scalar, and automate pan together with volume
-     * to avoid the "gap in the middle" effect during panning (by using a
-     * better pan law than just straight linear interpolation).
-     *
-     * Allow for the smooth automation of pitch bends.
-     */
-
+    // @TODO:
+    // - Formalize the handling of channels in the mixer.
+    // - Restore Handmade Hero functionality (smooth volume fade, variable playback rate).
     if (sound_buffer->samples_to_write > 0) {
         TemporaryMemory mixer_memory = begin_temporary_memory(temp_arena);
 
@@ -76,8 +64,6 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
 
         f32* float_channel0 = push_array(temp_arena, sample_count, f32);
         f32* float_channel1 = push_array(temp_arena, sample_count, f32);
-
-        f32 seconds_per_sample = 1.0f / sound_buffer->sample_rate;
 
         for (PlayingSound** playing_sound_ptr = &mixer->first_playing_sound; *playing_sound_ptr;) {
             PlayingSound* playing_sound = *playing_sound_ptr;
@@ -88,8 +74,14 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
             Sound* sound = playing_sound->sound;
 
             if (sound) {
-                // @Incomplete: This approach will not work with a smooth variable playback rate.
-                playing_sound->samples_played += sound_buffer->samples_committed;
+                // @Incomplete: With this approach, if left unaccounted for, midi sync will have a 1 frame delay
+                if (playing_sound->initialized) {
+                    // @Incomplete: This approach will not work with a smooth variable playback rate
+                    playing_sound->samples_played += sound_buffer->samples_committed;
+                } else {
+                    playing_sound->samples_played = 0;
+                    playing_sound->initialized = true;
+                }
 
                 if (looping) {
                     if (playing_sound->samples_played >= sound->sample_count) {

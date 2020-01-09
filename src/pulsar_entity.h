@@ -61,11 +61,11 @@ struct Entity {
     u32 playback_flags;
 
     // @Note: Camera Zone;
-    AxisAlignedBox2 camera_zone;
+    v2 camera_zone;
     v2 camera_rotation_arm;
 
     // @Note: Checkpoint
-    AxisAlignedBox2 checkpoint_zone;
+    v2 checkpoint_zone;
     v2 most_recent_player_position;
 
     u32 flags;

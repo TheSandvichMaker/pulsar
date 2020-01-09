@@ -122,9 +122,10 @@ inline AddEntityResult add_camera_zone(EditorState* editor, AxisAlignedBox2 zone
     Entity* entity = result.ptr;
 
     entity->p = get_center(zone);
+    entity->camera_zone = get_dim(zone);
+
     entity->sprite = editor->camera_icon;
 
-    entity->camera_zone = offset(zone, -entity->p);
     entity->camera_rotation_arm = arm2(rotation);
 
     entity->collision = editor->default_collision;
@@ -139,7 +140,7 @@ inline AddEntityResult add_checkpoint(EditorState* editor, AxisAlignedBox2 zone)
     Entity* entity = result.ptr;
 
     entity->p = get_center(zone);
-    entity->checkpoint_zone = offset(zone, -entity->p);
+    entity->checkpoint_zone = get_dim(zone);
 
     entity->sprite = editor->checkpoint_icon;
 
@@ -237,11 +238,15 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
             editor->undo_oldest = oldest->next;
 
             oldest = get_undo_footer(editor, editor->undo_oldest);
-            oldest->prev = 0;
+            if (oldest) {
+                oldest->prev = 0;
 
-            oldest_index = editor->undo_oldest;
-            if (oldest_index < editor->undo_most_recent) {
-                oldest_index += ARRAY_COUNT(editor->undo_buffer);
+                oldest_index = editor->undo_oldest;
+                if (oldest_index < editor->undo_most_recent) {
+                    oldest_index += ARRAY_COUNT(editor->undo_buffer);
+                }
+            } else {
+                break;
             }
         }
     } else {
@@ -622,6 +627,15 @@ internal void set_up_editable_parameters(EditorState* editor) {
     }
     end_editables(editor, editables);
 
+    editables = begin_editables(editor, EntityType_Checkpoint);
+    {
+        add_viewable(editables, Entity, guid);
+        add_viewable(editables, Entity, p);
+        add_viewable(editables, Entity, checkpoint_zone);
+        add_viewable(editables, Entity, most_recent_player_position);
+    }
+    end_editables(editor, editables);
+
     editables = begin_editables(editor, EntityType_Wall);
     {
         add_viewable(editables, Entity, guid);
@@ -749,9 +763,22 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     editor->shown = true;
 
+#if 0
     editor->camera_icon = get_image_by_name(editor->assets, "camera_icon");
     editor->speaker_icon = get_image_by_name(editor->assets, "speaker_icon");
     editor->checkpoint_icon = get_image_by_name(editor->assets, "checkpoint_icon");
+#else
+    for (u32 member_index = 0; member_index < members_count(EditorAssets); member_index++) {
+        MemberDefinition* member = members_of(EditorAssets) + member_index;
+        void** member_ptr = member_ptr(editor->asset_dependencies, member);
+        switch (member->type) {
+            case member_type(Image): {
+                assert(member->flags & MetaMemberFlag_IsPointer);
+                *(cast(Image**) member_ptr) = get_image_by_name(editor->assets, member->name);
+            } break;
+        }
+    }
+#endif
 
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
@@ -832,7 +859,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
     f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
     v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
-    editor_print_line(&layout, timer_color, "Average Frame Time: %fms", average_frame_time_in_ms);
+    editor_print_line(&layout, timer_color, "Average Frame Time: %fms\n", average_frame_time_in_ms);
     editor_print_line(&layout, COLOR_WHITE, "Editing level '%s'", level->name.data);
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
@@ -891,22 +918,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    u32 entity_count = 0;
-    Entity* entities = 0;
-    if (game_state->game_mode == GameMode_Ingame) {
-        entity_count = game_state->entity_count;
-        entities = game_state->entities;
-    } else {
-        entity_count = level->entity_count;
-        entities = level->entities;
-    }
-
     Entity* moused_over = 0;
     if (game_state->game_mode == GameMode_Ingame) {
         for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
             Entity* entity = game_state->entities + entity_index;
 
-            if (!(entity->flags & EntityFlag_Invisible) || (game_state->game_mode == GameMode_Editor && editor->shown)) {
+            if (!(entity->flags & EntityFlag_Invisible) || editor->shown) {
                 if (gjk_intersect_point(transform2d(entity->p), entity->collision, world_mouse_p)) {
                     moused_over = entity;
                 }
@@ -959,6 +976,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     clear_active(editor);
                 }
             } break;
+
             case Manipulate_DragEntity: {
                 widget->manipulate.entity->p = snap_to_grid(editor, world_mouse_p - widget->manipulate.drag_offset);
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
@@ -970,6 +988,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     undo(editor);
                 }
             } break;
+
             case Manipulate_DeleteEntity: {
                 delete_entity(editor, widget->manipulate.entity->guid);
                 clear_active(editor);
@@ -1040,92 +1059,78 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         if (selected->type == EntityType_CameraZone) {
             EditorWidget drag_camera_zone;
             drag_camera_zone.guid = selected;
-            drag_camera_zone.type = Widget_DragAxisAlignedBox;
+            drag_camera_zone.type = Widget_DragV2;
 
             Transform2D t = transform2d(selected->p);
-            AxisAlignedBox2 zone = selected->camera_zone;
+            v2 zone = selected->camera_zone;
 
             {
-                EditorWidgetDragAxisAlignedBox* drag_aab = &drag_camera_zone.drag_aab;
-                drag_aab->box = &selected->camera_zone;
-                drag_aab->keep_aspect_ratio = true;
+                EditorWidgetDragV2* drag_v2 = &drag_camera_zone.drag_v2;
+                drag_v2->original = selected->camera_zone;
+                drag_v2->target = &selected->camera_zone;
 
                 v4 corner_color = is_hot(editor, drag_camera_zone) ? COLOR_RED : COLOR_YELLOW;
 
                 {
-                    v2 corner = corner_a(zone);
+                    v2 corner = 0.5f*vec2(-zone.x, -zone.y);
                     AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
                     push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
                     if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_aab->original_x = drag_aab->box->min.x;
-                        drag_aab->original_y = drag_aab->box->min.y;
-                        drag_aab->connected_x = &drag_aab->box->min.x;
-                        drag_aab->connected_y = &drag_aab->box->min.y;
-
+                        drag_v2->scaling = vec2(-2.0f, -2.0f);
                         editor->next_hot_widget = drag_camera_zone;
                     }
                 }
 
                 {
-                    v2 corner = corner_b(zone);
+                    v2 corner = 0.5f*vec2(zone.x, -zone.y);
                     AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
                     push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
                     if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_aab->original_x = drag_aab->box->max.x;
-                        drag_aab->original_y = drag_aab->box->min.y;
-                        drag_aab->connected_x = &drag_aab->box->max.x;
-                        drag_aab->connected_y = &drag_aab->box->min.y;
-
+                        drag_v2->scaling = vec2(2.0f, -2.0f);
                         editor->next_hot_widget = drag_camera_zone;
                     }
                 }
 
                 {
-                    v2 corner = corner_c(zone);
+                    v2 corner = 0.5f*vec2(zone.x, zone.y);
                     AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
                     push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
                     if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_aab->original_x = drag_aab->box->max.x;
-                        drag_aab->original_y = drag_aab->box->max.y;
-                        drag_aab->connected_x = &drag_aab->box->max.x;
-                        drag_aab->connected_y = &drag_aab->box->max.y;
-
+                        drag_v2->scaling = vec2(2.0f, 2.0f);
                         editor->next_hot_widget = drag_camera_zone;
                     }
                 }
 
                 {
-                    v2 corner = corner_d(zone);
+                    v2 corner = 0.5f*vec2(-zone.x, zone.y);
                     AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
                     push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
                     if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_aab->original_x = drag_aab->box->min.x;
-                        drag_aab->original_y = drag_aab->box->max.y;
-                        drag_aab->connected_x = &drag_aab->box->min.x;
-                        drag_aab->connected_y = &drag_aab->box->max.y;
-
+                        drag_v2->scaling = vec2(-2.0f, 2.0f);
                         editor->next_hot_widget = drag_camera_zone;
                     }
                 }
             }
 
             if (is_active(editor, drag_camera_zone)) {
-                EditorWidgetDragAxisAlignedBox* drag_aab = &editor->active_widget.drag_aab;
+                EditorWidgetDragV2* drag_v2 = &editor->active_widget.drag_v2;
                 v2 mouse_delta = snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                *drag_aab->connected_x = drag_aab->original_x + mouse_delta.x;
-                *drag_aab->connected_y = drag_aab->original_y + mouse_delta.y;
-                // @TODO: Keep aspect ratio
+                *drag_v2->target = drag_v2->original + mouse_delta*drag_v2->scaling;
+                if (input->ctrl.is_down) {
+                    f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
+                    drag_v2->target->x = aspect_ratio*drag_v2->target->y;
+                }
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     clear_active(editor);
                 }
             } else if (is_hot(editor, drag_camera_zone)) {
-                EditorWidgetDragAxisAlignedBox* drag_aab = &editor->hot_widget.drag_aab;
+                EditorWidgetDragV2* drag_v2 = &editor->hot_widget.drag_v2;
                 if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    add_undo_history(editor, Undo_SetData, sizeof(AxisAlignedBox2), drag_aab->box, "Change Camera Zone Size");
+                    add_undo_history(editor, Undo_SetData, sizeof(AxisAlignedBox2), drag_v2->target, "Change Camera Zone Size");
                     set_active(editor, editor->hot_widget);
                 }
             }

@@ -83,16 +83,16 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
             case EntityType_CameraZone: {
                 Entity* camera_target = game_state->camera_target;
                 if (camera_target) {
-                    if (is_in_aab(offset(entity->camera_zone, entity->p), camera_target->p)) {
-                        render_context->camera_p = get_center(offset(entity->camera_zone, entity->p));
+                    if (is_in_aab(aab_center_dim(entity->p, entity->camera_zone), camera_target->p)) {
+                        render_context->camera_p = entity->p;
                         render_context->camera_rotation_arm = entity->camera_rotation_arm;
-                        render_worldspace(render_context, get_dim(entity->camera_zone).y);
+                        render_worldspace(render_context, entity->camera_zone.y);
                     }
                 }
             } break;
 
             case EntityType_Checkpoint: {
-                AxisAlignedBox2 checkpoint_box = offset(entity->checkpoint_zone, entity->p);
+                AxisAlignedBox2 checkpoint_box = aab_center_dim(entity->p, entity->checkpoint_zone);
                 AxisAlignedBox2 player_box = offset(game_state->player->collision.bounding_box, game_state->player->p);
                 if (aab_contained_in_aab(checkpoint_box, player_box)) {
                     game_state->last_activated_checkpoint = entity;

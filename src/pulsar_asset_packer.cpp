@@ -537,12 +537,11 @@ int main(int argument_count, char** arguments) {
                                                         packed->midi.time_signature_denominator = 1 << negative_power_for_denominator;
                                                     } break;
 
-#if 0
                                                     // @TODO: What's the point of this, for me?
                                                     case 0x2F: {
                                                         // @Note: End of Track
+                                                        goto done_parsing_midi;
                                                     } break;
-#endif
 
                                                     default: {
                                                         // @Note: Skipping unhandled messages

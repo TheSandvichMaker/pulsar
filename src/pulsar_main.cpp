@@ -158,7 +158,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         game_state->active_level = allocate_level(&game_state->permanent_arena, "Default Level");
 
         game_state->foreground_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-        game_state->background_color = vec4(0.5f, 0.2f, 0.2f, 1.0f);
+        game_state->background_color = vec4(0.2f, 0.3f, 0.5f, 1.0f);
 
         game_state->editor_state = allocate_editor(game_state, render_commands, game_state->active_level);
 
@@ -261,17 +261,17 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 case EntityType_CameraZone: {
                     transform.rotation_arm = entity->camera_rotation_arm;
                     push_image(render_context, transform, entity->sprite, entity->color);
-                    push_shape(render_context, transform, rectangle(entity->camera_zone), entity->color, ShapeRenderMode_Outline);
+                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->camera_zone)), entity->color, ShapeRenderMode_Outline);
 
                     f32 aspect_ratio = cast(f32) width / cast(f32) height;
-                    f32 zone_height = get_dim(entity->camera_zone).y;
-                    AxisAlignedBox2 visible_zone = aab_center_dim(get_center(entity->camera_zone), vec2(aspect_ratio*zone_height, zone_height));
+                    f32 zone_height = entity->camera_zone.y;
+                    AxisAlignedBox2 visible_zone = aab_center_dim(vec2(0, 0), vec2(aspect_ratio*zone_height, zone_height));
                     push_shape(render_context, transform, rectangle(visible_zone), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
                 } break;
 
                 case EntityType_Checkpoint: {
                     push_image(render_context, transform, entity->sprite, entity->color);
-                    push_shape(render_context, transform, rectangle(entity->checkpoint_zone), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
+                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
                 } break;
 
                 default: {

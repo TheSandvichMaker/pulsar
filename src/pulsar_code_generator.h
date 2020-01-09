@@ -24,5 +24,9 @@ struct MemberDefinition {
 #define enum_name(type, value) GetEnumNameOf_##type(value)
 #define enum_flag_name(type, value_ptr, name_ptr) GetNextEnumFlagNameOf_##type(value_ptr, name_ptr)
 #define using_struct(type, as) union { type as; struct { BodyOf_##type }; };
+#define members_of(type) MembersOf_##type
+#define members_count(type) ARRAY_COUNT(MembersOf_##type)
+#define member_type(type) MetaType_##type
+#define member_ptr(source, description) cast(void**) (cast(u8*) &(source) + (description)->offset)
 
 #endif /* PULSAR_CODE_GENERATOR_H */

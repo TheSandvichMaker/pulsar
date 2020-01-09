@@ -2,8 +2,11 @@
 #define PULSAR_MAIN_H
 
 // High level overview of @TODOs:
+// TOMORROW:
+// - Eek out final little pops in audio, look at why midi goes out of sync slowly (likely
+//    related problems, midi sync resets when the pop happens)
 // TODAY:
-// - Basic profiling
+// -
 //
 // IMPORTANT:
 // - Fix collision once and for all!!!! The way it stands now, GJK and EPA are not enough
@@ -29,7 +32,7 @@
 //     The player probably should never lose contact with a platform they're standing on unless
 //      they either jump off or are bumped off by an obstacle.
 //
-// - Eek out final little clicks in audio
+// - Basic profiling
 // - Get the mixer back to full spec (smooth volume fade and (smooth?) variable playback speed)
 //
 // - Add enough editor features to be actually able to make levels
@@ -63,7 +66,8 @@
  * Handmade Hero (@TODO: List the stuff directly used from handmade hero):
  *     https://handmadehero.org/
  *     A lot of the (win32) platform layer
- *     DirectSound setup and usage
+ *     DirectSound setup - I rewrote the way the DS buffer is actually written into to reduce latency, make midi sync better, and stop audio glitches on frame drops
+ *     A lot of the audio mixer - I rewrote the relevant parts to handle the change to DS, as well as my own needs (sample-perfect looping, midi sync)
  *     Input handling (@TODO: Start using raw input - set up an input thread?)
  *     Sorting (pulsar_sort.cpp is a direct copy of handmade_sort.cpp)
  * OpenGL:
