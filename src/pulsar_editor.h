@@ -156,21 +156,6 @@ introspect() struct EditorAssets {
 };
 
 struct EditorState {
-    /* ... */
-
-#if 0
-    Image* camera_icon;
-    Image* speaker_icon;
-    Image* checkpoint_icon;
-#else
-    using_struct(EditorAssets, asset_dependencies);
-#endif
-
-    /* ... */
-}
-
-
-struct EditorState {
     b32 initialized;
     b32 shown;
 
