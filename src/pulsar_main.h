@@ -3,8 +3,7 @@
 
 // High level overview of @TODOs:
 // TODAY:
-// - Debug the midi parser in asset packing
-// - Actual gameplay mechanics (checkpoints+, hazards+, audio zones)
+// - Basic profiling
 //
 // IMPORTANT:
 // - Fix collision once and for all!!!! The way it stands now, GJK and EPA are not enough
@@ -30,15 +29,18 @@
 //     The player probably should never lose contact with a platform they're standing on unless
 //      they either jump off or are bumped off by an obstacle.
 //
+// - Eek out final little clicks in audio
 // - Get the mixer back to full spec (smooth volume fade and (smooth?) variable playback speed)
 //
 // - Add enough editor features to be actually able to make levels
+// - Actual gameplay mechanics (checkpoints+, hazards+, audio zones)
+//
 // - Level saving / loading
 //
 // - Metagame features (savegames, menu, options)
 //
 // Probably also important:
-// - Sub-frame entity simulation (e.g. a platform might start moving halfway
+// - Sub-frame entity logic (e.g. a platform might start moving halfway
 //     into the frame since that's when the midi note hits)
 // - Midi timing (I believe the sync with samples isn't quite right since the
 //     platform asks for more than a frame's worth of audio)

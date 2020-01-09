@@ -102,7 +102,7 @@ internal PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
     return result;
 }
 
-internal b32 win32_write_entire_file(char* file_name, u32 size, void* data) {
+internal PLATFORM_WRITE_ENTIRE_FILE(win32_write_entire_file) {
     b32 result = false;
 
     HANDLE file_handle = CreateFileA(file_name, GENERIC_WRITE, NULL, NULL, CREATE_ALWAYS, NULL, NULL);
@@ -123,6 +123,19 @@ internal b32 win32_write_entire_file(char* file_name, u32 size, void* data) {
 
     return result;
 }
+
+global s64 perf_count_frequency;
+inline LARGE_INTEGER win32_get_clock() {
+    LARGE_INTEGER result;
+    QueryPerformanceCounter(&result);
+    return result;
+}
+
+inline f32 win32_get_seconds_elapsed(LARGE_INTEGER start, LARGE_INTEGER end) {
+    f32 result = cast(f32) (end.QuadPart - start.QuadPart) / cast(f32) perf_count_frequency;
+    return result;
+}
+
 typedef HRESULT WINAPI Typedef_DirectSoundCreate(LPCGUID pcGuidDevice, LPDIRECTSOUND* ppDS, LPUNKNOWN pUnkOuter);
 
 internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32 buffer_size) {
@@ -181,7 +194,6 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
 struct Win32SoundOutput {
     LPDIRECTSOUNDBUFFER buffer;
     u32 sample_rate;
-    u32 running_sample_index;
     u32 bytes_per_sample;
     u32 buffer_size;
     u32 safety_bytes;
@@ -200,7 +212,6 @@ internal void win32_fill_sound_buffer(Win32SoundOutput* output, DWORD byte_to_lo
         for (u32 sample_index = 0; sample_index < region1_sample_count; sample_index++) {
             *dest_sample++ = *source_sample++; // L
             *dest_sample++ = *source_sample++; // R
-            output->running_sample_index++;
         }
 
         dest_sample = cast(s16*) region2;
@@ -208,10 +219,11 @@ internal void win32_fill_sound_buffer(Win32SoundOutput* output, DWORD byte_to_lo
         for (u32 sample_index = 0; sample_index < region2_sample_count; sample_index++) {
             *dest_sample++ = *source_sample++; // L
             *dest_sample++ = *source_sample++; // R
-            output->running_sample_index++;
         }
 
         output->buffer->Unlock(region1, region1_size, region2, region2_size);
+    } else {
+        INVALID_CODE_PATH;
     }
 }
 
@@ -429,6 +441,12 @@ internal void win32_output_image(GameRenderCommands* commands, HDC window_dc) {
 }
 
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
+    {
+        LARGE_INTEGER perf_count_frequency_result;
+        QueryPerformanceFrequency(&perf_count_frequency_result);
+        perf_count_frequency = perf_count_frequency_result.QuadPart;
+    }
+
     WNDCLASSA window_class = {};
     window_class.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
     window_class.lpfnWndProc = win32_window_proc;
@@ -511,13 +529,38 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
             game_memory.platform_api.debug_print = win32_debug_print;
 
+            game_memory.debug_info.frame_history = push_struct(&platform_arena, DebugFrameTimeHistory);
+
             GameInput old_input_ = {};
             GameInput new_input_ = {};
             GameInput* old_input = &old_input_;
             GameInput* new_input = &new_input_;
 
+            LARGE_INTEGER start_counter = win32_get_clock();
+            f32 last_frame_time = 0.0f;
+            b32 last_frame_time_is_valid = false;
+
+            DWORD previous_write_cursor = 0;
+
             running = true;
             while (running) {
+                if (last_frame_time_is_valid) {
+                    DebugFrameTimeHistory* frame_history = game_memory.debug_info.frame_history;
+                    u32 frame_index = 0;
+                    if (frame_history->valid_entry_count < ARRAY_COUNT(frame_history->history)) {
+                        frame_index = frame_history->first_valid_entry + frame_history->valid_entry_count++;
+                    } else {
+                        frame_index = ++frame_history->first_valid_entry + frame_history->valid_entry_count;
+                    }
+                    frame_history->first_valid_entry %= ARRAY_COUNT(frame_history->history);
+                    frame_index %= ARRAY_COUNT(frame_history->history);
+                    frame_history->history[frame_index] = last_frame_time;
+                }
+
+                //
+                // Rendering setup
+                //
+
                 RECT window_rect;
                 GetClientRect(window, &window_rect);
 
@@ -600,46 +643,47 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 DWORD play_cursor, write_cursor;
                 if (SUCCEEDED(sound_output.buffer->GetCurrentPosition(&play_cursor, &write_cursor))) {
                     if (!sound_is_valid) {
+                        previous_write_cursor = write_cursor;
                         sound_is_valid = true;
-                        sound_output.running_sample_index = write_cursor / sound_output.bytes_per_sample;
-                    }
-                    DWORD byte_to_lock = (sound_output.running_sample_index*sound_output.bytes_per_sample) % sound_output.buffer_size;
-
-                    DWORD expected_sound_bytes_per_frame = cast(DWORD) ((cast(f32) sound_output.sample_rate * cast(f32) sound_output.bytes_per_sample) / game_update_rate);
-                    DWORD expected_frame_boundary_byte = play_cursor + expected_sound_bytes_per_frame;
-
-                    DWORD safe_write_cursor = write_cursor;
-                    if (safe_write_cursor < play_cursor) {
-                        safe_write_cursor += sound_output.buffer_size;
-                    }
-                    assert(safe_write_cursor >= play_cursor);
-                    safe_write_cursor += sound_output.safety_bytes;
-
-                    // @TODO: This is likely never true under DirectSound
-                    b32 low_latency = safe_write_cursor < expected_frame_boundary_byte;
-
-                    DWORD target_cursor = 0;
-                    if (low_latency) {
-                        // assert(!"It happened!");
-                        target_cursor = (expected_frame_boundary_byte + expected_sound_bytes_per_frame);
-                    } else {
-                        target_cursor = (write_cursor + expected_sound_bytes_per_frame + sound_output.safety_bytes);
-                    }
-                    target_cursor %= sound_output.buffer_size;
-
-                    DWORD bytes_to_write = 0;
-                    if (byte_to_lock > target_cursor) {
-                        bytes_to_write = sound_output.buffer_size - byte_to_lock + target_cursor;
-                    } else {
-                        bytes_to_write = target_cursor - byte_to_lock;
                     }
 
-                    sound_buffer.sample_count = bytes_to_write / sound_output.bytes_per_sample;
-                    bytes_to_write = sound_buffer.sample_count*sound_output.bytes_per_sample;
+                    DWORD safety_bytes = cast(DWORD) (sound_output.bytes_per_sample*(sound_output.sample_rate / game_update_rate));
+
+                    DWORD padded_write_cursor = (write_cursor + safety_bytes) % sound_output.buffer_size;
+
+                    DWORD bytes_to_write;
+                    {
+                        DWORD unwrapped_play_cursor = play_cursor;
+                        if (unwrapped_play_cursor < write_cursor) {
+                            unwrapped_play_cursor += sound_output.buffer_size;
+                        }
+
+                        bytes_to_write = unwrapped_play_cursor - write_cursor;
+                    }
+
+                    DWORD samples_committed;
+                    {
+                        DWORD unwrapped_write_cursor = write_cursor;
+                        if (unwrapped_write_cursor < previous_write_cursor) {
+                            unwrapped_write_cursor += sound_output.buffer_size;
+                        }
+
+                        samples_committed = (unwrapped_write_cursor - previous_write_cursor) / sound_output.bytes_per_sample;
+                    }
+
+                    sound_buffer.samples_committed = samples_committed;
+                    sound_buffer.samples_to_write  = bytes_to_write / sound_output.bytes_per_sample;
 
                     game_get_sound(&game_memory, &sound_buffer);
 
+                    DWORD byte_to_lock = write_cursor;
+
+                    s16* unadjusted_samples_position = sound_buffer.samples;
+
                     win32_fill_sound_buffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
+                    sound_buffer.samples = unadjusted_samples_position;
+
+                    previous_write_cursor = write_cursor;
                 }
 
                 //
@@ -650,6 +694,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 win32_output_image(&render_commands, window_dc);
 
                 game_post_render(&game_memory, new_input, &render_commands);
+
+                LARGE_INTEGER end_counter = win32_get_clock();
+                last_frame_time = win32_get_seconds_elapsed(start_counter, end_counter);
+                last_frame_time_is_valid = true;
+                start_counter = end_counter;
 
                 //
 

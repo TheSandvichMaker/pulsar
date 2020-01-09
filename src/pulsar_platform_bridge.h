@@ -42,9 +42,23 @@ struct PlatformAPI {
 #endif
 };
 
-/*
- * NOTE: Game Memory HAS to be initialized with ZEROED memory!
- */
+#if PULSAR_DEBUG
+#define FRAME_TIME_HISTORY_LENGTH 120
+struct DebugFrameTimeHistory {
+    f32 history[FRAME_TIME_HISTORY_LENGTH];
+    u32 first_valid_entry;
+    u32 valid_entry_count;
+};
+
+struct PlatformDebugInfo {
+    DebugFrameTimeHistory* frame_history;
+};
+#endif
+
+//
+// @Note: Game Memory HAS to be initialized with ZEROED memory!
+//
+//
 struct GameMemory {
     b32 initialized;
 
@@ -54,12 +68,19 @@ struct GameMemory {
     void* transient_storage;
 
     PlatformAPI platform_api;
+
+#if PULSAR_DEBUG
+    PlatformDebugInfo debug_info;
+#endif
 };
 
 struct GameSoundOutputBuffer {
     u32 channel_count;
     u32 sample_rate;
-    u32 sample_count;
+
+    u32 samples_committed; // # of samples the platform has committed to since the last time we were called
+    u32 samples_to_write;  // # of samples the platform would like you to write
+
     s16* samples;
 };
 
@@ -109,6 +130,9 @@ struct GameInput {
     b32 in_focus, focus_changed;
     f32 frame_dt;
 
+    // @Note: quit_requested is from the game to the platform, not the other way around.
+    b32 quit_requested;
+
     GameController controller;
 
     u32 mouse_x, mouse_y, mouse_z;
@@ -123,8 +147,6 @@ struct GameInput {
         };
     };
     GameButtonState keys[26];
-
-    b32 quit_requested;
 };
 
 inline GameButtonState get_key(GameInput* input, char key) {

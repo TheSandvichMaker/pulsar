@@ -69,58 +69,74 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
      * Allow for the smooth automation of pitch bends.
      */
 
-    // TODO: Apparently this happens sometimes, that the OS layer requests 0
-    // samples from the game! Why?
-    if (sound_buffer->sample_count > 0) {
+    if (sound_buffer->samples_to_write > 0) {
         TemporaryMemory mixer_memory = begin_temporary_memory(temp_arena);
 
-        u32 sample_count = sound_buffer->sample_count;
+        u32 sample_count = sound_buffer->samples_to_write;
 
         f32* float_channel0 = push_array(temp_arena, sample_count, f32);
         f32* float_channel1 = push_array(temp_arena, sample_count, f32);
 
         f32 seconds_per_sample = 1.0f / sound_buffer->sample_rate;
 
-        // NOTE: Sum sounds
         for (PlayingSound** playing_sound_ptr = &mixer->first_playing_sound; *playing_sound_ptr;) {
             PlayingSound* playing_sound = *playing_sound_ptr;
-            b32 sound_finished = false;
 
-            if (!playing_sound->sound) {
+            b32 sound_finished = false;
+            b32 looping = playing_sound->flags & Playback_Looping;
+
+            Sound* sound = playing_sound->sound;
+
+            if (sound) {
+                // @Incomplete: This approach will not work with a smooth variable playback rate.
+                playing_sound->samples_played += sound_buffer->samples_committed;
+
+                if (looping) {
+                    if (playing_sound->samples_played >= sound->sample_count) {
+                        playing_sound->samples_played %= sound->sample_count;
+                    }
+                } else if (playing_sound->samples_played >= sound->sample_count) {
+                    sound_finished = true;
+                }
+            } else {
+                sound_finished = true;
+            }
+
+            if (sound_finished) {
                 *playing_sound_ptr = playing_sound->next;
                 playing_sound->next = mixer->first_free_playing_sound;
                 mixer->first_free_playing_sound = playing_sound;
-            }
+            } else {
+                u32 samples_played = playing_sound->samples_played;
+                u32 total_samples_to_mix = sound_buffer->samples_to_write;
 
-            u32 total_samples_to_mix = sound_buffer->sample_count;
-            f32* dest0 = (f32*)float_channel0;
-            f32* dest1 = (f32*)float_channel1;
-            f32* dest[2] = { dest0, dest1 };
-            while ((total_samples_to_mix > 0) && !sound_finished) {
-                Sound* sound = playing_sound->sound;
-                if (sound) {
+                f32* dest0 = float_channel0;
+                f32* dest1 = float_channel1;
+                f32* dest[2] = { dest0, dest1 };
+
+                while (total_samples_to_mix > 0) {
                     v2 volume;
                     volume.e[0] = mixer->master_volume[0]*playing_sound->current_volume[0];
                     volume.e[1] = mixer->master_volume[1]*playing_sound->current_volume[1];
 
-                    if (playing_sound->flags & Playback_Looping) {
-                        if (playing_sound->samples_played >= sound->sample_count) {
-                            playing_sound->samples_played -= sound->sample_count;
+                    if (looping) {
+                        if (samples_played >= sound->sample_count) {
+                            samples_played %= sound->sample_count;
                         }
                     }
 
                     assert(playing_sound->samples_played >= 0 && playing_sound->samples_played < sound->sample_count);
 
                     u32 samples_to_mix = total_samples_to_mix;
-                    u32 samples_remaining_in_sound = sound->sample_count - playing_sound->samples_played;
+                    u32 samples_remaining_in_sound = looping ? sound->sample_count : sound->sample_count - playing_sound->samples_played;
 
-                    if (!(playing_sound->flags & Playback_Looping)) {
+                    if (!looping) {
                         if (samples_to_mix > samples_remaining_in_sound) {
                             samples_to_mix = samples_remaining_in_sound;
                         }
                     }
 
-                    u32 begin_sample_position = playing_sound->samples_played;
+                    u32 begin_sample_position = samples_played;
                     u32 end_sample_position = begin_sample_position + samples_to_mix;
                     for (u32 sample_index = begin_sample_position; sample_index < end_sample_position; sample_index++) {
                         u32 wrapped_sample_index = sample_index;
@@ -129,32 +145,22 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                         }
 
                         for (u32 channel = 0; channel < sound->channel_count; channel++) {
-                            f32 sample_value = (f32)(sound->samples + sound->sample_count*channel)[wrapped_sample_index];
+                            f32 sample_value = cast(f32) (sound->samples + sound->sample_count*channel)[wrapped_sample_index];
                             *dest[channel]++ += volume.e[channel]*sample_value;
                         }
                     }
 
-                    playing_sound->samples_played = end_sample_position;
-
                     assert(total_samples_to_mix >= samples_to_mix);
                     total_samples_to_mix -= samples_to_mix;
 
-                    if (!(playing_sound->flags & Playback_Looping)) {
-                        if (samples_to_mix >= samples_remaining_in_sound) {
-                            sound_finished = true;
-                        }
+                    samples_played += samples_to_mix;
+
+                    if (!looping && samples_to_mix >= samples_remaining_in_sound) {
+                        break;
                     }
-                } else {
-                    break;
                 }
 
-                if (sound_finished) {
-                    *playing_sound_ptr = playing_sound->next;
-                    playing_sound->next = mixer->first_free_playing_sound;
-                    mixer->first_free_playing_sound = playing_sound;
-                } else {
-                    playing_sound_ptr = &playing_sound->next;
-                }
+                playing_sound_ptr = &playing_sound->next;
             }
         }
 

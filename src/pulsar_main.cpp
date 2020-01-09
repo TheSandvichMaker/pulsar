@@ -56,55 +56,6 @@ inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 f
     }
 }
 
-internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
-    u32 num_bytes = 0;
-    char* at = input_string;
-    u32 codepoint = 0;
-
-    if (!at[0]) {
-        // @Note: We've been null terminated.
-    } else {
-        u8 utf8_mask[] = {
-            (1 << 7) - 1,
-            (1 << 5) - 1,
-            (1 << 4) - 1,
-            (1 << 3) - 1,
-        };
-        u8 utf8_matching_value[] = { 0, 0xC0, 0xE0, 0xF0 };
-        if ((*at & ~utf8_mask[0]) == utf8_matching_value[0]) {
-            num_bytes = 1;
-        } else if ((u8)(*at & ~utf8_mask[1]) == utf8_matching_value[1]) {
-            num_bytes = 2;
-        } else if ((u8)(*at & ~utf8_mask[2]) == utf8_matching_value[2]) {
-            num_bytes = 3;
-        } else if ((u8)(*at & ~utf8_mask[3]) == utf8_matching_value[3]) {
-            num_bytes = 4;
-        } else {
-            INVALID_CODE_PATH;
-        }
-
-        u32 offset = 6 * (num_bytes - 1);
-        for (u32 byte_index = 0; byte_index < num_bytes; byte_index++) {
-            if (byte_index == 0) {
-                codepoint = (*at & utf8_mask[num_bytes-1]) << offset;
-            } else {
-                if (*at != 0) {
-                    codepoint |= (*at & ((1 << 6) - 1)) << offset;
-                } else {
-                    // @Note: You don't really want to  assert on a gibberish
-                    // bit of unicode, but it's here to draw my attention.
-                    INVALID_CODE_PATH;
-                }
-            }
-            offset -= 6;
-            at++;
-        }
-    }
-
-    *out_codepoint = codepoint;
-    return num_bytes;
-}
-
 inline void stop_all_midi_tracks(GameState* game_state) {
     PlayingMidi* last_playing_midi = game_state->first_playing_midi;
     if (last_playing_midi) {
@@ -254,7 +205,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         editor->shown = !editor->shown;
     }
 
-    execute_editor(game_state, editor, input);
+    execute_editor(game_state, editor, input, memory->debug_info.frame_history);
 
     u32 active_entity_count = 0;
     Entity* active_entities = 0;

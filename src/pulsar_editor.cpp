@@ -407,6 +407,55 @@ inline void create_debug_level(EditorState* editor) {
     add_camera_zone(editor, aab_center_dim(vec2(0.0f, 2.0f), vec2(aspect_ratio*20.0f, 20.0f)));
 }
 
+internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
+    u32 num_bytes = 0;
+    char* at = input_string;
+    u32 codepoint = 0;
+
+    if (!at[0]) {
+        // @Note: We've been null terminated.
+    } else {
+        u8 utf8_mask[] = {
+            (1 << 7) - 1,
+            (1 << 5) - 1,
+            (1 << 4) - 1,
+            (1 << 3) - 1,
+        };
+        u8 utf8_matching_value[] = { 0, 0xC0, 0xE0, 0xF0 };
+        if ((*at & ~utf8_mask[0]) == utf8_matching_value[0]) {
+            num_bytes = 1;
+        } else if ((u8)(*at & ~utf8_mask[1]) == utf8_matching_value[1]) {
+            num_bytes = 2;
+        } else if ((u8)(*at & ~utf8_mask[2]) == utf8_matching_value[2]) {
+            num_bytes = 3;
+        } else if ((u8)(*at & ~utf8_mask[3]) == utf8_matching_value[3]) {
+            num_bytes = 4;
+        } else {
+            INVALID_CODE_PATH;
+        }
+
+        u32 offset = 6 * (num_bytes - 1);
+        for (u32 byte_index = 0; byte_index < num_bytes; byte_index++) {
+            if (byte_index == 0) {
+                codepoint = (*at & utf8_mask[num_bytes-1]) << offset;
+            } else {
+                if (*at != 0) {
+                    codepoint |= (*at & ((1 << 6) - 1)) << offset;
+                } else {
+                    // @Note: You don't really want to  assert on a gibberish
+                    // bit of unicode, but it's here to draw my attention.
+                    INVALID_CODE_PATH;
+                }
+            }
+            offset -= 6;
+            at++;
+        }
+    }
+
+    *out_codepoint = codepoint;
+    return num_bytes;
+}
+
 internal void editor_print_va(EditorLayout* layout, v4 color, char* format_string, va_list va_args) {
     EditorState* editor = layout->editor;
 
@@ -724,7 +773,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     return editor;
 }
 
-internal void execute_editor(GameState* game_state, EditorState* editor, GameInput* input) {
+internal void execute_editor(GameState* game_state, EditorState* editor, GameInput* input, DebugFrameTimeHistory* frame_history) {
     u32 width = editor->render_context.commands->width;
     u32 height = editor->render_context.commands->height;
 
@@ -774,6 +823,16 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     EditorLayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
 
     Level* level = editor->active_level;
+    f32 average_frame_time = 0.0f;
+    for (u32 frame_index = 0; frame_index < frame_history->valid_entry_count; frame_index++) {
+        average_frame_time += frame_history->history[(frame_history->first_valid_entry + frame_index) % ARRAY_COUNT(frame_history->history)];
+    }
+    average_frame_time /= frame_history->valid_entry_count;
+
+    f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
+    f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
+    v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
+    editor_print_line(&layout, timer_color, "Average Frame Time: %fms", average_frame_time_in_ms);
     editor_print_line(&layout, COLOR_WHITE, "Editing level '%s'", level->name.data);
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
@@ -843,16 +902,24 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     Entity* moused_over = 0;
-    for (u32 entity_index = 1; entity_index < entity_count; entity_index++) {
-        Entity* entity = entities + entity_index;
+    if (game_state->game_mode == GameMode_Ingame) {
+        for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
+            Entity* entity = game_state->entities + entity_index;
 
-        if (!(entity->flags & EntityFlag_Invisible) || (game_state->game_mode == GameMode_Editor && editor->shown)) {
-            if (gjk_intersect_point(transform2d(entity->p), entity->collision, world_mouse_p)) {
-                // if (game_state->game_mode == GameMode_Ingame) {
-                //     moused_over = get_entity(level, entity->id);
-                // } else {
+            if (!(entity->flags & EntityFlag_Invisible) || (game_state->game_mode == GameMode_Editor && editor->shown)) {
+                if (gjk_intersect_point(transform2d(entity->p), entity->collision, world_mouse_p)) {
                     moused_over = entity;
-                // }
+                }
+            }
+        }
+    }
+
+    if (!moused_over) {
+        for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
+            Entity* entity = level->entities + entity_index;
+
+            if (gjk_intersect_point(transform2d(entity->p), entity->collision, world_mouse_p)) {
+                moused_over = entity;
             }
         }
     }
