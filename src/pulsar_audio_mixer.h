@@ -5,6 +5,14 @@ enum PlaybackFlag {
     Playback_Looping = 0x1,
 };
 
+enum SoundSourceType {
+    SoundSource_Sound,
+    SoundSource_Synth,
+};
+
+#define SOUND_SYNTH(name) f32 name(u32 channel_count, u32 channel_index, u32 sample_rate, u32 sample_index, f32 pitch)
+typedef SOUND_SYNTH(Synth);
+
 struct PlayingSound {
     b32 initialized;
     f32 current_volume[2];
@@ -12,7 +20,13 @@ struct PlayingSound {
 
     u32 flags;
 
-    Sound* sound;
+    SoundSourceType source_type;
+    union {
+        Sound* sound;
+        Synth* synth;
+    };
+
+    struct PlayingMidi* synced_midi;
 
     PlayingSound* next;
 };

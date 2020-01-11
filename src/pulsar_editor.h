@@ -177,7 +177,7 @@ struct EditorState {
     Font* big_font;
     Font* font;
 
-    Shape2D default_collision;
+    AxisAlignedBox2 default_collision;
 
     f32 zoom;
 

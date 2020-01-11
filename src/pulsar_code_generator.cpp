@@ -821,15 +821,34 @@ internal MEMORY_ARENA_ALLOCATOR(malloc_allocator) {
     return malloc(size);
 }
 
+global s64 perf_count_frequency;
+inline LARGE_INTEGER win32_get_clock() {
+    LARGE_INTEGER result;
+    QueryPerformanceCounter(&result);
+    return result;
+}
+
+inline f32 win32_get_seconds_elapsed(LARGE_INTEGER start, LARGE_INTEGER end) {
+    f32 result = cast(f32) (end.QuadPart - start.QuadPart) / cast(f32) perf_count_frequency;
+    return result;
+}
+
+inline void win32_initialize_perf_counter() {
+    LARGE_INTEGER perf_count_frequency_result;
+    QueryPerformanceFrequency(&perf_count_frequency_result);
+    perf_count_frequency = perf_count_frequency_result.QuadPart;
+}
+
 int main(int argument_count, char** arguments) {
+    win32_initialize_perf_counter();
+    LARGE_INTEGER start_clock = win32_get_clock();
+
     MemoryArena general_arena;
     initialize_arena(&general_arena, MEGABYTES(128), malloc(MEGABYTES(128)), malloc_allocator);
 
     meta_type_array = allocate_array(MetaType, 8, arena_allocator, &general_arena);
     meta_enum_array = allocate_array(MetaEnum, 8, arena_allocator, &general_arena);
     meta_struct_array = allocate_array(MetaStruct, 8, arena_allocator, &general_arena);
-
-    fprintf(stderr, "Running code generator\n");
 
     WIN32_FIND_DATAA find_data;
     HANDLE find_handle = FindFirstFileA("*.h", &find_data);
@@ -987,4 +1006,9 @@ int main(int argument_count, char** arguments) {
     }
 
     fprintf(post_headers, "#endif\n");
+
+    LARGE_INTEGER end_clock = win32_get_clock();
+    f32 seconds_elapsed = win32_get_seconds_elapsed(start_clock, end_clock);
+
+    fprintf(stderr, "Ran code generator in %g seconds\n", seconds_elapsed);
 }

@@ -468,7 +468,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         );
 
         if (window) {
-            win32_toggle_fullscreen(window);
+            // win32_toggle_fullscreen(window);
 
             ShowWindow(window, show_code);
 
@@ -487,7 +487,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             sound_output.bytes_per_sample = 16;
             sound_output.bytes_per_sample = sizeof(s16)*2;
             sound_output.buffer_size = sound_output.sample_rate*sound_output.bytes_per_sample;
-            sound_output.safety_bytes = cast(u32) (0.5f*(cast(f32) (sound_output.sample_rate*sound_output.bytes_per_sample) / game_update_rate));
+
+            // @Note: sound_latency_ms defines how long game_get_sound can take without producing any audio glitches.
+            f32 sound_latency_ms = 4.0f;
+            sound_output.safety_bytes = cast(u32) (sound_output.sample_rate*sound_output.bytes_per_sample*sound_latency_ms*0.001f);
 
             sound_output.buffer = win32_init_dsound(window, sound_output.sample_rate, sound_output.buffer_size);
 
@@ -529,7 +532,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
             game_memory.platform_api.debug_print = win32_debug_print;
 
-            game_memory.debug_info.frame_history = push_struct(&platform_arena, DebugFrameTimeHistory);
+            PlatformDebugInfo* debug_info = &game_memory.debug_info;
+            debug_info->frame_history = push_struct(&platform_arena, DebugFrameTimeHistory);
+            debug_info->print_size = MEGABYTES(4);
+            debug_info->print = cast(char*) push_size(&platform_arena, debug_info->print_size);
 
             GameInput old_input_ = {};
             GameInput new_input_ = {};
@@ -540,7 +546,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             f32 last_frame_time = 0.0f;
             b32 last_frame_time_is_valid = false;
 
-            DWORD previous_write_cursor = 0;
+            DWORD previous_padded_write_cursor = 0;
 
             running = true;
             while (running) {
@@ -642,33 +648,33 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                 DWORD play_cursor, write_cursor;
                 if (SUCCEEDED(sound_output.buffer->GetCurrentPosition(&play_cursor, &write_cursor))) {
+                    DWORD padded_write_cursor = (write_cursor + sound_output.safety_bytes) % sound_output.buffer_size;
+
                     if (!sound_is_valid) {
-                        previous_write_cursor = write_cursor;
+                        previous_padded_write_cursor = padded_write_cursor;
                         sound_is_valid = true;
                     }
-
-                    // @TODO: Investigate small occasional pop and midi desync: Consider that I haven't yet
-                    // actually done anything about the fact that the write cursor has likely moved by the
-                    // time game_get_sound is done.
 
                     DWORD bytes_to_write;
                     {
                         DWORD unwrapped_play_cursor = play_cursor;
-                        if (unwrapped_play_cursor < write_cursor) {
+                        if (unwrapped_play_cursor < padded_write_cursor) {
                             unwrapped_play_cursor += sound_output.buffer_size;
                         }
 
-                        bytes_to_write = unwrapped_play_cursor - write_cursor;
+                        // @TODO: Currently, we're always asking the game for enough samples to fill the entire buffer as much as possible, regardless of buffer size.
+                        // To reduce pressure on game_get_sound, this could be limited to something more considered.
+                        bytes_to_write = unwrapped_play_cursor - padded_write_cursor;
                     }
 
                     DWORD samples_committed;
                     {
-                        DWORD unwrapped_write_cursor = write_cursor;
-                        if (unwrapped_write_cursor < previous_write_cursor) {
-                            unwrapped_write_cursor += sound_output.buffer_size;
+                        DWORD unwrapped_padded_write_cursor = padded_write_cursor;
+                        if (unwrapped_padded_write_cursor < previous_padded_write_cursor) {
+                            unwrapped_padded_write_cursor += sound_output.buffer_size;
                         }
 
-                        samples_committed = (unwrapped_write_cursor - previous_write_cursor) / sound_output.bytes_per_sample;
+                        samples_committed = (unwrapped_padded_write_cursor - previous_padded_write_cursor) / sound_output.bytes_per_sample;
                     }
 
                     sound_buffer.samples_committed = samples_committed;
@@ -676,11 +682,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                     game_get_sound(&game_memory, &sound_buffer);
 
-                    DWORD byte_to_lock = write_cursor;
+                    DWORD byte_to_lock = padded_write_cursor;
 
                     win32_fill_sound_buffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
 
-                    previous_write_cursor = write_cursor;
+                    previous_padded_write_cursor = padded_write_cursor;
                 }
 
                 //

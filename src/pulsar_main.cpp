@@ -5,12 +5,23 @@
 #define STB_SPRINTF_IMPLEMENTATION 1
 #include "external/stb_sprintf.h"
 
+inline void dbg_text(char* format_string, ...) {
+    va_list va_args;
+    va_start(va_args, format_string);
+
+    char buffer[8192];
+    stbsp_vsnprintf(buffer, sizeof(buffer), format_string, va_args);
+
+    va_end(va_args);
+
+    platform.debug_print(buffer);
+}
+
 #include "pulsar_assets.cpp"
 #include "pulsar_audio_mixer.cpp"
 #include "pulsar_render_commands.cpp"
 #include "pulsar_gjk.cpp"
 #include "pulsar_entity.cpp"
-#include "pulsar_sim.cpp"
 #include "pulsar_editor.cpp"
 
 global v2 arrow_verts[] = { { 0, -0.05f }, { 0.8f, -0.05f }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f }, { 0.8f, 0.05f }, { 0, 0.05f } };
@@ -43,6 +54,7 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     playing_midi->track = track;
     playing_midi->flags = flags;
     playing_midi->sync_sound = sync_sound;
+    playing_midi->sync_sound->synced_midi = playing_midi;
 
     return playing_midi;
 }
@@ -108,6 +120,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             }
 
             stop_all_sounds(&game_state->audio_mixer);
+            stop_all_midi_tracks(game_state);
             game_state->entity_count = 0;
             game_state->player = 0;
         } break;
@@ -166,11 +179,15 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         initialize_render_context(&game_state->render_context, render_commands, 30.0f);
 
+        // PlayingSound* test_tone = play_synth(&game_state->audio_mixer, synth_test_tone);
+        // change_volume(test_tone, vec2(0.25f, 0.25f));
+
         memory->initialized = true;
     }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
     f32 frame_dt = input->frame_dt;
+    game_state->frame_dt = frame_dt;
 
     RenderContext* render_context = &game_state->render_context;
 
@@ -187,18 +204,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     push_clear(render_context, game_state->background_color);
 
-    if (game_state->game_mode == GameMode_Ingame) {
-        run_simulation(game_state, input, frame_dt);
-
-        if (was_pressed(input->debug_fkeys[1])) {
-            switch_gamemode(game_state, GameMode_Editor);
-        }
-    } else if (game_state->game_mode == GameMode_Editor) {
-        if (was_pressed(input->debug_fkeys[1])) {
-            switch_gamemode(game_state, GameMode_Ingame);
-        }
-    }
-
     EditorState* editor = game_state->editor_state;
 
     if (was_pressed(input->debug_fkeys[2])) {
@@ -207,20 +212,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     execute_editor(game_state, editor, input, memory->debug_info.frame_history);
 
-    u32 active_entity_count = 0;
-    Entity* active_entities = 0;
-    if (game_state->game_mode == GameMode_Ingame) {
-        active_entity_count = game_state->entity_count;
-        active_entities = game_state->entities;
-    } else if (game_state->game_mode == GameMode_Editor) {
-        active_entity_count = game_state->active_level->entity_count;
-        active_entities = game_state->active_level->entities;
-    } else {
-        INVALID_CODE_PATH;
-    }
-
     //
-    // Post-Sim logic
+    // Pre-Sim
     //
 
     if (game_state->player && game_state->player->dead) {
@@ -236,6 +229,38 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 INVALID_CODE_PATH;
             }
         }
+    }
+
+    //
+    // Sim
+    //
+
+    if (game_state->game_mode == GameMode_Ingame) {
+        run_simulation(game_state, input, frame_dt);
+
+        if (was_pressed(input->debug_fkeys[1])) {
+            switch_gamemode(game_state, GameMode_Editor);
+        }
+    } else if (game_state->game_mode == GameMode_Editor) {
+        if (was_pressed(input->debug_fkeys[1])) {
+            switch_gamemode(game_state, GameMode_Ingame);
+        }
+    }
+
+    //
+    // Post-Sim
+    //
+
+    u32 active_entity_count = 0;
+    Entity* active_entities = 0;
+    if (game_state->game_mode == GameMode_Ingame) {
+        active_entity_count = game_state->entity_count;
+        active_entities = game_state->entities;
+    } else if (game_state->game_mode == GameMode_Editor) {
+        active_entity_count = game_state->active_level->entity_count;
+        active_entities = game_state->active_level->entities;
+    } else {
+        INVALID_CODE_PATH;
     }
 
     for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
@@ -278,7 +303,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     if (entity->sprite) {
                         push_image(render_context, transform, entity->sprite, entity->color);
                     } else {
-                        push_shape(render_context, transform, entity->collision, entity->color);
+                        push_shape(render_context, transform, rectangle(entity->collision), entity->color);
                     }
                 } break;
             }

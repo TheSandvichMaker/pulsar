@@ -44,6 +44,7 @@ struct AssetDescription {
     u32 asset_index;
     PackedAsset packed;
 
+    u32 bpm;
     MidiID* midi_tracks;
 };
 
@@ -111,20 +112,22 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
     return desc;
 }
 
-internal AssetDescription* add_midi_track(char* asset_name, char* file_name) {
+internal AssetDescription* add_midi_track(char* asset_name, char* file_name, u32 bpm) {
     AssetDescription* desc = add_asset(asset_name, file_name);
+    desc->bpm = bpm;
     return desc;
 }
 
-internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, char** midi_files) {
+internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, char** midi_files, u32 bpm) {
     AssetDescription* desc = add_asset(asset_name, 0);
     desc->data_type = AssetDataType_Soundtrack;
+    desc->bpm = bpm;
 
     desc->packed.soundtrack.sound = { add_asset(0, audio_file)->asset_index };
     desc->packed.soundtrack.midi_track_count = midi_file_count;
     desc->midi_tracks = push_array(&global_arena, midi_file_count, MidiID, no_clear());
     for (u32 midi_index = 0; midi_index < midi_file_count; midi_index++) {
-        desc->midi_tracks[midi_index] = { add_asset(0, midi_files[midi_index])->asset_index };
+        desc->midi_tracks[midi_index] = { add_midi_track(0, midi_files[midi_index], bpm)->asset_index };
     }
     return desc;
 }
@@ -217,15 +220,18 @@ int main(int argument_count, char** arguments) {
     asset_descriptions = allocate_array<AssetDescription>(64, allocator(arena_allocator, &global_arena));
 
     {
-#if 0
+        char* midi_files[] = { "assets/ugly_loop.mid" };
+        add_soundtrack("ugly_loop", "assets/ugly_loop.wav", ARRAY_COUNT(midi_files), midi_files, 120);
+    }
+
+    {
         char* midi_files[] = { "assets/test_soundtrack.mid" };
-        add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files);
-#endif
+        add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files, 120);
     }
 
     {
         char* midi_files[] = { "assets/track1_1.mid" };
-        add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files), midi_files);
+        add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files), midi_files, 118);
     }
 
     add_sound("test_sound", "assets/test_sound.wav");
@@ -460,6 +466,8 @@ int main(int argument_count, char** arguments) {
                     case AssetDataType_Midi: {
                         packed->type = AssetType_Midi;
 
+                        b32 had_tempo_change = false;
+
                         f64 running_sample_index = 0.0f;
 
                         packed->midi.ticks_per_second = 48000;
@@ -468,7 +476,8 @@ int main(int argument_count, char** arguments) {
 
                         f64 samples_per_microsecond = cast(f32) packed->midi.ticks_per_second / 1000000.0f;
                         u32 ticks_per_quarter_note = 0;
-                        u32 microseconds_per_quarter_note = 500000;
+                        assert(asset_desc->bpm);
+                        u32 microseconds_per_quarter_note = round_f32_to_u32(1000000.0f*(60.0f / asset_desc->bpm));
 
                         f64 samples_per_delta_time = 0.0f;
 
@@ -524,6 +533,8 @@ int main(int argument_count, char** arguments) {
                                                         // @Note: Tempo Change
                                                         microseconds_per_quarter_note = midi_read_u24(&data);
                                                         samples_per_delta_time = samples_per_microsecond*(cast(f64) microseconds_per_quarter_note / cast(f64) ticks_per_quarter_note);
+
+                                                        had_tempo_change = true;
                                                     } break;
 
                                                     case 0x58: {
@@ -614,9 +625,7 @@ parse_data_bytes:
                             stream.at = data.at;
                         }
 done_parsing_midi:
-                        f32 seconds_per_beat = 0.000004f*cast(f32)microseconds_per_quarter_note;
-                        f32 ticks_to_seconds = seconds_per_beat / cast(f32) ticks_per_quarter_note;
-                        packed->midi.beats_per_minute = round_f32_to_u32(60.0f / seconds_per_beat);
+                        packed->midi.beats_per_minute = asset_desc->bpm;
 
                         end_linear_buffer(events);
                         packed->midi.event_count = cast(u32) lb_count(events);

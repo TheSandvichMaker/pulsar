@@ -6,7 +6,7 @@ internal void initialize_audio_mixer(AudioMixer* mixer, MemoryArena* permanent_a
     mixer->master_volume[1] = 1.0f;
 }
 
-internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0) {
+internal PlayingSound* play_sound_internal(AudioMixer* mixer, u32 flags = 0) {
     if (!mixer->first_free_playing_sound) {
         mixer->first_free_playing_sound = push_struct(mixer->arena, PlayingSound);
         mixer->first_free_playing_sound->next = 0;
@@ -18,13 +18,38 @@ internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0
     zero_struct(*playing_sound);
     playing_sound->current_volume[0] = 0.5f;
     playing_sound->current_volume[1] = 0.5f;
-    playing_sound->sound = sound;
     playing_sound->flags = flags;
 
     playing_sound->next = mixer->first_playing_sound;
     mixer->first_playing_sound = playing_sound;
 
     return playing_sound;
+}
+
+internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0) {
+    PlayingSound* playing_sound = play_sound_internal(mixer, flags);
+    playing_sound->source_type = SoundSource_Sound;
+    playing_sound->sound = sound;
+    return playing_sound;
+}
+
+internal PlayingSound* play_synth(AudioMixer* mixer, Synth* synth, u32 flags = 0) {
+    PlayingSound* playing_sound = play_sound_internal(mixer, flags);
+    playing_sound->source_type = SoundSource_Synth;
+    playing_sound->synth = synth;
+    return playing_sound;
+}
+
+internal SOUND_SYNTH(synth_test_tone) {
+    f32 t = cast(f32) sample_index / cast(f32) sample_rate;
+    f32 result = sin(TAU_32*t*pitch);
+    return result;
+}
+
+internal SOUND_SYNTH(synth_test_impulse) {
+    f32 t = cast(f32) sample_index / cast(f32) sample_rate;
+    f32 result = sin(TAU_32*t*pitch)*exp(-t*16.0f);
+    return result;
 }
 
 internal void change_volume(PlayingSound* sound, v2 target_volume) {
@@ -57,60 +82,74 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
     // @TODO:
     // - Formalize the handling of channels in the mixer.
     // - Restore Handmade Hero functionality (smooth volume fade, variable playback rate).
-    if (sound_buffer->samples_to_write > 0) {
-        TemporaryMemory mixer_memory = begin_temporary_memory(temp_arena);
+    TemporaryMemory mixer_memory = begin_temporary_memory(temp_arena);
 
-        u32 sample_count = sound_buffer->samples_to_write;
+    u32 sample_count = sound_buffer->samples_to_write;
 
-        f32* float_channel0 = push_array(temp_arena, sample_count, f32);
-        f32* float_channel1 = push_array(temp_arena, sample_count, f32);
+    f32* float_channel0 = push_array(temp_arena, sample_count, f32);
+    f32* float_channel1 = push_array(temp_arena, sample_count, f32);
 
-        for (PlayingSound** playing_sound_ptr = &mixer->first_playing_sound; *playing_sound_ptr;) {
-            PlayingSound* playing_sound = *playing_sound_ptr;
+    for (PlayingSound** playing_sound_ptr = &mixer->first_playing_sound; *playing_sound_ptr;) {
+        PlayingSound* playing_sound = *playing_sound_ptr;
 
-            b32 sound_finished = false;
-            b32 looping = playing_sound->flags & Playback_Looping;
+        b32 sound_finished = false;
+        b32 looping = playing_sound->flags & Playback_Looping;
 
+        if (playing_sound->initialized) {
+            // @Incomplete: This approach will not work with a smooth variable playback rate
+            playing_sound->samples_played += sound_buffer->samples_committed;
+        } else {
+            playing_sound->samples_played = 0;
+            playing_sound->initialized = true;
+        }
+
+        if (playing_sound->synced_midi) {
+            playing_sound->synced_midi->tick_timer = playing_sound->samples_played;
+        }
+
+        if (playing_sound->source_type == SoundSource_Sound) {
             Sound* sound = playing_sound->sound;
 
             if (sound) {
                 // @Incomplete: With this approach, if left unaccounted for, midi sync will have a 1 frame delay
-                if (playing_sound->initialized) {
-                    // @Incomplete: This approach will not work with a smooth variable playback rate
-                    playing_sound->samples_played += sound_buffer->samples_committed;
-                } else {
-                    playing_sound->samples_played = 0;
-                    playing_sound->initialized = true;
-                }
-
                 if (looping) {
                     if (playing_sound->samples_played >= sound->sample_count) {
                         playing_sound->samples_played %= sound->sample_count;
                     }
                 } else if (playing_sound->samples_played >= sound->sample_count) {
+                    playing_sound->samples_played = sound->sample_count;
                     sound_finished = true;
                 }
             } else {
                 sound_finished = true;
             }
+        } else {
+            assert(playing_sound->source_type == SoundSource_Synth);
+            if (!playing_sound->synth) {
+                sound_finished = true;
+            }
+        }
 
-            if (sound_finished) {
-                *playing_sound_ptr = playing_sound->next;
-                playing_sound->next = mixer->first_free_playing_sound;
-                mixer->first_free_playing_sound = playing_sound;
-            } else {
-                u32 samples_played = playing_sound->samples_played;
-                u32 total_samples_to_mix = sound_buffer->samples_to_write;
+        if (sound_finished) {
+            *playing_sound_ptr = playing_sound->next;
+            playing_sound->next = mixer->first_free_playing_sound;
+            mixer->first_free_playing_sound = playing_sound;
+        } else {
+            u32 samples_played = playing_sound->samples_played;
+            u32 total_samples_to_mix = sound_buffer->samples_to_write;
 
-                f32* dest0 = float_channel0;
-                f32* dest1 = float_channel1;
-                f32* dest[2] = { dest0, dest1 };
+            f32* dest0 = float_channel0;
+            f32* dest1 = float_channel1;
+            f32* dest[2] = { dest0, dest1 };
 
-                while (total_samples_to_mix > 0) {
-                    v2 volume;
-                    volume.e[0] = mixer->master_volume[0]*playing_sound->current_volume[0];
-                    volume.e[1] = mixer->master_volume[1]*playing_sound->current_volume[1];
+            v2 volume;
+            volume.e[0] = mixer->master_volume[0]*playing_sound->current_volume[0];
+            volume.e[1] = mixer->master_volume[1]*playing_sound->current_volume[1];
 
+            if (playing_sound->source_type == SoundSource_Sound) {
+                Sound* sound = playing_sound->sound;
+
+                while (sound && total_samples_to_mix > 0) {
                     if (looping) {
                         if (samples_played >= sound->sample_count) {
                             samples_played %= sound->sample_count;
@@ -131,10 +170,7 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                     u32 begin_sample_position = samples_played;
                     u32 end_sample_position = begin_sample_position + samples_to_mix;
                     for (u32 sample_index = begin_sample_position; sample_index < end_sample_position; sample_index++) {
-                        u32 wrapped_sample_index = sample_index;
-                        if (wrapped_sample_index >= sound->sample_count) {
-                            wrapped_sample_index -= sound->sample_count;
-                        }
+                        u32 wrapped_sample_index = sample_index % sound->sample_count;
 
                         for (u32 channel = 0; channel < sound->channel_count; channel++) {
                             f32 sample_value = cast(f32) (sound->samples + sound->sample_count*channel)[wrapped_sample_index];
@@ -151,21 +187,29 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                         break;
                     }
                 }
-
-                playing_sound_ptr = &playing_sound->next;
+            } else {
+                assert(playing_sound->source_type == SoundSource_Synth);
+                for (u32 sample_index = 0; sample_index < total_samples_to_mix; sample_index++) {
+                    // @TODO: Formalize channels
+                    for (u32 channel = 0; channel < 2; channel++) {
+                        *dest[channel]++ += cast(f32) INT16_MAX*volume.e[channel]*playing_sound->synth(2, channel, sound_buffer->sample_rate, samples_played + sample_index, 440.0f);
+                    }
+                }
             }
-        }
 
-        // @Note: Convert to 16 bit and output to sound buffer
-        // @TODO: Dither
-        f32* source0 = float_channel0;
-        f32* source1 = float_channel1;
-        s16* sample_out = sound_buffer->samples;
-        for (u32 sample_index = 0; sample_index < sample_count; sample_index++) {
-            *sample_out++ = cast(s16) (*source0++);
-            *sample_out++ = cast(s16) (*source1++);
+            playing_sound_ptr = &playing_sound->next;
         }
-
-        end_temporary_memory(mixer_memory);
     }
+
+    // @Note: Convert to 16 bit and output to sound buffer
+    // @TODO: Dither
+    f32* source0 = float_channel0;
+    f32* source1 = float_channel1;
+    s16* sample_out = sound_buffer->samples;
+    for (u32 sample_index = 0; sample_index < sample_count; sample_index++) {
+        *sample_out++ = cast(s16) (*source0++);
+        *sample_out++ = cast(s16) (*source1++);
+    }
+
+    end_temporary_memory(mixer_memory);
 }

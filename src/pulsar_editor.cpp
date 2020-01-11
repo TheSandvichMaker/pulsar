@@ -1,15 +1,3 @@
-inline void dbg_text(char* format_string, ...) {
-    va_list va_args;
-    va_start(va_args, format_string);
-
-    char buffer[8192];
-    stbsp_vsnprintf(buffer, sizeof(buffer), format_string, va_args);
-
-    va_end(va_args);
-
-    platform.debug_print(buffer);
-}
-
 inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
     EntityHash* result = 0;
 
@@ -73,7 +61,7 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     Entity* entity = result.ptr;
 
     entity->p = starting_p;
-    entity->collision = rectangle(aab_min_max(vec2(-0.2f, 0.0f), vec2(0.2f, 1.0f)));
+    entity->collision = aab_min_max(vec2(-0.2f, -0.5f), vec2(0.2f, 0.5f));
     entity->color = vec4(1, 1, 1, 1);
 
     entity->flags |= EntityFlag_Physical|EntityFlag_Collides;
@@ -97,7 +85,7 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
 
     aab = offset(aab, -entity->p);
 
-    entity->collision = rectangle(aab);
+    entity->collision = aab;
 
     return result;
 }
@@ -769,13 +757,15 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->checkpoint_icon = get_image_by_name(editor->assets, "checkpoint_icon");
 #else
     for (u32 member_index = 0; member_index < members_count(EditorAssets); member_index++) {
-        MemberDefinition* member = members_of(EditorAssets) + member_index;
+        MemberDefinition member = members_of(EditorAssets)[member_index];
         void** member_ptr = member_ptr(editor->asset_dependencies, member);
-        switch (member->type) {
+        switch (member.type) {
             case member_type(Image): {
-                assert(member->flags & MetaMemberFlag_IsPointer);
-                *(cast(Image**) member_ptr) = get_image_by_name(editor->assets, member->name);
+                assert(member.flags & MetaMemberFlag_IsPointer);
+                *(cast(Image**) member_ptr) = get_image_by_name(editor->assets, member.name);
             } break;
+
+            INVALID_DEFAULT_CASE;
         }
     }
 #endif
@@ -783,7 +773,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
 
-    editor->default_collision = rectangle(aab_center_dim(vec2(0, 0), vec2(1, 1)));
+    editor->default_collision = aab_center_dim(vec2(0, 0), vec2(1, 1));
 
     editor->top_margin  = cast(f32) render_commands->height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
@@ -924,7 +914,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             Entity* entity = game_state->entities + entity_index;
 
             if (!(entity->flags & EntityFlag_Invisible) || editor->shown) {
-                if (gjk_intersect_point(transform2d(entity->p), entity->collision, world_mouse_p)) {
+                if (is_in_aab(entity->collision, world_mouse_p - entity->p)) {
                     moused_over = entity;
                 }
             }
@@ -935,7 +925,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
             Entity* entity = level->entities + entity_index;
 
-            if (gjk_intersect_point(transform2d(entity->p), entity->collision, world_mouse_p)) {
+            if (is_in_aab(entity->collision, world_mouse_p - entity->p)) {
                 moused_over = entity;
             }
         }
@@ -1012,12 +1002,18 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     if (input->shift.is_down) {
         EditorLayout spawn_menu = make_layout(editor, editor->spawn_menu_p);
 
+        editor_print_line(&spawn_menu, COLOR_WHITE, "Spawn Entity:");
+        spawn_menu.depth++;
+
         EntityType highlighted_type = EntityType_Null;
         for (u32 entity_type_id = cast(u32) EntityType_Null + 1; entity_type_id < EntityType_Count; entity_type_id++) {
             EntityType entity_type = cast(EntityType) entity_type_id;
 
             v4 color = (editor->type_to_spawn == entity_type) ? vec4(1, 0, 1, 1) : vec4(1, 1, 1, 1);
-            editor_print_line(&spawn_menu, color, enum_name(EntityType, entity_type));
+            char* entity_name = enum_name(EntityType, entity_type);
+            entity_name += sizeof("EntityType_") - 1;
+
+            editor_print_line(&spawn_menu, color, entity_name);
 
             if (is_in_aab(spawn_menu.last_print_bounds, mouse_p)) {
                 highlighted_type = entity_type;
@@ -1221,11 +1217,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (game_state->game_mode == GameMode_Editor) {
         if (moused_over) {
-            push_shape(&game_state->render_context, transform2d(moused_over->p), moused_over->collision, vec4(1, 0, 1, 1), ShapeRenderMode_Outline, 100.0f);
+            push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), vec4(1, 0, 1, 1), ShapeRenderMode_Outline, 100.0f);
         }
 
         if (selected && selected != moused_over) {
-            push_shape(&game_state->render_context, transform2d(selected->p), selected->collision, vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
+            push_shape(&game_state->render_context, transform2d(selected->p), rectangle(selected->collision), vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
         }
     }
 

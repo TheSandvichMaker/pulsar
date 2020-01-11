@@ -26,6 +26,11 @@ introspect() enum EntityType {
 
 struct EntityID { u32 value; };
 
+struct CollisionVolume {
+    v2 dim;
+    v2 offset;
+};
+
 struct Entity {
     EntityID guid;
 
@@ -73,7 +78,9 @@ struct Entity {
     Image* sprite;
     v4 color;
 
-    Shape2D collision;
+    AxisAlignedBox2 collision;
+    // @TODO: Switch to collision volumes
+    // CollisionVolume collision;
 };
 
 #endif /* PULSAR_ENTITY_H */

@@ -581,6 +581,13 @@ inline b32 aab_intersect(AxisAlignedBox2 a, AxisAlignedBox2 b) {
     return result;
 }
 
+inline AxisAlignedBox2 aab_sum(AxisAlignedBox2 a, AxisAlignedBox2 b) {
+    AxisAlignedBox2 result;
+    result.min = a.min + b.min;
+    result.max = a.max + b.max;
+    return result;
+}
+
 inline v2 get_barycentric(AxisAlignedBox2 aab, v2 p) {
     v2 result;
     result.x = safe_ratio_0(p.x - aab.min.x, aab.max.x - aab.min.x);

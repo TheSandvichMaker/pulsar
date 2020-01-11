@@ -164,12 +164,6 @@ inline void sub_arena(MemoryArena* result, MemoryArena* arena, size_t size, Allo
     result->temp_count = 0;
 }
 
-inline void copy(size_t size, void* source_init, void* dest_init) {
-    u8* source = (u8*)source_init;
-    u8* dest = (u8*)dest_init;
-    while (size--) { *dest++= *source++; }
-}
-
 inline TemporaryMemory begin_temporary_memory(MemoryArena* arena) {
     TemporaryMemory result;
 
@@ -200,7 +194,9 @@ inline void check_arena(MemoryArena* arena) {
 // @Note: A good citizen would put this in a .cpp
 internal ALLOCATOR(arena_allocator) {
     MemoryArena* arena = cast(MemoryArena*) user_data;
+
     void* result = 0;
+
     if (new_size) {
         if (old_size) {
             assert(old_ptr);
@@ -217,6 +213,7 @@ internal ALLOCATOR(arena_allocator) {
             result = push_size(arena, new_size, params);
         }
     }
+
     return result;
 }
 

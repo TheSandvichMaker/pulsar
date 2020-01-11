@@ -6,7 +6,7 @@
 // - Eek out final little pops in audio, look at why midi goes out of sync slowly (likely
 //    related problems, midi sync resets when the pop happens)
 // TODAY:
-// -
+// - AABB collisions
 //
 // IMPORTANT:
 // - Fix collision once and for all!!!! The way it stands now, GJK and EPA are not enough
@@ -163,6 +163,7 @@ struct GameState {
     v4 foreground_color;
     v4 background_color;
 
+    f32 frame_dt;
     f32 frame_dt_left;
 
     f32 player_respawn_timer;

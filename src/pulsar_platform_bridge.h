@@ -57,6 +57,9 @@ struct DebugProfilingEvent {
 
 struct PlatformDebugInfo {
     DebugFrameTimeHistory* frame_history;
+
+    u32 print_size;
+    char* print;
 };
 #endif
 
