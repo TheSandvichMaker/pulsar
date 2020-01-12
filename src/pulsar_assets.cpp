@@ -2,7 +2,7 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
     // @TODO: Make load_assets ignorant of the platform's file system
     // @TODO: Load assets into the memory arena instead of the space allocated
     // by platform.read_entire_file
-    EntireFile asset_file = platform.read_entire_file(file_name);
+    EntireFile asset_file = platform.read_entire_file(file_name, allocator(arena_allocator, arena));
     if (asset_file.size > 0) {
         AssetPackHeader* header = cast(AssetPackHeader*) asset_file.data;
         assert(header->magic_value == ASSET_PACK_CODE('p', 'l', 'a', 'f'));

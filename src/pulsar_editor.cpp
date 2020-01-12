@@ -41,7 +41,7 @@ inline AddEntityResult add_entity(EditorState* editor, EntityType type, EntityID
     if (guid.value) {
         entity->guid = guid;
     } else {
-        entity->guid = { level->last_used_guid++ };
+        entity->guid = { level->first_available_guid++ };
     }
 
     entity->type = type;
@@ -75,7 +75,7 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
 
     entity->p = get_center(aab);
     entity->color = vec4(1, 1, 1, 1);
-    entity->surface_friction = 5.0f;
+    entity->surface_friction = 1.5f;
     entity->midi_test_target = entity->p;
 
     entity->flags |= EntityFlag_Collides;
@@ -349,20 +349,6 @@ inline void redo(EditorState* editor) {
     }
 }
 
-inline Level* allocate_level(MemoryArena* arena, char* name) {
-    Level* result = push_struct(arena, Level);
-
-    // @Note: The 0th entity is reserved as the null entity
-    result->last_used_guid = 1;
-    result->entity_count = 1;
-
-    size_t name_length = cstr_length(name);
-    result->name.len = name_length;
-    result->name.data = push_string_and_null_terminate(arena, name_length, name); // @Note: Null termination just in case we want to interact with some C APIs.
-
-    return result;
-}
-
 inline void load_level(EditorState* editor, Level* level) {
     // @Note: Weird paranoid assert in case I ever change the hash from a fixed size array and forget to change this...
     assert(sizeof(editor->entity_hash) == sizeof(EntityHash)*MAX_ENTITY_COUNT);
@@ -387,7 +373,7 @@ inline void create_debug_level(EditorState* editor) {
     add_wall(editor, aab_min_max(vec2(-35.0f, -0.75f), vec2(1.25f, 0.75f)));
 
     for (s32 i = 0; i < 13; i++) {
-        Entity* wall = add_wall(editor, aab_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f)), (i / 4) % 2 == 1).ptr;
+        Entity* wall = add_wall(editor, aab_center_dim(vec2(2.0f + 1.5f*i, cast(f32) i), vec2(1.5f, 1.5f)), i % 2 == 1).ptr;
         wall->midi_note = 60 + i;
     }
 
@@ -592,6 +578,8 @@ internal void set_up_editable_parameters(EditorState* editor) {
     {
         add_viewable(editables, Entity, guid);
         add_viewable(editables, Entity, p);
+        add_viewable(editables, Entity, dp);
+        add_viewable(editables, Entity, ddp);
         add_viewable(editables, Entity, dead, Editable_IsBool);
         add_viewable(editables, Entity, support);
         editable = add_viewable(editables, Entity, flags);
@@ -760,9 +748,8 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
         MemberDefinition member = members_of(EditorAssets)[member_index];
         void** member_ptr = member_ptr(editor->asset_dependencies, member);
         switch (member.type) {
-            case member_type(Image): {
-                assert(member.flags & MetaMemberFlag_IsPointer);
-                *(cast(Image**) member_ptr) = get_image_by_name(editor->assets, member.name);
+            case member_type(ImageID): {
+                *(cast(ImageID*) member_ptr) = get_image_id_by_name(editor->assets, member.name);
             } break;
 
             INVALID_DEFAULT_CASE;
@@ -784,8 +771,15 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->zoom = 1.0f;
 
     set_up_editable_parameters(editor);
+
+    b32 successfully_loaded_level = load_level_from_disk(game_state, active_level, "levels/test_level.lev");
     load_level(editor, active_level);
-    create_debug_level(editor);
+
+    if (!successfully_loaded_level) {
+        create_debug_level(editor);
+    }
+
+    // write_level_to_disk(game_state, active_level, "test_level.txt");
 
     return editor;
 }
@@ -849,14 +843,23 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
     f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
     v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
-    editor_print_line(&layout, timer_color, "Average Frame Time: %fms\n", average_frame_time_in_ms);
-    editor_print_line(&layout, COLOR_WHITE, "Editing level '%s'", level->name.data);
+    editor_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
+    editor_print_line(&layout, COLOR_WHITE, "Editing level '%s'%s", level->name.data, editor->level_saved_timer > 0.0f ? " (Saved...)" : "");
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
     editor_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
 
+    if (editor->level_saved_timer > 0.0f) {
+        editor->level_saved_timer -= input->frame_dt;
+    }
+
     if (was_pressed(get_key(input, 'S'))) {
-        editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
+        if (input->ctrl.is_down) {
+            write_level_to_disk(game_state, editor->active_level, editor->active_level->name.data);
+            editor->level_saved_timer = 2.0f;
+        } else {
+            editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
+        }
     }
 
     EditorLayout status_bar = make_layout(editor, vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)), true);

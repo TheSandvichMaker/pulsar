@@ -46,54 +46,86 @@ char* GetEnumNameOf_EntityType(int value) {
 }
 
 static MemberDefinition MembersOf_PackedImage[] = {
-    { 0, MetaType_PixelFormat, "pixel_format", (u32)&((PackedImage*)0)->pixel_format },
-    { 0, MetaType_u32, "w", (u32)&((PackedImage*)0)->w },
-    { 0, MetaType_u32, "h", (u32)&((PackedImage*)0)->h },
-    { 0, MetaType_v2, "align", (u32)&((PackedImage*)0)->align },
-    { 0, MetaType_v2, "scale", (u32)&((PackedImage*)0)->scale },
+    { 0, MetaType_PixelFormat, 12, "pixel_format", (unsigned int)&((PackedImage*)0)->pixel_format, sizeof(PixelFormat) },
+    { 0, MetaType_u32, 1, "w", (unsigned int)&((PackedImage*)0)->w, sizeof(u32) },
+    { 0, MetaType_u32, 1, "h", (unsigned int)&((PackedImage*)0)->h, sizeof(u32) },
+    { 0, MetaType_v2, 5, "align", (unsigned int)&((PackedImage*)0)->align, sizeof(v2) },
+    { 0, MetaType_v2, 5, "scale", (unsigned int)&((PackedImage*)0)->scale, sizeof(v2) },
 };
 
 static MemberDefinition MembersOf_PackedSound[] = {
-    { 0, MetaType_u32, "channel_count", (u32)&((PackedSound*)0)->channel_count },
-    { 0, MetaType_u32, "sample_count", (u32)&((PackedSound*)0)->sample_count },
+    { 0, MetaType_u32, 13, "channel_count", (unsigned int)&((PackedSound*)0)->channel_count, sizeof(u32) },
+    { 0, MetaType_u32, 12, "sample_count", (unsigned int)&((PackedSound*)0)->sample_count, sizeof(u32) },
 };
 
 static MemberDefinition MembersOf_PackedFont[] = {
-    { 0, MetaType_u32, "first_codepoint", (u32)&((PackedFont*)0)->first_codepoint },
-    { 0, MetaType_u32, "one_past_last_codepoint", (u32)&((PackedFont*)0)->one_past_last_codepoint },
-    { 0, MetaType_u32, "size", (u32)&((PackedFont*)0)->size },
-    { 0, MetaType_u32, "oversample_amount", (u32)&((PackedFont*)0)->oversample_amount },
-    { 0, MetaType_f32, "whitespace_width", (u32)&((PackedFont*)0)->whitespace_width },
-    { 0, MetaType_f32, "ascent", (u32)&((PackedFont*)0)->ascent },
-    { 0, MetaType_f32, "descent", (u32)&((PackedFont*)0)->descent },
-    { 0, MetaType_f32, "line_gap", (u32)&((PackedFont*)0)->line_gap },
+    { 0, MetaType_u32, 15, "first_codepoint", (unsigned int)&((PackedFont*)0)->first_codepoint, sizeof(u32) },
+    { 0, MetaType_u32, 23, "one_past_last_codepoint", (unsigned int)&((PackedFont*)0)->one_past_last_codepoint, sizeof(u32) },
+    { 0, MetaType_u32, 4, "size", (unsigned int)&((PackedFont*)0)->size, sizeof(u32) },
+    { 0, MetaType_u32, 17, "oversample_amount", (unsigned int)&((PackedFont*)0)->oversample_amount, sizeof(u32) },
+    { 0, MetaType_f32, 16, "whitespace_width", (unsigned int)&((PackedFont*)0)->whitespace_width, sizeof(f32) },
+    { 0, MetaType_f32, 6, "ascent", (unsigned int)&((PackedFont*)0)->ascent, sizeof(f32) },
+    { 0, MetaType_f32, 7, "descent", (unsigned int)&((PackedFont*)0)->descent, sizeof(f32) },
+    { 0, MetaType_f32, 8, "line_gap", (unsigned int)&((PackedFont*)0)->line_gap, sizeof(f32) },
 };
 
 static MemberDefinition MembersOf_PackedMidi[] = {
-    { 0, MetaType_u32, "ticks_per_second", (u32)&((PackedMidi*)0)->ticks_per_second },
-    { 0, MetaType_u32, "beats_per_minute", (u32)&((PackedMidi*)0)->beats_per_minute },
-    { 0, MetaType_u16, "time_signature_numerator", (u32)&((PackedMidi*)0)->time_signature_numerator },
-    { 0, MetaType_u16, "time_signature_denominator", (u32)&((PackedMidi*)0)->time_signature_denominator },
-    { 0, MetaType_u32, "event_count", (u32)&((PackedMidi*)0)->event_count },
+    { 0, MetaType_u32, 16, "ticks_per_second", (unsigned int)&((PackedMidi*)0)->ticks_per_second, sizeof(u32) },
+    { 0, MetaType_u32, 16, "beats_per_minute", (unsigned int)&((PackedMidi*)0)->beats_per_minute, sizeof(u32) },
+    { 0, MetaType_u16, 24, "time_signature_numerator", (unsigned int)&((PackedMidi*)0)->time_signature_numerator, sizeof(u16) },
+    { 0, MetaType_u16, 26, "time_signature_denominator", (unsigned int)&((PackedMidi*)0)->time_signature_denominator, sizeof(u16) },
+    { 0, MetaType_u32, 11, "event_count", (unsigned int)&((PackedMidi*)0)->event_count, sizeof(u32) },
 };
 
 static MemberDefinition MembersOf_PackedSoundtrack[] = {
-    { 0, MetaType_SoundID, "sound", (u32)&((PackedSoundtrack*)0)->sound },
-    { 0, MetaType_u32, "midi_track_count", (u32)&((PackedSoundtrack*)0)->midi_track_count },
+    { 0, MetaType_SoundID, 5, "sound", (unsigned int)&((PackedSoundtrack*)0)->sound, sizeof(SoundID) },
+    { 0, MetaType_u32, 16, "midi_track_count", (unsigned int)&((PackedSoundtrack*)0)->midi_track_count, sizeof(u32) },
 };
 
 static MemberDefinition MembersOf_MidiEvent[] = {
-    { 0, MetaType_u32, "absolute_time_in_ticks", (u32)&((MidiEvent*)0)->absolute_time_in_ticks },
-    { 0, MetaType_u8, "channel", (u32)&((MidiEvent*)0)->channel },
-    { 0, MetaType_u8, "type", (u32)&((MidiEvent*)0)->type },
-    { 0, MetaType_u8, "note_value", (u32)&((MidiEvent*)0)->note_value },
-    { 0, MetaType_u8, "velocity", (u32)&((MidiEvent*)0)->velocity },
+    { 0, MetaType_u32, 22, "absolute_time_in_ticks", (unsigned int)&((MidiEvent*)0)->absolute_time_in_ticks, sizeof(u32) },
+    { 0, MetaType_u8, 7, "channel", (unsigned int)&((MidiEvent*)0)->channel, sizeof(u8) },
+    { 0, MetaType_u8, 4, "type", (unsigned int)&((MidiEvent*)0)->type, sizeof(u8) },
+    { 0, MetaType_u8, 10, "note_value", (unsigned int)&((MidiEvent*)0)->note_value, sizeof(u8) },
+    { 0, MetaType_u8, 8, "velocity", (unsigned int)&((MidiEvent*)0)->velocity, sizeof(u8) },
 };
 
 static MemberDefinition MembersOf_EditorAssets[] = {
-    { MetaMemberFlag_IsPointer, MetaType_Image, "camera_icon", (u32)&((EditorAssets*)0)->camera_icon },
-    { MetaMemberFlag_IsPointer, MetaType_Image, "speaker_icon", (u32)&((EditorAssets*)0)->speaker_icon },
-    { MetaMemberFlag_IsPointer, MetaType_Image, "checkpoint_icon", (u32)&((EditorAssets*)0)->checkpoint_icon },
+    { 0, MetaType_ImageID, 11, "camera_icon", (unsigned int)&((EditorAssets*)0)->camera_icon, sizeof(ImageID) },
+    { 0, MetaType_ImageID, 12, "speaker_icon", (unsigned int)&((EditorAssets*)0)->speaker_icon, sizeof(ImageID) },
+    { 0, MetaType_ImageID, 15, "checkpoint_icon", (unsigned int)&((EditorAssets*)0)->checkpoint_icon, sizeof(ImageID) },
+};
+
+static MemberDefinition MembersOf_Entity[] = {
+    { 0, MetaType_EntityID, 4, "guid", (unsigned int)&((Entity*)0)->guid, sizeof(EntityID) },
+    { 0, MetaType_EntityType, 4, "type", (unsigned int)&((Entity*)0)->type, sizeof(EntityType) },
+    { 0, MetaType_v2, 1, "p", (unsigned int)&((Entity*)0)->p, sizeof(v2) },
+    { 0, MetaType_v2, 2, "dp", (unsigned int)&((Entity*)0)->dp, sizeof(v2) },
+    { 0, MetaType_v2, 3, "ddp", (unsigned int)&((Entity*)0)->ddp, sizeof(v2) },
+    { 0, MetaType_b32, 4, "dead", (unsigned int)&((Entity*)0)->dead, sizeof(b32) },
+    { 0, MetaType_u32, 5, "flags", (unsigned int)&((Entity*)0)->flags, sizeof(u32) },
+    { 0, MetaType_ImageID, 6, "sprite", (unsigned int)&((Entity*)0)->sprite, sizeof(ImageID) },
+    { 0, MetaType_v4, 5, "color", (unsigned int)&((Entity*)0)->color, sizeof(v4) },
+    { 0, MetaType_AxisAlignedBox2, 9, "collision", (unsigned int)&((Entity*)0)->collision, sizeof(AxisAlignedBox2) },
+    { 0, MetaType_f32, 16, "off_ground_timer", (unsigned int)&((Entity*)0)->off_ground_timer, sizeof(f32) },
+    { 0, MetaType_f32, 32, "friction_of_last_touched_surface", (unsigned int)&((Entity*)0)->friction_of_last_touched_surface, sizeof(f32) },
+    { MetaMemberFlag_IsPointer, MetaType_Entity, 7, "support", (unsigned int)&((Entity*)0)->support, sizeof(Entity) },
+    { 0, MetaType_v2, 14, "support_normal", (unsigned int)&((Entity*)0)->support_normal, sizeof(v2) },
+    { 0, MetaType_v2, 7, "local_p", (unsigned int)&((Entity*)0)->local_p, sizeof(v2) },
+    { MetaMemberFlag_IsPointer, MetaType_Entity, 15, "sticking_entity", (unsigned int)&((Entity*)0)->sticking_entity, sizeof(Entity) },
+    { 0, MetaType_v2, 11, "sticking_dp", (unsigned int)&((Entity*)0)->sticking_dp, sizeof(v2) },
+    { 0, MetaType_b32, 13, "was_on_ground", (unsigned int)&((Entity*)0)->was_on_ground, sizeof(b32) },
+    { 0, MetaType_f32, 16, "surface_friction", (unsigned int)&((Entity*)0)->surface_friction, sizeof(f32) },
+    { 0, MetaType_f32, 10, "movement_t", (unsigned int)&((Entity*)0)->movement_t, sizeof(f32) },
+    { 0, MetaType_u32, 9, "midi_note", (unsigned int)&((Entity*)0)->midi_note, sizeof(u32) },
+    { 0, MetaType_v2, 16, "midi_test_target", (unsigned int)&((Entity*)0)->midi_test_target, sizeof(v2) },
+    { 0, MetaType_b32, 26, "soundtrack_has_been_played", (unsigned int)&((Entity*)0)->soundtrack_has_been_played, sizeof(b32) },
+    { 0, MetaType_SoundtrackID, 13, "soundtrack_id", (unsigned int)&((Entity*)0)->soundtrack_id, sizeof(SoundtrackID) },
+    { 0, MetaType_u32, 14, "playback_flags", (unsigned int)&((Entity*)0)->playback_flags, sizeof(u32) },
+    { 0, MetaType_v2, 11, "camera_zone", (unsigned int)&((Entity*)0)->camera_zone, sizeof(v2) },
+    { 0, MetaType_v2, 19, "camera_rotation_arm", (unsigned int)&((Entity*)0)->camera_rotation_arm, sizeof(v2) },
+    { 0, MetaType_v2, 15, "checkpoint_zone", (unsigned int)&((Entity*)0)->checkpoint_zone, sizeof(v2) },
+    { 0, MetaType_v2, 27, "most_recent_player_position", (unsigned int)&((Entity*)0)->most_recent_player_position, sizeof(v2) },
 };
 
 #endif

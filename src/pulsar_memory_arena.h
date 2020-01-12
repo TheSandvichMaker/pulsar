@@ -110,6 +110,7 @@ struct LinearBuffer {
 inline void* begin_linear_buffer_(MemoryArena* arena, AllocateParams params = default_allocate_params()) {
     assert(!arena->active_linear_buffer);
 
+    // @TODO: Make it so that header->data is aligned to the given params.align_
     LinearBuffer* header = push_struct(arena, LinearBuffer, align(params.align_, false));
     header->arena = arena;
     header->flags = params.flags;
@@ -124,7 +125,9 @@ inline void* begin_linear_buffer_(MemoryArena* arena, AllocateParams params = de
 #define lb_header(buffer) (cast(LinearBuffer*) buffer - 1)
 #define lb_arena(buffer) lb_header(buffer)->arena
 #define lb_count(buffer) lb_header(buffer)->count
-#define lb_push(buffer) (push_size(lb_arena(buffer), sizeof(*buffer), align(1, lb_header(buffer)->flags), lb_header(buffer)), &buffer[lb_count(buffer)++])
+#define lb_push_n(buffer, n) \
+    (push_size(lb_arena(buffer), n*sizeof(*buffer), align(1, lb_header(buffer)->flags), lb_header(buffer)), lb_count(buffer) += (n), &buffer[lb_count(buffer) - (n)])
+#define lb_push(buffer) lb_push_n(buffer, 1)
 #define lb_add(buffer, item) (lb_push(buffer), buffer[lb_count(buffer) - 1] = item)
 
 inline size_t end_linear_buffer(void* buffer) {

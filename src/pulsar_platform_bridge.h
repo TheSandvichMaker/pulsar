@@ -6,13 +6,30 @@
 
 #include "math.h"
 #include "file_io.h"
+#include "pulsar_memory.h"
 #include "pulsar_asset_pack_file_format.h"
 
-#define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name)
+struct PlatformFileHandle {
+    b32 no_errors;
+    void* handle;
+};
+
+#define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name, Allocator allocator)
 typedef PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile);
 
 #define PLATFORM_WRITE_ENTIRE_FILE(name) b32 name(char* file_name, u32 size, void* data)
 typedef PLATFORM_WRITE_ENTIRE_FILE(PlatformWriteEntireFile);
+
+#if 0
+#define PLATFORM_OPEN_FILE(name) PlatformFileHandle name(char* file_name)
+typedef PLATFORM_OPEN_FILE(PlatformOpenFile);
+
+#define PLATFORM_READ_FROM_FILE(name) void* name(PlatformFileHandle* handle, size_t offset, size_t amount)
+typedef PLATFORM_READ_FROM_FILE(PlatformReadFromFile);
+
+#define PLATFORM_WRITE_TO_FILE(name) void name(PlatformFileHandle* handle, size_t offset, size_t amount, void* data)
+typedef PLATFORM_WRITE_TO_FILE(PlatformWriteToFile);
+#endif
 
 #define PLATFORM_ALLOCATE_MEMORY(name) void* name(size_t size)
 typedef PLATFORM_ALLOCATE_MEMORY(PlatformAllocateMemory);
@@ -136,7 +153,7 @@ struct GameController {
 
 struct GameInput {
     b32 in_focus, focus_changed;
-    f32 frame_dt;
+    f32 update_rate, frame_dt;
 
     // @Note: quit_requested is from the game to the platform, not the other way around.
     b32 quit_requested;

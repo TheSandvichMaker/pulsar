@@ -11,7 +11,6 @@
 
 #include "pulsar_memory.h"
 #include "pulsar_memory_arena.h"
-#include "pulsar_template_array.h"
 
 #include "file_io.cpp"
 #include "asset_loading.cpp"
@@ -23,7 +22,7 @@
 #include "external/stb_truetype.h"
 
 #define GAMMA_CORRECT_FONTS 1
-#define FONT_OVERSAMPLING 1
+#define FONT_OVERSAMPLING 2
 
 enum AssetDataType {
     AssetDataType_Unknown,
@@ -49,7 +48,11 @@ struct AssetDescription {
 };
 
 global MemoryArena global_arena;
-global Array<AssetDescription> asset_descriptions;
+
+#define PULSAR_ARRAY_TYPE AssetDescription
+#include "pulsar_template_array.h"
+global PULSAR_ARRAY(AssetDescription) asset_descriptions;
+
 global u32 packed_asset_count = 1; // @Note: Reserving the 0th index for the null asset
 
 internal AssetDescription* add_asset(char* asset_name = 0, char* file_name = 0) {
@@ -217,7 +220,7 @@ int main(int argument_count, char** arguments) {
     memset(memory_pool, 0, MEMORY_POOL_SIZE);
     initialize_arena(&global_arena, MEMORY_POOL_SIZE, memory_pool);
 
-    asset_descriptions = allocate_array<AssetDescription>(64, allocator(arena_allocator, &global_arena));
+    allocate_array(&asset_descriptions, 64, allocator(arena_allocator, &global_arena));
 
     {
         char* midi_files[] = { "assets/ugly_loop.mid" };
@@ -242,8 +245,8 @@ int main(int argument_count, char** arguments) {
     add_image("checkpoint_icon", "assets/checkpoint_icon.bmp");
 
     add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);
-    add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
-    add_font("editor_font_big", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 32);
+    add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 24);
+    add_font("editor_font_big", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'l', 'a', 'f');

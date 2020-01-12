@@ -1,3 +1,5 @@
+// @TODO: Is it a win to use these functions instead, so that I don't have to include windows.h?
+// https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/findfirst-functions?view=vs-2019
 #include <windows.h>
 
 #define TokenType TokenType_
@@ -10,6 +12,39 @@
 
 #include "common.h"
 #include "string.h"
+
+#include "pulsar_memory.h"
+#include "pulsar_memory_arena.h"
+
+#include "file_io.h"
+#include "file_io.cpp"
+
+internal ALLOCATOR(malloc_allocator) {
+    void* result = 0;
+    if (params.align_ == ALLOCATOR_ALIGN_DONT_CARE) {
+        result = realloc(old_ptr, new_size);
+    } else {
+        if (new_size) {
+            if (old_ptr) {
+                result = _aligned_realloc(old_ptr, new_size, params.align_);
+            } else {
+                result = _aligned_malloc(new_size, params.align_);
+            }
+        } else {
+            assert(old_ptr);
+            _aligned_free(old_ptr);
+        }
+    }
+
+    if (result && new_size && params.flags & AllocateFlag_ClearToZero) {
+        memset(result, 0, new_size);
+    }
+
+    return result;
+}
+
+global MemoryArena general_arena;
+global Allocator general_allocator = allocator(arena_allocator, &general_arena);
 
 struct FoundString {
     u32 start_line;
@@ -155,248 +190,6 @@ inline void print_diagnostic(
     va_start(args, format_string);
     va_print_diagnostic(source_file_name, source_code, relevant_code, severity, format_string, args);
     va_end(args);
-}
-
-#define MEMORY_ARENA_ALLOCATOR(name) void* name(size_t size)
-typedef MEMORY_ARENA_ALLOCATOR(MemoryArenaAllocator);
-
-struct MemoryArena {
-    size_t size;
-    size_t used;
-    u8* base_ptr;
-
-    MemoryArenaAllocator* allocator;
-
-    s32 temp_count;
-};
-
-struct TemporaryMemory {
-    MemoryArena* arena;
-    size_t used;
-};
-
-inline void initialize_arena(MemoryArena* arena, size_t size, void* base_ptr, MemoryArenaAllocator* allocator = 0) {
-    arena->size = size;
-    arena->base_ptr = (u8*)base_ptr;
-    arena->used = 0;
-    arena->allocator = allocator;
-}
-
-inline TemporaryMemory begin_temporary_memory(MemoryArena* arena) {
-    TemporaryMemory result;
-
-    result.arena = arena;
-    result.used = arena->used;
-
-    arena->temp_count++;
-
-    return result;
-}
-
-inline void end_temporary_memory(TemporaryMemory temp_mem) {
-    MemoryArena* arena = temp_mem.arena;
-    arena->used = temp_mem.used;
-    assert(arena->temp_count > 0);
-    arena->temp_count--;
-}
-
-inline void check_arena(MemoryArena* arena) {
-    assert(arena->temp_count == 0);
-}
-
-inline size_t get_alignment_offset(MemoryArena* arena, size_t align) {
-    size_t result_pointer = (size_t)arena->base_ptr + arena->used;
-
-    size_t align_offset = result_pointer & (align - 1);
-    if (align_offset) {
-        align_offset = align - align_offset;
-    }
-
-    return align_offset;
-}
-
-inline size_t get_arena_size_remaining(MemoryArena* arena, size_t align = 4) {
-    size_t result = arena->size - (arena->used + get_alignment_offset(arena, align));
-    return result;
-}
-
-// TODO: Optional "clear" parameter
-#define push_struct(arena, type, ...) (type*)push_size_(arena, sizeof(type), ##__VA_ARGS__)
-#define push_array(arena, count, type, ...) (type*)push_size_(arena, sizeof(type) * (count), ##__VA_ARGS__)
-#define push_size(arena, size, ...) push_size_(arena, size, ##__VA_ARGS__)
-inline void* push_size_(MemoryArena* arena, size_t size, size_t align = 4) {
-    void* result = 0;
-
-    size_t align_offset = get_alignment_offset(arena, align);
-    size += align_offset;
-
-    if ((arena->used + size) > arena->size) {
-        if (arena->allocator) {
-            void* new_memory_block = arena->allocator(arena->size);
-            initialize_arena(arena, arena->size, new_memory_block, arena->allocator);
-            return push_size_(arena, size, align);
-        } else {
-            assert(!"Out of memory.");
-        }
-    }
-
-    result = (void*)(arena->base_ptr + arena->used + align_offset);
-    arena->used += size;
-
-    return result;
-}
-
-inline void* get_next_allocation_location(MemoryArena* arena, size_t align = 4) {
-    size_t align_offset = get_alignment_offset(arena, align);
-    void* result = (void*)(arena->base_ptr + arena->used + align_offset);
-    return result;
-}
-
-inline char* push_string(MemoryArena* arena, char* source, bool include_null = true) {
-    u32 size = (u32)include_null;
-    for (char* at = source; *at; at++) {
-        size++;
-    }
-
-    assert((arena->used + size) <= arena->size);
-
-    char* source_ptr = source;
-    char* dest = (char*)push_size_(arena, size, 1);
-    for (u32 char_index = 0; char_index < size; char_index++) {
-        if (include_null || source[char_index]) {
-            *dest++ = *source_ptr++;
-        }
-    }
-
-    return source;
-}
-
-inline void sub_arena(MemoryArena* result, MemoryArena* arena, size_t size, size_t align = 4) {
-    result->size = size;
-    result->base_ptr = (u8*)push_size_(arena, size, align);
-    result->used = 0;
-    result->temp_count = 0;
-}
-
-#define ZERO_STRUCT(instance) zero_size(sizeof(instance), &(instance))
-inline void zero_size(size_t size, void* ptr) {
-    // TODO: Check this for performance
-    u8* byte = (u8*)ptr;
-    while (size--) {
-        *byte++ = 0;
-    }
-}
-
-inline void copy(size_t size, void* source_init, void* dest_init) {
-    u8* source = (u8*)source_init;
-    u8* dest = (u8*)dest_init;
-    while (size--) { *dest++= *source++; }
-}
-
-#define ALLOCATOR(name) void* name(size_t size, void* realloc_ptr, size_t realloc_size, void* user_data)
-typedef ALLOCATOR(Allocator);
-
-internal ALLOCATOR(default_allocator) {
-    return realloc(realloc_ptr, size);
-}
-
-internal ALLOCATOR(arena_allocator) {
-    MemoryArena* arena = (MemoryArena*)user_data;
-    void* result = push_size(arena, size, 1);
-    if (realloc_ptr) {
-        memcpy(result, realloc_ptr, realloc_size);
-    }
-    return result;
-}
-
-struct ArrayHeader {
-    Allocator* allocator;
-    void* allocator_data;
-    size_t capacity;
-    size_t count;
-};
-
-#define Array(TYPE) TYPE*
-#define allocate_array(TYPE, ...) (TYPE*)allocate_array_(sizeof(TYPE), __VA_ARGS__)
-inline void* allocate_array_(size_t type_size, size_t capacity = 8, Allocator* allocator = default_allocator, void* allocator_data = 0) {
-    ArrayHeader* array = (ArrayHeader*)allocator(sizeof(ArrayHeader) + type_size*capacity, 0, 0, allocator_data);
-    assert(array);
-
-    array->allocator = allocator;
-    array->allocator_data = allocator_data;
-    array->capacity = capacity;
-    array->count = 0;
-
-    void* array_data = (void*)((u8*)array + sizeof(ArrayHeader));
-    return array_data;
-}
-
-inline ArrayHeader* get_array_header(void* array) {
-    ArrayHeader* header = (ArrayHeader*)((u8*)array - sizeof(ArrayHeader));
-    return header;
-}
-
-inline void set_array_allocator(void* array, Allocator* allocator, void* allocator_data = 0) {
-    ArrayHeader* header = get_array_header(array);
-    header->allocator = allocator;
-    header->allocator_data = allocator_data;
-}
-
-inline size_t array_count(void* array) {
-    return get_array_header(array)->count;
-}
-
-inline size_t array_capacity(void* array) {
-    return get_array_header(array)->capacity;
-}
-
-#define ARRAY_GROWTH_RATE 2
-inline void* array_add_(void** array, size_t item_size, void* item) {
-    ArrayHeader* header = get_array_header(*array);
-    if ((header->count + 1) > header->capacity) {
-        size_t old_size = sizeof(ArrayHeader) + item_size*header->capacity;
-        size_t new_size = sizeof(ArrayHeader) + item_size*header->capacity * ARRAY_GROWTH_RATE;
-        header->capacity *= ARRAY_GROWTH_RATE;
-
-        void* new_address = header->allocator(new_size, header, old_size, header->allocator_data);
-        assert(new_address);
-
-        *array = (u8*)new_address + sizeof(ArrayHeader);
-        header = get_array_header(*array);
-    }
-    void* result = (u8*)(*array) + item_size*header->count++;
-    if (item) {
-        memcpy(result, item, item_size);
-    }
-    return result;
-}
-
-#define array_add(ARRAY_PTR, ITEM) array_add_((void**)(ARRAY_PTR), sizeof(**ARRAY_PTR), &(ITEM))
-
-#define array_get(ARRAY, INDEX) (ARRAY)[INDEX]
-#define array_get_ptr(ARRAY, INDEX) &array_get(ARRAY, INDEX)
-
-struct EntireFile {
-    u32 contents_size;
-    void* contents;
-};
-
-internal EntireFile read_entire_file_and_null_terminate(char* file_name) {
-    EntireFile result = {};
-
-    FILE* in = fopen(file_name, "rb");
-    if (in) {
-        fseek(in, 0, SEEK_END);
-        result.contents_size = ftell(in);
-        fseek(in, 0, SEEK_SET);
-
-        result.contents = malloc(result.contents_size + 1);
-        fread(result.contents, result.contents_size, 1, in);
-        ((u8*)result.contents)[result.contents_size] = 0;
-        fclose(in);
-    }
-
-    return result;
 }
 
 enum TokenType {
@@ -673,25 +466,40 @@ struct StructMember {
     Token name;
 };
 
+#define PULSAR_ARRAY_TYPE StructMember
+#include "pulsar_template_array.h"
+
+#define PULSAR_ARRAY_TYPE Token
+#include "pulsar_template_array.h"
+
 struct MetaStruct {
     Token name;
-    Array(StructMember) members;
+    PULSAR_ARRAY(StructMember) members;
 };
 
 struct MetaEnum {
     Token name;
-    Array(Token) members;
+    PULSAR_ARRAY(Token) members;
     b32 is_flags;
 };
 
-global Array(MetaType) meta_type_array;
-global Array(MetaStruct) meta_struct_array;
-global Array(MetaEnum) meta_enum_array;
+#define PULSAR_ARRAY_TYPE MetaType
+#include "pulsar_template_array.h"
 
-inline void add_meta_type_if_unique(Array(MetaType)* type_array, Token type_token) {
+#define PULSAR_ARRAY_TYPE MetaStruct
+#include "pulsar_template_array.h"
+
+#define PULSAR_ARRAY_TYPE MetaEnum
+#include "pulsar_template_array.h"
+
+global PULSAR_ARRAY(MetaType) meta_type_array;
+global PULSAR_ARRAY(MetaStruct) meta_struct_array;
+global PULSAR_ARRAY(MetaEnum) meta_enum_array;
+
+inline void add_meta_type_if_unique(PULSAR_ARRAY(MetaType)* type_array, Token type_token) {
     b32 already_exists = false;
-    for (size_t i = 0; i < array_count(*type_array); i++) {
-        MetaType test = array_get(*type_array, i);
+    for (size_t i = 0; i < type_array->count; i++) {
+        MetaType test = type_array->data[i];
         if (token_equals(test.type, type_token)) {
             already_exists = true;
             break;
@@ -745,7 +553,7 @@ internal void parse_struct(Tokenizer* tokenizer, IntrospectionParams params) {
 
     MetaStruct meta;
     meta.name = name_token;
-    meta.members = allocate_array(StructMember);
+    allocate_array(&meta.members, 8, general_allocator);
 
     if (token_equals(name_token, "Entity")) {
         int y = 5;
@@ -775,7 +583,7 @@ internal void parse_enum(Tokenizer* tokenizer, IntrospectionParams params) {
 
     MetaEnum meta;
     meta.name = name_token;
-    meta.members = allocate_array(Token);
+    allocate_array(&meta.members, 8, general_allocator);
     meta.is_flags = params.is_flags;
 
     add_meta_type_if_unique(&meta_type_array, meta.name);
@@ -817,10 +625,6 @@ internal void parse_introspectable(Tokenizer* tokenizer) {
     }
 }
 
-internal MEMORY_ARENA_ALLOCATOR(malloc_allocator) {
-    return malloc(size);
-}
-
 global s64 perf_count_frequency;
 inline LARGE_INTEGER win32_get_clock() {
     LARGE_INTEGER result;
@@ -843,12 +647,11 @@ int main(int argument_count, char** arguments) {
     win32_initialize_perf_counter();
     LARGE_INTEGER start_clock = win32_get_clock();
 
-    MemoryArena general_arena;
-    initialize_arena(&general_arena, MEGABYTES(128), malloc(MEGABYTES(128)), malloc_allocator);
+    initialize_arena(&general_arena, MEGABYTES(128), malloc(MEGABYTES(128)));
 
-    meta_type_array = allocate_array(MetaType, 8, arena_allocator, &general_arena);
-    meta_enum_array = allocate_array(MetaEnum, 8, arena_allocator, &general_arena);
-    meta_struct_array = allocate_array(MetaStruct, 8, arena_allocator, &general_arena);
+    allocate_array(&meta_type_array, 8, general_allocator);
+    allocate_array(&meta_enum_array, 8, general_allocator);
+    allocate_array(&meta_struct_array, 8, general_allocator);
 
     WIN32_FIND_DATAA find_data;
     HANDLE find_handle = FindFirstFileA("*.h", &find_data);
@@ -864,12 +667,15 @@ int main(int argument_count, char** arguments) {
     b32 had_error = false;
     while (file_name && !had_error) {
         if (!strings_are_equal(file_name, "pulsar_code_generator.h")) {
-            EntireFile file = read_entire_file_and_null_terminate(file_name);
-            if (file.contents_size > 0) {
+            // @Note: We're not freeing any of the opened files because we're taking substrings out of them to refer to members.
+            // If we want to be a little more memory efficient, we'd copy out the substrings we actually want to use, but how much
+            // memory does it take to keep some source code open in 2020, and it'd be at the cost of all them copies. Whatever that matters.
+            String file = read_text_file(file_name, general_allocator);
+            if (file.len > 0) {
                 Tokenizer tokenizer = {};
                 tokenizer.source_file = wrap_cstr(file_name);
-                tokenizer.source_code = wrap_string(file.contents_size, (char*)file.contents);
-                tokenizer.at = (char*)file.contents;
+                tokenizer.source_code = file;
+                tokenizer.at = tokenizer.source_code.data;
 
                 b32 parsing = true;
                 while (parsing) {
@@ -936,22 +742,22 @@ int main(int argument_count, char** arguments) {
     fprintf(pre_headers, "#define PULSAR_CODE_GENERATION_SUCCEEDED 1\n\n");
 
     fprintf(pre_headers, "enum MetaType {\n");
-    for (size_t type_index = 0; type_index < array_count(meta_type_array); type_index++) {
-        MetaType type = array_get(meta_type_array, type_index);
+    for (size_t type_index = 0; type_index < meta_type_array.count; type_index++) {
+        MetaType type = meta_type_array.data[type_index];
         fprintf(pre_headers, "    MetaType_%.*s,\n", PRINTF_TOKEN(type.type));
     }
     fprintf(pre_headers, "};\n\n");
 
-    for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
-        MetaStruct meta = array_get(meta_struct_array, struct_index);
+    for (size_t struct_index = 0; struct_index < meta_struct_array.count; struct_index++) {
+        MetaStruct meta = meta_struct_array.data[struct_index];
         fprintf(pre_headers, "#define BodyOf_%.*s \\\n", PRINTF_TOKEN(meta.name));
-        for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-            auto member = array_get(meta.members, member_index);
+        for (size_t member_index = 0; member_index < meta.members.count; member_index++) {
+            StructMember member = meta.members.data[member_index];
             fprintf(pre_headers, "    %.*s%s %.*s;%s\n",
                 PRINTF_TOKEN(member.type),
                 member.is_pointer ? "*" : "",
                 PRINTF_TOKEN(member.name),
-                (member_index + 1 < array_count(meta.members)) ? " \\" : ""
+                (member_index + 1 < meta.members.count) ? " \\" : ""
             );
         }
         fprintf(pre_headers, "\n");
@@ -964,12 +770,12 @@ int main(int argument_count, char** arguments) {
     fprintf(post_headers, "#ifndef PULSAR_GENERATED_POST_HEADERS_H\n");
     fprintf(post_headers, "#define PULSAR_GENERATED_POST_HEADERS_H\n\n");
 
-    for (size_t enum_index = 0; enum_index < array_count(meta_enum_array); enum_index++) {
-        MetaEnum meta = array_get(meta_enum_array, enum_index);
+    for (size_t enum_index = 0; enum_index < meta_enum_array.count; enum_index++) {
+        MetaEnum meta = meta_enum_array.data[enum_index];
         if (meta.is_flags) {
             fprintf(post_headers, "int GetNextEnumFlagNameOf_%.*s(unsigned int* value, char** name) {\n", PRINTF_TOKEN(meta.name));
-            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                Token member = array_get(meta.members, member_index);
+            for (size_t member_index = 0; member_index < meta.members.count; member_index++) {
+                Token member = meta.members.data[member_index];
                 fprintf(post_headers, "    %s (*value & %.*s) { *name = \"%.*s\"; *value &= ~%.*s; return 1; }\n",
                     member_index == 0 ? "if" : "else if",
                     PRINTF_TOKEN(member), PRINTF_TOKEN(member), PRINTF_TOKEN(member)
@@ -979,8 +785,8 @@ int main(int argument_count, char** arguments) {
         } else {
             fprintf(post_headers, "char* GetEnumNameOf_%.*s(int value) {\n", PRINTF_TOKEN(meta.name));
             fprintf(post_headers, "    switch (value) {\n");
-            for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-                Token member = array_get(meta.members, member_index);
+            for (size_t member_index = 0; member_index < meta.members.count; member_index++) {
+                Token member = meta.members.data[member_index];
                 fprintf(post_headers, "        case %.*s: return \"%.*s\";\n", PRINTF_TOKEN(member), PRINTF_TOKEN(member));
             }
             fprintf(post_headers, "        default: return \"Unknown value for %.*s\";\n", PRINTF_TOKEN(meta.name));
@@ -989,17 +795,19 @@ int main(int argument_count, char** arguments) {
         }
     }
 
-    for (size_t struct_index = 0; struct_index < array_count(meta_struct_array); struct_index++) {
-        MetaStruct meta = array_get(meta_struct_array, struct_index);
+    for (size_t struct_index = 0; struct_index < meta_struct_array.count; struct_index++) {
+        MetaStruct meta = meta_struct_array.data[struct_index];
         fprintf(post_headers, "static MemberDefinition MembersOf_%.*s[] = {\n", PRINTF_TOKEN(meta.name));
-        for (size_t member_index = 0; member_index < array_count(meta.members); member_index++) {
-            auto member = array_get(meta.members, member_index);
-            fprintf(post_headers, "    { %s, MetaType_%.*s, \"%.*s\", (u32)&((%.*s*)0)->%.*s },\n",
+        for (size_t member_index = 0; member_index < meta.members.count; member_index++) {
+            StructMember member = meta.members.data[member_index];
+            fprintf(post_headers, "    { %s, MetaType_%.*s, %u, \"%.*s\", (unsigned int)&((%.*s*)0)->%.*s, sizeof(%.*s) },\n",
                 member.is_pointer ? "MetaMemberFlag_IsPointer" : "0",
                 PRINTF_TOKEN(member.type),
+                cast(u32) member.name.length,
                 PRINTF_TOKEN(member.name),
                 PRINTF_TOKEN(meta.name),
-                PRINTF_TOKEN(member.name)
+                PRINTF_TOKEN(member.name),
+                PRINTF_TOKEN(member.type)
             );
         }
         fprintf(post_headers, "};\n\n");

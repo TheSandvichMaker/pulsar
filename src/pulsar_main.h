@@ -2,9 +2,6 @@
 #define PULSAR_MAIN_H
 
 // High level overview of @TODOs:
-// TOMORROW:
-// - Eek out final little pops in audio, look at why midi goes out of sync slowly (likely
-//    related problems, midi sync resets when the pop happens)
 // TODAY:
 // - AABB collisions
 //
@@ -157,9 +154,6 @@ struct GameState {
     AudioMixer audio_mixer;
     Assets assets;
 
-    Sound* test_music;
-    Sound* test_sound;
-
     v4 foreground_color;
     v4 background_color;
 
@@ -182,16 +176,14 @@ struct GameState {
     Entity* camera_target;
 
     Entity* last_activated_checkpoint;
+    Entity* active_camera_zone;
 
     Level* active_level;
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
 
-    Shape2D player_collision;
     Shape2D arrow;
-
-    u32 sound_timer;
 };
 
 #if PULSAR_DEBUG
@@ -228,5 +220,6 @@ static const v4 COLOR_LIGHT_GREY = { 0.75f, 0.75f, 0.75f, 1.0f };
 static const v4 COLOR_GREY       = { 0.5f , 0.5f , 0.5f , 1.0f };
 static const v4 COLOR_DARK_GREY  = { 0.25f, 0.25f, 0.25f, 1.0f };
 static const v4 COLOR_BLACK      = { 0.0f , 0.0f , 0.0f , 1.0f };
+#undef DEFINE_COLORS
 
 #endif /* PULSAR_MAIN_H */

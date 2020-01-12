@@ -17,6 +17,182 @@ inline void dbg_text(char* format_string, ...) {
     platform.debug_print(buffer);
 }
 
+inline Level* allocate_level(MemoryArena* arena, char* name) {
+    Level* result = push_struct(arena, Level);
+
+    // @Note: The 0th entity is reserved as the null entity
+    result->first_available_guid = 1;
+    result->entity_count = 1;
+
+    size_t name_length = cstr_length(name);
+    result->name.len = name_length;
+    result->name.data = name;
+
+    return result;
+}
+
+#pragma pack(push, 1)
+struct LevFileHeader {
+    struct {
+        char magic[4];
+
+#define LEV_VERSION 0
+        u32 version;
+
+        u32 header_size;
+    } prelude;
+
+    u32 entity_count;
+    u32 entity_member_count;
+};
+#pragma pack(pop)
+
+internal void write_level_to_disk(GameState* game_state, Level* level, char* level_name) {
+    TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
+
+    u8* stream = begin_linear_buffer(&game_state->transient_arena, u8, align_no_clear(1));
+
+    // @TODO: I should have some kind of formalized way to write byte streams to memory arenas
+#define write_stream(size, data) { u8* buf = lb_push_n(stream, size); copy(size, data, buf); }
+
+    LevFileHeader header;
+
+    header.prelude.magic[0] = 'l';
+    header.prelude.magic[1] = 'e';
+    header.prelude.magic[2] = 'v';
+    header.prelude.magic[3] = 'l';
+
+    header.prelude.version = LEV_VERSION;
+    header.prelude.header_size = sizeof(header);
+
+    header.entity_count = level->entity_count;
+    header.entity_member_count = members_count(Entity);
+
+    write_stream(sizeof(header), &header);
+
+    for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+        Entity* entity = level->entities + entity_index;
+        for (u32 member_index = 0; member_index < members_count(Entity); member_index++) {
+            MemberDefinition member = members_of(Entity)[member_index];
+            void** member_ptr = member_ptr(*entity, member);
+
+            write_stream(sizeof(u32), &member.name_length);
+            write_stream(member.name_length, member.name);
+            write_stream(sizeof(u32), &member.size);
+            write_stream(member.size, member_ptr);
+        }
+    }
+
+#undef write_stream
+
+    platform.write_entire_file(level_name, cast(u32) lb_count(stream), stream);
+
+    end_linear_buffer(stream);
+
+    end_temporary_memory(temp);
+}
+
+inline MemberDefinition* find_member_by_name(u32 name_length, char* name) {
+    MemberDefinition* result = 0;
+
+    for (u32 member_index = 0; member_index < members_count(Entity); member_index++) {
+        MemberDefinition* member = members_of(Entity) + member_index;
+        if (strings_are_equal(wrap_string(name_length, name), wrap_string(member->name_length, member->name))) {
+            result = member;
+            break;
+        }
+    }
+
+    return result;
+}
+
+internal b32 load_level_from_disk(GameState* game_state, Level* level, char* level_name) {
+    assert(level);
+
+    b32 level_load_error = false;
+
+    TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
+
+    EntireFile file = platform.read_entire_file(level_name, allocator(arena_allocator, &game_state->transient_arena));
+    if (file.size > 0) {
+        u8* stream = cast(u8*) file.data;
+        u8* stream_end = stream + file.size;
+
+        while (stream < stream_end) {
+#define read_stream(size) (assert(stream + (size) <= stream_end), stream += (size), stream - (size))
+            LevFileHeader* header = cast(LevFileHeader*) stream;
+            assert(header->prelude.header_size <= sizeof(*header));
+
+            stream += header->prelude.header_size;
+
+            if (header->prelude.magic[0] == 'l' &&
+                header->prelude.magic[1] == 'e' &&
+                header->prelude.magic[2] == 'v' &&
+                header->prelude.magic[3] == 'l'
+            ) {
+                if (header->entity_member_count != members_count(Entity)) {
+                    dbg_text("Level Load Warning: Member count mismatch: %u in file, expected %u\n", header->entity_member_count, members_count(Entity));
+                }
+
+                level->name = wrap_cstr(level_name);
+                level->entity_count = header->entity_count;
+                level->first_available_guid = 1;
+
+                for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+                    Entity* entity = level->entities + entity_index;
+
+                    for (u32 member_index = 0; member_index < header->entity_member_count; member_index++) {
+                        u32 member_name_length = *(cast(u32*) read_stream(sizeof(u32)));
+                        assert(member_name_length);
+                        char* member_name = cast(char*) read_stream(member_name_length);
+
+                        MemberDefinition* member = find_member_by_name(member_name_length, member_name);
+                        if (member) {
+                            void** member_ptr = member_ptr(*entity, *member);
+                            u32 member_size = *(cast(u32*) read_stream(sizeof(u32)));
+
+                            if (member_size && member->size == member_size) {
+                                copy(member_size, read_stream(member_size), member_ptr);
+
+                                if (member->type == member_type(EntityID) && strings_are_equal(member->name, "guid")) {
+                                    if (entity->guid.value > level->first_available_guid) {
+                                        level->first_available_guid = entity->guid.value + 1;
+                                    }
+                                }
+                            } else {
+                                level_load_error = true;
+                                dbg_text("Level Load Error: Member size mismatch: %u in file, expected %u\n", member_size, member->size);
+                                goto level_load_end;
+                            }
+                        } else {
+                            dbg_text("Level Load Warning: Could not find matching member '%.*s'\n", member_name_length, member_name);
+                        }
+                    }
+                }
+            } else {
+                level_load_error = true;
+                dbg_text("Level Load Error: Header did not start with magic value 'levl'\n");
+                goto level_load_end;
+            }
+#undef read_stream
+        }
+    } else {
+        level_load_error = true;
+        dbg_text("Level Load Error: Could not open file '%s'\n", level_name);
+        goto level_load_end;
+    }
+
+level_load_end:
+    if (level_load_error) {
+        level->entity_count = 0;
+        level->first_available_guid = 1;
+    }
+
+    end_temporary_memory(temp);
+
+    return !level_load_error;
+}
+
 #include "pulsar_assets.cpp"
 #include "pulsar_audio_mixer.cpp"
 #include "pulsar_render_commands.cpp"
@@ -156,22 +332,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        game_state->test_music = get_sound_by_name(&game_state->assets, "test_music");
-        game_state->test_sound = get_sound_by_name(&game_state->assets, "test_sound");
-
-        {
-            v2* verts = push_array(&game_state->permanent_arena, 4, v2, no_clear());
-            verts[0] = { -0.2f, 0.0f };
-            verts[1] = {  0.2f, 0.0f };
-            verts[2] = {  0.2f, 1.0f };
-            verts[3] = { -0.2f, 1.0f };
-            game_state->player_collision = polygon(4, verts);
-        }
-
-        game_state->active_level = allocate_level(&game_state->permanent_arena, "Default Level");
+        game_state->active_level = allocate_level(&game_state->permanent_arena, "levels/debug_level.lev");
 
         game_state->foreground_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-        game_state->background_color = vec4(0.2f, 0.3f, 0.5f, 1.0f);
+        game_state->background_color = vec4(0.3f, 0.2f, 0.4f, 1.0f);
 
         game_state->editor_state = allocate_editor(game_state, render_commands, game_state->active_level);
 
@@ -185,6 +349,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         memory->initialized = true;
     }
 
+    //
+    // Pre-Sim
+    //
+
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
     f32 frame_dt = input->frame_dt;
     game_state->frame_dt = frame_dt;
@@ -194,27 +362,20 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     render_worldspace(render_context, 30.0f);
     game_state->render_context.camera_rotation_arm = vec2(1, 0);
 
-#if 0
-    game_state->rotation += dt;
-    if (game_state->rotation > PI_32) {
-        game_state->rotation -= TAU_32;
-    }
-    game_state->render_context.camera_rotation_arm = arm2(game_state->rotation);
-#endif
-
     push_clear(render_context, game_state->background_color);
 
-    EditorState* editor = game_state->editor_state;
+    if (game_state->game_mode == GameMode_Ingame) {
+        Entity* camera_target = game_state->camera_target;
+        if (camera_target) {
+            game_state->render_context.camera_p = camera_target->p;
+        }
 
-    if (was_pressed(input->debug_fkeys[2])) {
-        editor->shown = !editor->shown;
+        if (game_state->active_camera_zone) {
+            render_context->camera_p = game_state->active_camera_zone->p;
+            render_context->camera_rotation_arm = game_state->active_camera_zone->camera_rotation_arm;
+            render_worldspace(render_context, game_state->active_camera_zone->camera_zone.y);
+        }
     }
-
-    execute_editor(game_state, editor, input, memory->debug_info.frame_history);
-
-    //
-    // Pre-Sim
-    //
 
     if (game_state->player && game_state->player->dead) {
         if (game_state->player_respawn_timer > 0.0f) {
@@ -251,6 +412,20 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     // Post-Sim
     //
 
+
+    EditorState* editor = game_state->editor_state;
+
+    if (was_pressed(input->debug_fkeys[2])) {
+        editor->shown = !editor->shown;
+    }
+
+    execute_editor(game_state, editor, input, memory->debug_info.frame_history);
+    if (game_state->camera_target && game_state->active_camera_zone) {
+        if (!is_in_aab(aab_center_dim(game_state->active_camera_zone->p, game_state->active_camera_zone->camera_zone), game_state->camera_target->p)) {
+            game_state->active_camera_zone = 0;
+        }
+    }
+
     u32 active_entity_count = 0;
     Entity* active_entities = 0;
     if (game_state->game_mode == GameMode_Ingame) {
@@ -285,7 +460,14 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             switch (entity->type) {
                 case EntityType_CameraZone: {
                     transform.rotation_arm = entity->camera_rotation_arm;
-                    push_image(render_context, transform, entity->sprite, entity->color);
+                    {
+                        Image* sprite = get_image(&game_state->assets, entity->sprite);
+                        if (sprite) {
+                            push_image(render_context, transform, sprite, entity->color);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                    }
                     push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->camera_zone)), entity->color, ShapeRenderMode_Outline);
 
                     f32 aspect_ratio = cast(f32) width / cast(f32) height;
@@ -295,13 +477,25 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 } break;
 
                 case EntityType_Checkpoint: {
-                    push_image(render_context, transform, entity->sprite, entity->color);
+                    {
+                        Image* sprite = get_image(&game_state->assets, entity->sprite);
+                        if (sprite) {
+                            push_image(render_context, transform, sprite, entity->color);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                    }
                     push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
                 } break;
 
                 default: {
-                    if (entity->sprite) {
-                        push_image(render_context, transform, entity->sprite, entity->color);
+                    if (entity->sprite.value) {
+                        Image* sprite = get_image(&game_state->assets, entity->sprite);
+                        if (sprite) {
+                            push_image(render_context, transform, sprite, entity->color);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
                     } else {
                         push_shape(render_context, transform, rectangle(entity->collision), entity->color);
                     }
@@ -309,7 +503,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        if (entity->sprite) {
+        if (entity->sprite.value) {
             entity->color = COLOR_WHITE;
         } else {
             entity->color = (entity->flags & EntityFlag_Hazard) ? COLOR_RED : game_state->foreground_color;

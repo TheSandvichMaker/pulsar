@@ -31,7 +31,7 @@ struct CollisionVolume {
     v2 offset;
 };
 
-struct Entity {
+introspect() struct Entity {
     EntityID guid;
 
     EntityType type;
@@ -40,6 +40,15 @@ struct Entity {
     v2 ddp;
 
     b32 dead;
+
+    u32 flags;
+
+    ImageID sprite;
+    v4 color;
+
+    AxisAlignedBox2 collision;
+    // @TODO: Switch to collision volumes
+    // CollisionVolume collision;
 
     // @Note: Player
     f32 off_ground_timer;
@@ -72,15 +81,6 @@ struct Entity {
     // @Note: Checkpoint
     v2 checkpoint_zone;
     v2 most_recent_player_position;
-
-    u32 flags;
-
-    Image* sprite;
-    v4 color;
-
-    AxisAlignedBox2 collision;
-    // @TODO: Switch to collision volumes
-    // CollisionVolume collision;
 };
 
 #endif /* PULSAR_ENTITY_H */

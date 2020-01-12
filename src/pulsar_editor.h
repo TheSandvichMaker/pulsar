@@ -5,7 +5,7 @@
 struct Level {
     String name;
 
-    u32 last_used_guid;
+    u32 first_available_guid;
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
 };
@@ -150,9 +150,9 @@ struct EntityHash {
 #define UNDO_BUFFER_SIZE MEGABYTES(2)
 
 introspect() struct EditorAssets {
-    Image* camera_icon;
-    Image* speaker_icon;
-    Image* checkpoint_icon;
+    ImageID camera_icon;
+    ImageID speaker_icon;
+    ImageID checkpoint_icon;
 };
 
 struct EditorState {
@@ -198,6 +198,8 @@ struct EditorState {
     v2 camera_p_on_pan;
 
     v2 camera_p_on_exit;
+
+    f32 level_saved_timer;
 
     v2 spawn_menu_p;
     EntityType type_to_spawn;

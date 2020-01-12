@@ -11,8 +11,12 @@ enum MemberDefinitionFlag {
 struct MemberDefinition {
     unsigned int flags;
     MetaType type;
+
+    unsigned int name_length;
     char* name;
+
     unsigned int offset;
+    unsigned int size;
 };
 
 #ifndef introspect

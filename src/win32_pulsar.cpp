@@ -78,13 +78,13 @@ internal PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
         LARGE_INTEGER file_size;
         if (GetFileSizeEx(file_handle, &file_size)) {
             u32 file_size32 = safe_truncate_u64u32(file_size.QuadPart);
-            result.data = VirtualAlloc(NULL, file_size32, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+            result.data = allocate(allocator, file_size32, no_clear());
             if (result.data) {
                 DWORD bytes_read;
                 if (ReadFile(file_handle, result.data, file_size32, &bytes_read, 0) && file_size32 == bytes_read) {
                     result.size = bytes_read;
                 } else {
-                    win32_deallocate_memory(result.data);
+                    deallocate(allocator, result.data);
                     result.data = (void*)0;
                 }
             } else {
@@ -586,7 +586,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 focus_changed = new_in_focus != in_focus;
                 in_focus = new_in_focus;
 
-                new_input->frame_dt = 1.0f / game_update_rate;
+                new_input->update_rate = game_update_rate;
+                new_input->frame_dt = 1.0f / new_input->update_rate;
                 new_input->in_focus = in_focus;
                 new_input->focus_changed = focus_changed;
 

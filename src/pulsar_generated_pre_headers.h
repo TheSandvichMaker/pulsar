@@ -20,9 +20,15 @@ enum MetaType {
     MetaType_EditorWidgetType,
     MetaType_UndoType,
     MetaType_EditorAssets,
-    MetaType_Image,
+    MetaType_ImageID,
     MetaType_EntityFlag,
     MetaType_EntityType,
+    MetaType_Entity,
+    MetaType_EntityID,
+    MetaType_b32,
+    MetaType_v4,
+    MetaType_AxisAlignedBox2,
+    MetaType_SoundtrackID,
 };
 
 #define BodyOf_PackedImage \
@@ -65,8 +71,39 @@ enum MetaType {
     u8 velocity;
 
 #define BodyOf_EditorAssets \
-    Image* camera_icon; \
-    Image* speaker_icon; \
-    Image* checkpoint_icon;
+    ImageID camera_icon; \
+    ImageID speaker_icon; \
+    ImageID checkpoint_icon;
+
+#define BodyOf_Entity \
+    EntityID guid; \
+    EntityType type; \
+    v2 p; \
+    v2 dp; \
+    v2 ddp; \
+    b32 dead; \
+    u32 flags; \
+    ImageID sprite; \
+    v4 color; \
+    AxisAlignedBox2 collision; \
+    f32 off_ground_timer; \
+    f32 friction_of_last_touched_surface; \
+    Entity* support; \
+    v2 support_normal; \
+    v2 local_p; \
+    Entity* sticking_entity; \
+    v2 sticking_dp; \
+    b32 was_on_ground; \
+    f32 surface_friction; \
+    f32 movement_t; \
+    u32 midi_note; \
+    v2 midi_test_target; \
+    b32 soundtrack_has_been_played; \
+    SoundtrackID soundtrack_id; \
+    u32 playback_flags; \
+    v2 camera_zone; \
+    v2 camera_rotation_arm; \
+    v2 checkpoint_zone; \
+    v2 most_recent_player_position;
 
 #endif

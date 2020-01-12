@@ -1,66 +1,64 @@
-#ifndef PULSAR_TEMPLATE_ARRAY_H
-#define PULSAR_TEMPLATE_ARRAY_H
+// @TODO: Figure out whether or not I like this style of "templatizing" data structures
 
-template <typename T>
-struct Array {
+#ifndef PULSAR_ARRAY_TYPE
+#error PULSAR_ARRAY_TYPE was undefined
+#endif
+
+#ifndef PULSAR_ARRAY
+#define PULSAR_ARRAY_(type) Array_##type
+#define PULSAR_ARRAY(type) PULSAR_ARRAY_(type)
+#endif
+
+struct PULSAR_ARRAY(PULSAR_ARRAY_TYPE) {
     Allocator allocator;
-    T* data;
+    PULSAR_ARRAY_TYPE* data;
     size_t capacity;
     size_t count;
 };
 
-template <typename T>
-inline Array<T> allocate_array(size_t initial_capacity, Allocator allocator) {
-    Array<T> array;
-    array.allocator = allocator;
-    array.capacity = initial_capacity;
-    array.data = cast(T*) allocate(array.allocator, sizeof(T)*array.capacity, align_no_clear(alignof(T)));
-    array.count = 0;
-    return array;
+inline void allocate_array(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array, size_t initial_capacity, Allocator allocator) {
+    array->allocator = allocator;
+    array->capacity = initial_capacity;
+    array->data = cast(PULSAR_ARRAY_TYPE*) allocate(array->allocator, sizeof(PULSAR_ARRAY_TYPE)*array->capacity, align_no_clear(alignof(PULSAR_ARRAY_TYPE)));
+    array->count = 0;
 }
 
-template <typename T>
-inline void maybe_grow_array(Array<T>* array, size_t required_capacity) {
+inline void maybe_grow_array(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array, size_t required_capacity) {
     if (required_capacity > array->capacity) {
         size_t old_capacity = array->capacity;
         size_t new_capacity = old_capacity;
         while (new_capacity < required_capacity) {
             new_capacity *= 2;
         }
-        array->data = cast(T*) reallocate(array->allocator, sizeof(T)*new_capacity, sizeof(T)*old_capacity, array->data, align_no_clear(alignof(T)));
+        array->data = cast(PULSAR_ARRAY_TYPE*) reallocate(array->allocator, sizeof(PULSAR_ARRAY_TYPE)*new_capacity, sizeof(PULSAR_ARRAY_TYPE)*old_capacity, array->data, align_no_clear(alignof(PULSAR_ARRAY_TYPE)));
         assert(array->data);
         array->capacity = new_capacity;
     }
 }
 
-template <typename T>
-inline T* array_add(Array<T>* array) {
+inline PULSAR_ARRAY_TYPE* array_add(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array) {
     maybe_grow_array(array, array->count + 1);
-    T* result = array->data + array->count++;
+    PULSAR_ARRAY_TYPE* result = array->data + array->count++;
     return result;
 }
 
-template <typename T>
-inline T* array_add(Array<T>* array, T item) {
-    T* slot = array_add(array);
+inline PULSAR_ARRAY_TYPE* array_add(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array, PULSAR_ARRAY_TYPE item) {
+    PULSAR_ARRAY_TYPE* slot = array_add(array);
     *slot = item;
     return slot;
 }
 
-template <typename T>
-inline void array_remove_unordered(Array<T>* array, size_t index) {
+inline void array_remove_unordered(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array, size_t index) {
     array->data[index] = array->data[--array->count];
 }
 
-template <typename T>
-inline size_t array_count_remaining(Array<T>* array) {
+inline size_t array_count_remaining(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array) {
     size_t result = (array->capacity - array->count);
     return result;
 }
 
-template <typename T>
-inline void clear_array(Array<T>* array) {
+inline void clear_array(PULSAR_ARRAY(PULSAR_ARRAY_TYPE)* array) {
     array->count = 0;
 }
 
-#endif /* PULSAR_TEMPLATE_ARRAY_H */
+#undef PULSAR_ARRAY_TYPE
