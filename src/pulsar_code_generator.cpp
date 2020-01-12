@@ -19,30 +19,6 @@
 #include "file_io.h"
 #include "file_io.cpp"
 
-internal ALLOCATOR(malloc_allocator) {
-    void* result = 0;
-    if (params.align_ == ALLOCATOR_ALIGN_DONT_CARE) {
-        result = realloc(old_ptr, new_size);
-    } else {
-        if (new_size) {
-            if (old_ptr) {
-                result = _aligned_realloc(old_ptr, new_size, params.align_);
-            } else {
-                result = _aligned_malloc(new_size, params.align_);
-            }
-        } else {
-            assert(old_ptr);
-            _aligned_free(old_ptr);
-        }
-    }
-
-    if (result && new_size && params.flags & AllocateFlag_ClearToZero) {
-        memset(result, 0, new_size);
-    }
-
-    return result;
-}
-
 global MemoryArena general_arena;
 global Allocator general_allocator = allocator(arena_allocator, &general_arena);
 
@@ -524,6 +500,10 @@ internal StructMember parse_member(Tokenizer* tokenizer, Token struct_type_token
     while (parsing) {
         Token token = get_token(tokenizer);
 
+        if (token_equals(token, "using_struct")) {
+            break;
+        }
+
         switch (token.type) {
             case Token_Operator: {
                 if (token_equals(token, '*')) {
@@ -555,16 +535,16 @@ internal void parse_struct(Tokenizer* tokenizer, IntrospectionParams params) {
     meta.name = name_token;
     allocate_array(&meta.members, 8, general_allocator);
 
-    if (token_equals(name_token, "Entity")) {
-        int y = 5;
-    }
-
     add_meta_type_if_unique(&meta_type_array, meta.name);
 
     if (match(tokenizer, '{')) {
         for (;;) {
             Token member_token = get_token(tokenizer);
-            if (member_token.type == Token_EndOfStream || token_equals(member_token, '}')) {
+            if (token_equals(member_token, "using_struct")) {
+                while (member_token.type != Token_Semicolon) {
+                    member_token = get_token(tokenizer);
+                }
+            } else if (member_token.type == Token_EndOfStream || token_equals(member_token, '}')) {
                 break;
             } else {
                 StructMember member = parse_member(tokenizer, name_token, member_token);
@@ -789,7 +769,7 @@ int main(int argument_count, char** arguments) {
                 Token member = meta.members.data[member_index];
                 fprintf(post_headers, "        case %.*s: return \"%.*s\";\n", PRINTF_TOKEN(member), PRINTF_TOKEN(member));
             }
-            fprintf(post_headers, "        default: return \"Unknown value for %.*s\";\n", PRINTF_TOKEN(meta.name));
+            fprintf(post_headers, "        default: return 0;\n");
             fprintf(post_headers, "    }\n");
             fprintf(post_headers, "}\n\n");
         }

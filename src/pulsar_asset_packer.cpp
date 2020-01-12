@@ -488,7 +488,7 @@ int main(int argument_count, char** arguments) {
                         stream.at = cast(u8*) file.data;
                         stream.stop = stream.at + file.size;
 
-                        LinearBuffer(MidiEvent) events = begin_linear_buffer(&global_arena, MidiEvent, no_clear());
+                        MidiEvent* events = begin_linear_buffer(&global_arena, MidiEvent, no_clear());
 
                         while (stream.at < stream.stop) {
                             MidiChunk chunk = midi_read_chunk(&stream);
@@ -574,7 +574,6 @@ int main(int argument_count, char** arguments) {
                                         } else {
                                             // @Note: Data Byte
 parse_data_bytes:
-                                            // @TODO: I think this will barf if I hit an unhandled midi channel message status
                                             MidiEvent event = {};
 
                                             f64 delta_time_in_samples = samples_per_delta_time * cast(f64) delta_time;

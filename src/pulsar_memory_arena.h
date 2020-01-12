@@ -140,8 +140,6 @@ inline size_t end_linear_buffer(void* buffer) {
     return header->count;
 }
 
-#define LinearBuffer(x) x*
-
 inline char* push_string(MemoryArena* arena, size_t length, char* source) {
     assert((arena->used + length) <= arena->size);
 

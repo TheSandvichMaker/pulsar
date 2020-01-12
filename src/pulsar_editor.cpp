@@ -76,7 +76,6 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
     entity->p = get_center(aab);
     entity->color = vec4(1, 1, 1, 1);
     entity->surface_friction = 1.5f;
-    entity->midi_test_target = entity->p;
 
     entity->flags |= EntityFlag_Collides;
     if (deadly_wall) {
@@ -382,7 +381,7 @@ inline void create_debug_level(EditorState* editor) {
     u32 width = editor->render_context.commands->width;
     u32 height = editor->render_context.commands->height;
 
-    f32 aspect_ratio = cast(f32) width / cast(f32) height;
+    f32 aspect_ratio = 16.0f/9.0f;
     add_camera_zone(editor, aab_center_dim(vec2(0.0f, 2.0f), vec2(aspect_ratio*20.0f, 20.0f)));
 }
 
@@ -535,7 +534,7 @@ DECLARE_EDITABLE_TYPE_INFERENCER(EntityPtr)
 
 #define add_editable(editables, struct_type, member, ...) \
     add_editable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offset_of(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
-inline EditableParameter* add_editable_(LinearBuffer(EditableParameter) editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
+inline EditableParameter* add_editable_(EditableParameter* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
     EditableParameter* parameter = lb_push(editables);
     parameter->type = type;
     parameter->name = name;
@@ -547,11 +546,11 @@ inline EditableParameter* add_editable_(LinearBuffer(EditableParameter) editable
 
 #define add_viewable(editables, struct_type, member, ...) \
     add_viewable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offset_of(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
-inline EditableParameter* add_viewable_(LinearBuffer(EditableParameter) editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
+inline EditableParameter* add_viewable_(EditableParameter* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
     return add_editable_(editables, type, name, offset, size, Editable_Static|flags);
 }
 
-inline LinearBuffer(EditableParameter) begin_editables(EditorState* editor, EntityType type) {
+inline EditableParameter* begin_editables(EditorState* editor, EntityType type) {
     assert(editor->current_editable_type == EntityType_Null);
 
     editor->current_editable_type = type;
@@ -561,7 +560,7 @@ inline LinearBuffer(EditableParameter) begin_editables(EditorState* editor, Enti
     return editor->editable_parameter_info[editor->current_editable_type];
 }
 
-inline void end_editables(EditorState* editor, LinearBuffer(EditableParameter) editables) {
+inline void end_editables(EditorState* editor, EditableParameter* editables) {
     assert(editor->current_editable_type != EntityType_Null);
 
     end_linear_buffer(editables);
@@ -572,7 +571,7 @@ inline void end_editables(EditorState* editor, LinearBuffer(EditableParameter) e
 
 internal void set_up_editable_parameters(EditorState* editor) {
     EditableParameter* editable = 0;
-    LinearBuffer(EditableParameter) editables = 0;
+    EditableParameter* editables = 0;
 
     editables = begin_editables(editor, EntityType_Player);
     {
@@ -772,7 +771,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     set_up_editable_parameters(editor);
 
-    b32 successfully_loaded_level = load_level_from_disk(game_state, active_level, "levels/test_level.lev");
+    b32 successfully_loaded_level = load_level_from_disk(game_state, active_level, "levels/debug_level.lev");
     load_level(editor, active_level);
 
     if (!successfully_loaded_level) {
@@ -886,7 +885,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             v4 color = vec4(0.85f, 0.85f, 0.85f, 1.0f - (cast(f32) undo_log_count / 5.0f));
 
-            editor_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name(UndoType, footer->type));
+            editor_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name_safe(UndoType, footer->type));
             switch (footer->type) {
                 case Undo_SetData: {
                     if (footer->description) {
@@ -1014,12 +1013,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             v4 color = (editor->type_to_spawn == entity_type) ? vec4(1, 0, 1, 1) : vec4(1, 1, 1, 1);
             char* entity_name = enum_name(EntityType, entity_type);
-            entity_name += sizeof("EntityType_") - 1;
+            if (entity_name) {
+                entity_name += sizeof("EntityType_") - 1;
 
-            editor_print_line(&spawn_menu, color, entity_name);
+                editor_print_line(&spawn_menu, color, entity_name);
 
-            if (is_in_aab(spawn_menu.last_print_bounds, mouse_p)) {
-                highlighted_type = entity_type;
+                if (is_in_aab(spawn_menu.last_print_bounds, mouse_p)) {
+                    highlighted_type = entity_type;
+                }
             }
         }
         editor->type_to_spawn = highlighted_type;
@@ -1050,10 +1051,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     if (selected) {
-        Entity* respective_entity = 0;
+#if 0
+        Entity* full_entity = 0;
         if (game_state->game_mode == GameMode_Ingame) {
-            respective_entity = get_entity_from_guid(editor, selected->guid);
         }
+#endif
 
         if (selected->type == EntityType_CameraZone) {
             EditorWidget drag_camera_zone;
@@ -1136,7 +1138,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
 
         editor_print_line(&layout, COLOR_WHITE, "");
-        editor_print_line(&layout, COLOR_WHITE, "Entity (%d, %s)", selected->guid.value, enum_name(EntityType, selected->type));
+        editor_print_line(&layout, COLOR_WHITE, "Entity (%d, %s)", selected->guid.value, enum_name_safe(EntityType, selected->type));
 
         layout.depth++;
 
@@ -1204,10 +1206,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     editor->next_hot_widget = widget;
                 }
 
+#if 0
                 if (respective_entity) {
                     editable_ptr = cast(void**) (cast(u8*) respective_entity + editable->offset);
                     print_editable(&layout, editable, editable_ptr, vec4(0.7f, 0.7f, 0.7f, 1.0f));
                 }
+#endif
 
                 editor_finish_print(&layout);
             }

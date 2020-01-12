@@ -10,16 +10,16 @@ introspect(flags: true) enum EntityFlag {
 };
 
 introspect() enum EntityType {
-    EntityType_Null,
+    EntityType_Null = 0,
 
     // @Note: Physical Entities
-    EntityType_Player,
-    EntityType_Wall,
+    EntityType_Player = 1,
+    EntityType_Wall   = 2,
 
     // @Note: Non-physical Entities
-    EntityType_SoundtrackPlayer,
-    EntityType_CameraZone,
-    EntityType_Checkpoint,
+    EntityType_SoundtrackPlayer = 3,
+    EntityType_CameraZone       = 4,
+    EntityType_Checkpoint       = 5,
 
     EntityType_Count,
 };
@@ -33,22 +33,19 @@ struct CollisionVolume {
 
 introspect() struct Entity {
     EntityID guid;
-
     EntityType type;
+
+    u32 flags;
+    b32 dead;
+
     v2 p;
     v2 dp;
     v2 ddp;
 
-    b32 dead;
-
-    u32 flags;
+    AxisAlignedBox2 collision;
 
     ImageID sprite;
     v4 color;
-
-    AxisAlignedBox2 collision;
-    // @TODO: Switch to collision volumes
-    // CollisionVolume collision;
 
     // @Note: Player
     f32 off_ground_timer;
@@ -58,21 +55,19 @@ introspect() struct Entity {
     v2 local_p;
 
     // @Note: Wall
-    Entity* sticking_entity;
-    v2 sticking_dp;
-
-    b32 was_on_ground;
     f32 surface_friction;
+    u32 midi_note;
 
     f32 movement_t;
-
-    u32 midi_note;
+    Entity* sticking_entity;
+    v2 sticking_dp;
     v2 midi_test_target;
 
     // @Note: Soundtrack Player
-    b32 soundtrack_has_been_played;
     SoundtrackID soundtrack_id;
     u32 playback_flags;
+
+    b32 soundtrack_has_been_played;
 
     // @Note: Camera Zone;
     v2 camera_zone;

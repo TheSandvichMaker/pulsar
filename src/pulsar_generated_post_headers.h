@@ -8,7 +8,7 @@ char* GetEnumNameOf_EditorWidgetType(int value) {
         case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
         case Widget_DragAxisAlignedBox: return "Widget_DragAxisAlignedBox";
         case Widget_DragV2: return "Widget_DragV2";
-        default: return "Unknown value for EditorWidgetType";
+        default: return 0;
     }
 }
 
@@ -19,7 +19,7 @@ char* GetEnumNameOf_UndoType(int value) {
         case Undo_SetEntityData: return "Undo_SetEntityData";
         case Undo_CreateEntity: return "Undo_CreateEntity";
         case Undo_DeleteEntity: return "Undo_DeleteEntity";
-        default: return "Unknown value for UndoType";
+        default: return 0;
     }
 }
 
@@ -41,7 +41,7 @@ char* GetEnumNameOf_EntityType(int value) {
         case EntityType_CameraZone: return "EntityType_CameraZone";
         case EntityType_Checkpoint: return "EntityType_Checkpoint";
         case EntityType_Count: return "EntityType_Count";
-        default: return "Unknown value for EntityType";
+        default: return 0;
     }
 }
 
@@ -99,29 +99,28 @@ static MemberDefinition MembersOf_EditorAssets[] = {
 static MemberDefinition MembersOf_Entity[] = {
     { 0, MetaType_EntityID, 4, "guid", (unsigned int)&((Entity*)0)->guid, sizeof(EntityID) },
     { 0, MetaType_EntityType, 4, "type", (unsigned int)&((Entity*)0)->type, sizeof(EntityType) },
+    { 0, MetaType_u32, 5, "flags", (unsigned int)&((Entity*)0)->flags, sizeof(u32) },
+    { 0, MetaType_b32, 4, "dead", (unsigned int)&((Entity*)0)->dead, sizeof(b32) },
     { 0, MetaType_v2, 1, "p", (unsigned int)&((Entity*)0)->p, sizeof(v2) },
     { 0, MetaType_v2, 2, "dp", (unsigned int)&((Entity*)0)->dp, sizeof(v2) },
     { 0, MetaType_v2, 3, "ddp", (unsigned int)&((Entity*)0)->ddp, sizeof(v2) },
-    { 0, MetaType_b32, 4, "dead", (unsigned int)&((Entity*)0)->dead, sizeof(b32) },
-    { 0, MetaType_u32, 5, "flags", (unsigned int)&((Entity*)0)->flags, sizeof(u32) },
+    { 0, MetaType_AxisAlignedBox2, 9, "collision", (unsigned int)&((Entity*)0)->collision, sizeof(AxisAlignedBox2) },
     { 0, MetaType_ImageID, 6, "sprite", (unsigned int)&((Entity*)0)->sprite, sizeof(ImageID) },
     { 0, MetaType_v4, 5, "color", (unsigned int)&((Entity*)0)->color, sizeof(v4) },
-    { 0, MetaType_AxisAlignedBox2, 9, "collision", (unsigned int)&((Entity*)0)->collision, sizeof(AxisAlignedBox2) },
     { 0, MetaType_f32, 16, "off_ground_timer", (unsigned int)&((Entity*)0)->off_ground_timer, sizeof(f32) },
     { 0, MetaType_f32, 32, "friction_of_last_touched_surface", (unsigned int)&((Entity*)0)->friction_of_last_touched_surface, sizeof(f32) },
     { MetaMemberFlag_IsPointer, MetaType_Entity, 7, "support", (unsigned int)&((Entity*)0)->support, sizeof(Entity) },
     { 0, MetaType_v2, 14, "support_normal", (unsigned int)&((Entity*)0)->support_normal, sizeof(v2) },
     { 0, MetaType_v2, 7, "local_p", (unsigned int)&((Entity*)0)->local_p, sizeof(v2) },
+    { 0, MetaType_f32, 16, "surface_friction", (unsigned int)&((Entity*)0)->surface_friction, sizeof(f32) },
+    { 0, MetaType_u32, 9, "midi_note", (unsigned int)&((Entity*)0)->midi_note, sizeof(u32) },
+    { 0, MetaType_f32, 10, "movement_t", (unsigned int)&((Entity*)0)->movement_t, sizeof(f32) },
     { MetaMemberFlag_IsPointer, MetaType_Entity, 15, "sticking_entity", (unsigned int)&((Entity*)0)->sticking_entity, sizeof(Entity) },
     { 0, MetaType_v2, 11, "sticking_dp", (unsigned int)&((Entity*)0)->sticking_dp, sizeof(v2) },
-    { 0, MetaType_b32, 13, "was_on_ground", (unsigned int)&((Entity*)0)->was_on_ground, sizeof(b32) },
-    { 0, MetaType_f32, 16, "surface_friction", (unsigned int)&((Entity*)0)->surface_friction, sizeof(f32) },
-    { 0, MetaType_f32, 10, "movement_t", (unsigned int)&((Entity*)0)->movement_t, sizeof(f32) },
-    { 0, MetaType_u32, 9, "midi_note", (unsigned int)&((Entity*)0)->midi_note, sizeof(u32) },
     { 0, MetaType_v2, 16, "midi_test_target", (unsigned int)&((Entity*)0)->midi_test_target, sizeof(v2) },
-    { 0, MetaType_b32, 26, "soundtrack_has_been_played", (unsigned int)&((Entity*)0)->soundtrack_has_been_played, sizeof(b32) },
     { 0, MetaType_SoundtrackID, 13, "soundtrack_id", (unsigned int)&((Entity*)0)->soundtrack_id, sizeof(SoundtrackID) },
     { 0, MetaType_u32, 14, "playback_flags", (unsigned int)&((Entity*)0)->playback_flags, sizeof(u32) },
+    { 0, MetaType_b32, 26, "soundtrack_has_been_played", (unsigned int)&((Entity*)0)->soundtrack_has_been_played, sizeof(b32) },
     { 0, MetaType_v2, 11, "camera_zone", (unsigned int)&((Entity*)0)->camera_zone, sizeof(v2) },
     { 0, MetaType_v2, 19, "camera_rotation_arm", (unsigned int)&((Entity*)0)->camera_rotation_arm, sizeof(v2) },
     { 0, MetaType_v2, 15, "checkpoint_zone", (unsigned int)&((Entity*)0)->checkpoint_zone, sizeof(v2) },

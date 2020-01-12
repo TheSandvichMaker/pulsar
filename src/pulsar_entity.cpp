@@ -19,8 +19,6 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
             continue;
         }
 
-        entity->was_on_ground = on_ground(entity);
-
         switch (entity->type) {
             case EntityType_Player: {
                 if (!game_state->camera_target) {
@@ -28,7 +26,7 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
                 }
 
                 GameController* controller = &input->controller;
-                f32 move_speed = entity->was_on_ground ? 50.0f : 10.0f;
+                f32 move_speed = entity->support ? 50.0f : 10.0f;
                 if (controller->move_left.is_down) {
                     entity->ddp.x -= move_speed;
                 }

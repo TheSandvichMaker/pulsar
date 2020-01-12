@@ -31,6 +31,42 @@ inline Level* allocate_level(MemoryArena* arena, char* name) {
     return result;
 }
 
+struct Serializable {
+    char* name;
+    u32 name_length;
+    u32 offset;
+    u32 size;
+};
+
+#define SERIALIZABLE(struct_type, member) \
+    { #member, sizeof(#member) - 1, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member }
+
+global Serializable entity_serializables[] = {
+        // @Note: All entities
+        SERIALIZABLE(Entity, guid),
+        SERIALIZABLE(Entity, type),
+        SERIALIZABLE(Entity, flags),
+        SERIALIZABLE(Entity, dead),
+        SERIALIZABLE(Entity, p),
+        SERIALIZABLE(Entity, collision),
+        SERIALIZABLE(Entity, sprite),
+        SERIALIZABLE(Entity, color),
+        // @Note: Player
+        // ...
+        // @Note: Wall
+        SERIALIZABLE(Entity, surface_friction),
+        SERIALIZABLE(Entity, midi_note),
+        // @Note: Soundtrack Player
+        SERIALIZABLE(Entity, soundtrack_id),
+        SERIALIZABLE(Entity, playback_flags),
+        // @Note: Camera Zone
+        SERIALIZABLE(Entity, camera_zone),
+        SERIALIZABLE(Entity, camera_rotation_arm),
+        // @Note: Checkpoint
+        SERIALIZABLE(Entity, checkpoint_zone),
+        SERIALIZABLE(Entity, most_recent_player_position),
+};
+
 #pragma pack(push, 1)
 struct LevFileHeader {
     struct {
@@ -66,20 +102,20 @@ internal void write_level_to_disk(GameState* game_state, Level* level, char* lev
     header.prelude.header_size = sizeof(header);
 
     header.entity_count = level->entity_count;
-    header.entity_member_count = members_count(Entity);
+    header.entity_member_count = ARRAY_COUNT(entity_serializables);
 
     write_stream(sizeof(header), &header);
 
     for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
         Entity* entity = level->entities + entity_index;
-        for (u32 member_index = 0; member_index < members_count(Entity); member_index++) {
-            MemberDefinition member = members_of(Entity)[member_index];
-            void** member_ptr = member_ptr(*entity, member);
+        for (u32 ser_index = 0; ser_index < ARRAY_COUNT(entity_serializables); ser_index++) {
+            Serializable* ser = entity_serializables + ser_index;
+            void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
 
-            write_stream(sizeof(u32), &member.name_length);
-            write_stream(member.name_length, member.name);
-            write_stream(sizeof(u32), &member.size);
-            write_stream(member.size, member_ptr);
+            write_stream(sizeof(u32), &ser->name_length);
+            write_stream(ser->name_length, ser->name);
+            write_stream(sizeof(u32), &ser->size);
+            write_stream(ser->size, data_ptr);
         }
     }
 
@@ -92,13 +128,13 @@ internal void write_level_to_disk(GameState* game_state, Level* level, char* lev
     end_temporary_memory(temp);
 }
 
-inline MemberDefinition* find_member_by_name(u32 name_length, char* name) {
-    MemberDefinition* result = 0;
+inline Serializable* find_serializable_by_name(Serializable* serializables, u32 name_length, char* name) {
+    Serializable* result = 0;
 
-    for (u32 member_index = 0; member_index < members_count(Entity); member_index++) {
-        MemberDefinition* member = members_of(Entity) + member_index;
-        if (strings_are_equal(wrap_string(name_length, name), wrap_string(member->name_length, member->name))) {
-            result = member;
+    for (u32 ser_index = 0; ser_index < lb_count(serializables); ser_index++) {
+        Serializable* ser = serializables + ser_index;
+        if (strings_are_equal(wrap_string(name_length, name), wrap_string(ser->name_length, ser->name))) {
+            result = ser;
             break;
         }
     }
@@ -118,64 +154,66 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, char* lev
         u8* stream = cast(u8*) file.data;
         u8* stream_end = stream + file.size;
 
-        while (stream < stream_end) {
 #define read_stream(size) (assert(stream + (size) <= stream_end), stream += (size), stream - (size))
-            LevFileHeader* header = cast(LevFileHeader*) stream;
-            assert(header->prelude.header_size <= sizeof(*header));
+        LevFileHeader* header = cast(LevFileHeader*) stream;
+        assert(header->prelude.header_size <= sizeof(*header));
 
-            stream += header->prelude.header_size;
+        stream += header->prelude.header_size;
 
-            if (header->prelude.magic[0] == 'l' &&
-                header->prelude.magic[1] == 'e' &&
-                header->prelude.magic[2] == 'v' &&
-                header->prelude.magic[3] == 'l'
-            ) {
-                if (header->entity_member_count != members_count(Entity)) {
-                    dbg_text("Level Load Warning: Member count mismatch: %u in file, expected %u\n", header->entity_member_count, members_count(Entity));
-                }
+        if (header->prelude.magic[0] == 'l' &&
+            header->prelude.magic[1] == 'e' &&
+            header->prelude.magic[2] == 'v' &&
+            header->prelude.magic[3] == 'l'
+        ) {
+            if (header->entity_member_count != members_count(Entity)) {
+                dbg_text("Level Load Warning: Member count mismatch: %u in file, expected %u\n", header->entity_member_count, members_count(Entity));
+            }
 
-                level->name = wrap_cstr(level_name);
-                level->entity_count = header->entity_count;
-                level->first_available_guid = 1;
+            if (header->prelude.version != LEV_VERSION) {
+                dbg_text("Level Load Warning: Version mismatch: %u in file, expected %u\n", header->prelude.version, LEV_VERSION);
+            }
 
-                for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
-                    Entity* entity = level->entities + entity_index;
+            level->name = wrap_cstr(level_name);
+            level->entity_count = header->entity_count;
+            level->first_available_guid = 1;
 
-                    for (u32 member_index = 0; member_index < header->entity_member_count; member_index++) {
-                        u32 member_name_length = *(cast(u32*) read_stream(sizeof(u32)));
-                        assert(member_name_length);
-                        char* member_name = cast(char*) read_stream(member_name_length);
+            for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+                Entity* entity = level->entities + entity_index;
 
-                        MemberDefinition* member = find_member_by_name(member_name_length, member_name);
-                        if (member) {
-                            void** member_ptr = member_ptr(*entity, *member);
-                            u32 member_size = *(cast(u32*) read_stream(sizeof(u32)));
+                for (u32 member_index = 0; member_index < header->entity_member_count; member_index++) {
+                    u32 member_name_length = *(cast(u32*) read_stream(sizeof(u32)));
+                    assert(member_name_length);
+                    char* member_name = cast(char*) read_stream(member_name_length);
 
-                            if (member_size && member->size == member_size) {
-                                copy(member_size, read_stream(member_size), member_ptr);
+                    Serializable* ser = find_serializable_by_name(entity_serializables, member_name_length, member_name);
+                    if (ser) {
+                        void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
+                        u32 data_size = *(cast(u32*) read_stream(sizeof(u32)));
 
-                                if (member->type == member_type(EntityID) && strings_are_equal(member->name, "guid")) {
-                                    if (entity->guid.value > level->first_available_guid) {
-                                        level->first_available_guid = entity->guid.value + 1;
-                                    }
+                        if (data_size && ser->size == data_size) {
+                            copy(data_size, read_stream(data_size), data_ptr);
+
+                            if (strings_are_equal(ser->name, "guid")) {
+                                if (entity->guid.value > level->first_available_guid) {
+                                    level->first_available_guid = entity->guid.value + 1;
                                 }
-                            } else {
-                                level_load_error = true;
-                                dbg_text("Level Load Error: Member size mismatch: %u in file, expected %u\n", member_size, member->size);
-                                goto level_load_end;
                             }
                         } else {
-                            dbg_text("Level Load Warning: Could not find matching member '%.*s'\n", member_name_length, member_name);
+                            level_load_error = true;
+                            dbg_text("Level Load Error: Member size mismatch: %u in file, expected %u\n", data_size, ser->size);
+                            goto level_load_end;
                         }
+                    } else {
+                        dbg_text("Level Load Warning: Could not find matching member '%.*s'\n", member_name_length, member_name);
                     }
                 }
-            } else {
-                level_load_error = true;
-                dbg_text("Level Load Error: Header did not start with magic value 'levl'\n");
-                goto level_load_end;
             }
-#undef read_stream
+        } else {
+            level_load_error = true;
+            dbg_text("Level Load Error: Header did not start with magic value 'levl'\n");
+            goto level_load_end;
         }
+#undef read_stream
     } else {
         level_load_error = true;
         dbg_text("Level Load Error: Could not open file '%s'\n", level_name);
@@ -326,6 +364,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     if (!memory->initialized) {
         initialize_arena(&game_state->permanent_arena, memory->permanent_storage_size - sizeof(GameState), cast(u8*) memory->permanent_storage + sizeof(GameState));
         initialize_arena(&game_state->transient_arena, memory->transient_storage_size, memory->transient_storage);
+
+        register_serializables(game_state);
 
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
 

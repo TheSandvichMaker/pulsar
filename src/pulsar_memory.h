@@ -85,4 +85,32 @@ inline void copy(size_t size, void* source_init, void* dest_init) {
     while (size--) { *dest++= *source++; }
 }
 
+#if PULSAR_MEMORY_MALLOC_ALLOCATOR
+#include <malloc.h>
+
+internal ALLOCATOR(malloc_allocator) {
+    void* result = 0;
+    if (params.align_ == ALLOCATOR_ALIGN_DONT_CARE) {
+        result = realloc(old_ptr, new_size);
+    } else {
+        if (new_size) {
+            if (old_ptr) {
+                result = _aligned_realloc(old_ptr, new_size, params.align_);
+            } else {
+                result = _aligned_malloc(new_size, params.align_);
+            }
+        } else {
+            assert(old_ptr);
+            _aligned_free(old_ptr);
+        }
+    }
+
+    if (result && new_size && params.flags & AllocateFlag_ClearToZero) {
+        memset(result, 0, new_size);
+    }
+
+    return result;
+}
+#endif
+
 #endif /* PULSAR_MEMORY_H */
