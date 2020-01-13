@@ -25,8 +25,9 @@ inline Level* allocate_level(MemoryArena* arena, char* name) {
     result->entity_count = 1;
 
     size_t name_length = cstr_length(name);
-    result->name.len = name_length;
-    result->name.data = name;
+    assert(name_length <= ARRAY_COUNT(result->name));
+    result->name_length = cast(u32) name_length;
+    copy(result->name_length, name, result->name);
 
     return result;
 }
@@ -34,37 +35,38 @@ inline Level* allocate_level(MemoryArena* arena, char* name) {
 struct Serializable {
     char* name;
     u32 name_length;
+    s32 type; // @Note: Why does the compiler want EntityType to be signed?
     u32 offset;
     u32 size;
 };
 
-#define SERIALIZABLE(struct_type, member) \
-    { #member, sizeof(#member) - 1, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member }
+#define SERIALIZABLE(struct_type, identifying_type, member) \
+    { #member, sizeof(#member) - 1, identifying_type, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member }
 
 global Serializable entity_serializables[] = {
-        // @Note: All entities
-        SERIALIZABLE(Entity, guid),
-        SERIALIZABLE(Entity, type),
-        SERIALIZABLE(Entity, flags),
-        SERIALIZABLE(Entity, dead),
-        SERIALIZABLE(Entity, p),
-        SERIALIZABLE(Entity, collision),
-        SERIALIZABLE(Entity, sprite),
-        SERIALIZABLE(Entity, color),
-        // @Note: Player
-        // ...
-        // @Note: Wall
-        SERIALIZABLE(Entity, surface_friction),
-        SERIALIZABLE(Entity, midi_note),
-        // @Note: Soundtrack Player
-        SERIALIZABLE(Entity, soundtrack_id),
-        SERIALIZABLE(Entity, playback_flags),
-        // @Note: Camera Zone
-        SERIALIZABLE(Entity, camera_zone),
-        SERIALIZABLE(Entity, camera_rotation_arm),
-        // @Note: Checkpoint
-        SERIALIZABLE(Entity, checkpoint_zone),
-        SERIALIZABLE(Entity, most_recent_player_position),
+    // @Note: All entities (I'm using EntityType_Count to indicate all entity types)
+    SERIALIZABLE(Entity, EntityType_Count, guid),
+    SERIALIZABLE(Entity, EntityType_Count, type),
+    SERIALIZABLE(Entity, EntityType_Count, flags),
+    SERIALIZABLE(Entity, EntityType_Count, dead),
+    SERIALIZABLE(Entity, EntityType_Count, p),
+    SERIALIZABLE(Entity, EntityType_Count, collision),
+    SERIALIZABLE(Entity, EntityType_Count, sprite),
+    SERIALIZABLE(Entity, EntityType_Count, color),
+    // @Note: Player
+    // ...
+    // @Note: Wall
+    SERIALIZABLE(Entity, EntityType_Wall, surface_friction),
+    SERIALIZABLE(Entity, EntityType_Wall, midi_note),
+    // @Note: Soundtrack Player
+    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id),
+    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
+    // @Note: Camera Zone
+    SERIALIZABLE(Entity, EntityType_CameraZone, camera_zone),
+    SERIALIZABLE(Entity, EntityType_CameraZone, camera_rotation_arm),
+    // @Note: Checkpoint
+    SERIALIZABLE(Entity, EntityType_Checkpoint, checkpoint_zone),
+    SERIALIZABLE(Entity, EntityType_Checkpoint, most_recent_player_position),
 };
 
 #pragma pack(push, 1)
@@ -83,12 +85,12 @@ struct LevFileHeader {
 };
 #pragma pack(pop)
 
-internal void write_level_to_disk(GameState* game_state, Level* level, char* level_name) {
-    TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
+internal void write_level_to_disk(MemoryArena* arena, Level* level, String level_name) {
+    TemporaryMemory temp = begin_temporary_memory(arena);
 
-    u8* stream = begin_linear_buffer(&game_state->transient_arena, u8, align_no_clear(1));
+    u8* stream = begin_linear_buffer(arena, u8, align_no_clear(1));
 
-    // @TODO: I should have some kind of formalized way to write byte streams to memory arenas
+    // @TODO: I should have some kind of nice way to write byte streams to memory arenas
 #define write_stream(size, data) { u8* buf = lb_push_n(stream, size); copy(size, data, buf); }
 
     LevFileHeader header;
@@ -108,30 +110,42 @@ internal void write_level_to_disk(GameState* game_state, Level* level, char* lev
 
     for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
         Entity* entity = level->entities + entity_index;
+
+        u32* place_of_member_count = cast(u32*) lb_push_n(stream, sizeof(u32));
+
+        u32 member_count = 0;
+
         for (u32 ser_index = 0; ser_index < ARRAY_COUNT(entity_serializables); ser_index++) {
             Serializable* ser = entity_serializables + ser_index;
-            void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
+            if (ser->type == EntityType_Count || ser->type == entity->type) {
+                member_count++;
 
-            write_stream(sizeof(u32), &ser->name_length);
-            write_stream(ser->name_length, ser->name);
-            write_stream(sizeof(u32), &ser->size);
-            write_stream(ser->size, data_ptr);
+                void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
+
+                write_stream(sizeof(u32), &ser->name_length);
+                write_stream(ser->name_length, ser->name);
+                write_stream(sizeof(u32), &ser->size);
+                write_stream(ser->size, data_ptr);
+            }
         }
+
+        *place_of_member_count = member_count;
     }
 
 #undef write_stream
 
-    platform.write_entire_file(level_name, cast(u32) lb_count(stream), stream);
-
     end_linear_buffer(stream);
+
+    char* temp_level_name_cstr = push_string_and_null_terminate(arena, level_name.len, level_name.data);
+    platform.write_entire_file(temp_level_name_cstr, cast(u32) lb_count(stream), stream);
 
     end_temporary_memory(temp);
 }
 
-inline Serializable* find_serializable_by_name(Serializable* serializables, u32 name_length, char* name) {
+inline Serializable* find_serializable_by_name(u32 serializable_count, Serializable* serializables, u32 name_length, char* name) {
     Serializable* result = 0;
 
-    for (u32 ser_index = 0; ser_index < lb_count(serializables); ser_index++) {
+    for (u32 ser_index = 0; ser_index < serializable_count; ser_index++) {
         Serializable* ser = serializables + ser_index;
         if (strings_are_equal(wrap_string(name_length, name), wrap_string(ser->name_length, ser->name))) {
             result = ser;
@@ -142,14 +156,16 @@ inline Serializable* find_serializable_by_name(Serializable* serializables, u32 
     return result;
 }
 
-internal b32 load_level_from_disk(GameState* game_state, Level* level, char* level_name) {
+internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level_name) {
     assert(level);
 
     b32 level_load_error = false;
 
-    TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
+    TemporaryMemory temp = begin_temporary_memory(arena);
 
-    EntireFile file = platform.read_entire_file(level_name, allocator(arena_allocator, &game_state->transient_arena));
+    // @TODO: Start using String consistently to avoid this kind of sillyness
+    char* temp_level_name_cstr = push_string_and_null_terminate(arena, level_name.len, level_name.data);
+    EntireFile file = platform.read_entire_file(temp_level_name_cstr, allocator(arena_allocator, arena));
     if (file.size > 0) {
         u8* stream = cast(u8*) file.data;
         u8* stream_end = stream + file.size;
@@ -165,27 +181,32 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, char* lev
             header->prelude.magic[2] == 'v' &&
             header->prelude.magic[3] == 'l'
         ) {
-            if (header->entity_member_count != members_count(Entity)) {
-                dbg_text("Level Load Warning: Member count mismatch: %u in file, expected %u\n", header->entity_member_count, members_count(Entity));
+            if (header->entity_member_count != ARRAY_COUNT(entity_serializables)) {
+                dbg_text("Level Load Warning: Member count mismatch: %u in file, expected %u\n", header->entity_member_count, ARRAY_COUNT(entity_serializables));
             }
 
             if (header->prelude.version != LEV_VERSION) {
                 dbg_text("Level Load Warning: Version mismatch: %u in file, expected %u\n", header->prelude.version, LEV_VERSION);
             }
 
-            level->name = wrap_cstr(level_name);
+            assert(level_name.len <= level->name_length);
+            level->name_length = cast(u32) level_name.len;
+            copy(level_name.len, level_name.data, level->name);
+
             level->entity_count = header->entity_count;
             level->first_available_guid = 1;
 
             for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
                 Entity* entity = level->entities + entity_index;
 
-                for (u32 member_index = 0; member_index < header->entity_member_count; member_index++) {
+                u32 member_count = *(cast(u32*) read_stream(sizeof(u32)));
+
+                for (u32 member_index = 0; member_index < member_count; member_index++) {
                     u32 member_name_length = *(cast(u32*) read_stream(sizeof(u32)));
                     assert(member_name_length);
                     char* member_name = cast(char*) read_stream(member_name_length);
 
-                    Serializable* ser = find_serializable_by_name(entity_serializables, member_name_length, member_name);
+                    Serializable* ser = find_serializable_by_name(ARRAY_COUNT(entity_serializables), entity_serializables, member_name_length, member_name);
                     if (ser) {
                         void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
                         u32 data_size = *(cast(u32*) read_stream(sizeof(u32)));
@@ -364,8 +385,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     if (!memory->initialized) {
         initialize_arena(&game_state->permanent_arena, memory->permanent_storage_size - sizeof(GameState), cast(u8*) memory->permanent_storage + sizeof(GameState));
         initialize_arena(&game_state->transient_arena, memory->transient_storage_size, memory->transient_storage);
-
-        register_serializables(game_state);
 
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
 

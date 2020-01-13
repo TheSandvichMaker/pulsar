@@ -23,12 +23,7 @@ enum MetaType {
     MetaType_ImageID,
     MetaType_EntityFlag,
     MetaType_EntityType,
-    MetaType_Entity,
-    MetaType_EntityID,
-    MetaType_b32,
-    MetaType_AxisAlignedBox2,
-    MetaType_v4,
-    MetaType_SoundtrackID,
+    MetaType_PlatformKeyCode,
 };
 
 #define BodyOf_PackedImage \
@@ -74,35 +69,5 @@ enum MetaType {
     ImageID camera_icon; \
     ImageID speaker_icon; \
     ImageID checkpoint_icon;
-
-#define BodyOf_Entity \
-    EntityID guid; \
-    EntityType type; \
-    u32 flags; \
-    b32 dead; \
-    v2 p; \
-    v2 dp; \
-    v2 ddp; \
-    AxisAlignedBox2 collision; \
-    ImageID sprite; \
-    v4 color; \
-    f32 off_ground_timer; \
-    f32 friction_of_last_touched_surface; \
-    Entity* support; \
-    v2 support_normal; \
-    v2 local_p; \
-    f32 surface_friction; \
-    u32 midi_note; \
-    f32 movement_t; \
-    Entity* sticking_entity; \
-    v2 sticking_dp; \
-    v2 midi_test_target; \
-    SoundtrackID soundtrack_id; \
-    u32 playback_flags; \
-    b32 soundtrack_has_been_played; \
-    v2 camera_zone; \
-    v2 camera_rotation_arm; \
-    v2 checkpoint_zone; \
-    v2 most_recent_player_position;
 
 #endif

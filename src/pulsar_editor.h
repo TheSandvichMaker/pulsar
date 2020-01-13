@@ -3,7 +3,8 @@
 
 #define MAX_ENTITY_COUNT 8192
 struct Level {
-    String name;
+    u32 name_length;
+    char name[256];
 
     u32 first_available_guid;
     u32 entity_count;
@@ -155,6 +156,14 @@ introspect() struct EditorAssets {
     ImageID checkpoint_icon;
 };
 
+struct ConsoleState {
+    b32 open;
+    f32 openness_t;
+
+    u32 input_buffer_count;
+    char input_buffer[4096];
+};
+
 struct EditorState {
     b32 initialized;
     b32 shown;
@@ -219,6 +228,8 @@ struct EditorState {
     u32 undo_most_recent;
     u32 undo_oldest;
     u8 undo_buffer[UNDO_BUFFER_SIZE];
+
+    ConsoleState console_state;
 };
 
 struct EditorLayout {

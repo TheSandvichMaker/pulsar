@@ -76,6 +76,7 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
     entity->p = get_center(aab);
     entity->color = vec4(1, 1, 1, 1);
     entity->surface_friction = 1.5f;
+    entity->midi_test_target = entity->p;
 
     entity->flags |= EntityFlag_Collides;
     if (deadly_wall) {
@@ -266,7 +267,6 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
 // @TODO: SetData is insufficient for operations on entities since they move around
 // in the entity array. Make an Undo_SetEntityData or something, and/or ponder the
 // way undo should work in general in regard to entities.
-
 inline void undo(EditorState* editor) {
     UndoFooter* footer = get_undo_footer(editor, editor->undo_most_recent);
     if (footer) {
@@ -727,6 +727,24 @@ inline v2 snap_to_grid(EditorState* editor, v2 p) {
     return result;
 }
 
+inline void execute_console_command(GameState* game_state, EditorState* editor, u32 in_count, char* in_buffer) {
+    String buffer = wrap_string(in_count, in_buffer);
+    String command = advance_word(&buffer);
+    if (strings_are_equal(command, "load_level")) {
+        String level = advance_word(&buffer); // @TODO: advance_word is really advance_to_whitespace, maybe it should be renamed
+        // @TODO: Double buffer levels so you don't get messed up on a failed level load?
+        // In fact, level loading in general needs to be cleaned up badly.
+        if (load_level_from_disk(&game_state->transient_arena, editor->active_level, level)) {
+            load_level(editor, editor->active_level);
+        } else {
+            // @TODO: Log error
+        }
+    } else {
+        // @TODO:
+        // console_log(console, "Unknown command: %.*s", cast(int) command.len, command.data);
+    }
+}
+
 inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* render_commands, Level* active_level) {
     EditorState* editor = push_struct(&game_state->permanent_arena, EditorState);
 
@@ -771,7 +789,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     set_up_editable_parameters(editor);
 
-    b32 successfully_loaded_level = load_level_from_disk(game_state, active_level, "levels/debug_level.lev");
+    b32 successfully_loaded_level = load_level_from_disk(&game_state->transient_arena, active_level, wrap_cstr("levels/debug_level.lev"));
     load_level(editor, active_level);
 
     if (!successfully_loaded_level) {
@@ -826,6 +844,87 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
+    {
+        ConsoleState* console = &editor->console_state;
+
+        if (was_pressed(input->tilde)) {
+            console->open = !console->open;
+            input->event_mode = console->open;
+        }
+
+        f32 console_input_box_height = cast(f32) editor->font->size;
+        f32 console_open_speed = 0.1f;
+        f32 console_close_speed = 0.04f;
+        f32 console_height = cast(f32) height / 4.0f;
+
+        if (console->open) {
+            if (console->openness_t < 1.0f) {
+                console->openness_t += input->frame_dt / console_open_speed;
+            } else {
+                console->openness_t = 1.0f;
+            }
+        } else {
+            if (console->openness_t > 0.0f) {
+                console->openness_t -= input->frame_dt / console_close_speed;
+            } else {
+                console->openness_t = 0.0f;
+            }
+        }
+
+        if (console->openness_t > 0.0f) {
+            for (u32 event_index = 0; event_index < input->event_count; event_index++) {
+                char ascii;
+                PlatformKeyCode code = decode_input_event(input->event_buffer[event_index], &ascii);
+                switch (code) {
+                    case PKC_Escape: {
+                        console->open = false;
+                        input->event_mode = false;
+                    } break;
+
+                    case PKC_Return: {
+                        execute_console_command(game_state, editor, console->input_buffer_count, console->input_buffer);
+                        console->input_buffer_count = 0;
+                    } break;
+
+                    case PKC_Back: {
+                        if (console->input_buffer_count > 0) {
+                            console->input_buffer_count--;
+                        }
+                    } break;
+
+                    case PKC_Oem3: {
+                        /* Just eat this one silently to avoid leaving a ` or ~ in the console when closing */
+                    } break;
+
+                    default: {
+                        if (ascii) {
+                            if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
+                                console->input_buffer[console->input_buffer_count++] = ascii;
+                            }
+                        }
+                    } break;
+                }
+            }
+
+            // @TODO: Should have some kind of nicer way of handling sorting
+            f32 old_sort_bias = editor->render_context.sort_key_bias;
+            editor->render_context.sort_key_bias += 5000.0f;
+
+            f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*console->openness_t;
+            AxisAlignedBox2 console_log_box = aab_min_max(vec2(0.0f, console_log_box_height), vec2(width, height));
+            push_shape(&editor->render_context, transform2d(vec2(0, 0)), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, 0.5f));
+
+            v2 input_box_min = vec2(0.0f, console_log_box_height - console_input_box_height);
+            AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
+            push_shape(&editor->render_context, transform2d(vec2(0, 0)), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, 0.8f));
+
+            EditorLayout input_box = make_layout(editor, input_box_min + vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)));
+            editor_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
+
+            editor->render_context.sort_key_bias = old_sort_bias;
+        }
+    }
+
     if (!editor->shown) {
         return;
     }
@@ -843,7 +942,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
     v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
     editor_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
-    editor_print_line(&layout, COLOR_WHITE, "Editing level '%s'%s", level->name.data, editor->level_saved_timer > 0.0f ? " (Saved...)" : "");
+    editor_print_line(&layout, COLOR_WHITE, "Editing level '%.*s'%s", cast(int) level->name_length, level->name, editor->level_saved_timer > 0.0f ? " (Saved...)" : "");
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
     editor_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
@@ -854,10 +953,17 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (was_pressed(get_key(input, 'S'))) {
         if (input->ctrl.is_down) {
-            write_level_to_disk(game_state, editor->active_level, editor->active_level->name.data);
+            write_level_to_disk(&game_state->transient_arena, editor->active_level, wrap_string(editor->active_level->name_length, editor->active_level->name));
             editor->level_saved_timer = 2.0f;
         } else {
             editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
+        }
+    }
+
+    if (was_pressed(get_key(input, 'L'))) {
+        if (input->ctrl.is_down) {
+            assert(load_level_from_disk(&game_state->transient_arena, editor->active_level, wrap_string(editor->active_level->name_length, editor->active_level->name)));
+            load_level(editor, editor->active_level);
         }
     }
 

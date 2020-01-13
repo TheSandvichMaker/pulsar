@@ -1,6 +1,7 @@
 #ifndef SND_STRING_H
 #define SND_STRING_H
 
+// @Note: Exclusive of the null terminator
 inline size_t cstr_length(char* cstr) {
     size_t length = 0;
     while (*cstr++ != 0) {
@@ -278,18 +279,22 @@ inline String advance_to(String* string, char target, u32 flags = 0) {
 }
 
 inline String advance_word(String* string) {
-    while (is_whitespace(peek(string))) {
-        advance(string);
-    }
+    char* start = 0;
+    char* end = 0;
+    if (chars_left(string)) {
+        while (chars_left(string) && is_whitespace(peek(string))) {
+            advance(string);
+        }
 
-    char* start = string->data;
-    while (!is_whitespace(peek(string))) {
-        advance(string);
-    }
-    char* end = string->data;
+        start = string->data;
+        while (chars_left(string) && !is_whitespace(peek(string))) {
+            advance(string);
+        }
+        end = string->data;
 
-    while (is_whitespace(peek(string))) {
-        advance(string);
+        while (chars_left(string) && is_whitespace(peek(string))) {
+            advance(string);
+        }
     }
 
     String result = string_from_two_pointers(start, end);

@@ -323,7 +323,7 @@ LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LP
     return result;
 }
 
-internal void win32_handle_remaining_messages(GameInput* input) {
+internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_state) {
     MSG message;
     while (PeekMessageA(&message, NULL, NULL, NULL, PM_REMOVE)) {
         switch (message.message) {
@@ -336,67 +336,88 @@ internal void win32_handle_remaining_messages(GameInput* input) {
             case WM_SYSKEYUP:
             case WM_KEYDOWN:
             case WM_KEYUP: {
-                u32 vk_code = (u32)message.wParam;
+                u32 vk_code = cast(u32) message.wParam;
                 b32 was_down = (message.lParam & (1 << 30));
                 b32 is_down = !(message.lParam & (1 << 31));
                 b32 alt_is_down = (message.lParam & (1 << 29));
 
-                // @TODO: Fix key repeats
-                if (vk_code >= 'A' && vk_code <= 'Z') {
-                    win32_process_keyboard_message(&input->keys[vk_code - 'A'], is_down);
-                }
+                // @Note: I'm lazily special casing ~ so that you can toggle the console whether event mode is on or not.
+                if (vk_code == VK_OEM_3) { win32_process_keyboard_message(&input->tilde, is_down); }
 
-                if (was_down == is_down) break;
+                if (input->event_mode) {
+                    if (is_down) {
+                        // @Note: first 8 bits: PKC code (which I've made identical to VK codes, so other platforms will get to have fun converting, but not us win32 folk)
+                        assert(vk_code <= 0xFF);
+                        u32 packed_event = vk_code;
 
-                switch (vk_code) {
-                    case VK_ESCAPE: {
-                        // @TODO: It's not very useful to keep track of escape
-                        // usage if the game quits right away if I hit it...
-                        running = false;
-                        win32_process_keyboard_message(&input->escape, is_down);
-                    } break;
-
-                    case VK_F1:  { win32_process_keyboard_message(&input->debug_fkeys[1],  is_down); } break;
-                    case VK_F2:  { win32_process_keyboard_message(&input->debug_fkeys[2],  is_down); } break;
-                    case VK_F3:  { win32_process_keyboard_message(&input->debug_fkeys[3],  is_down); } break;
-                    case VK_F4:  {
-                        win32_process_keyboard_message(&input->debug_fkeys[4], is_down);
-                        if (alt_is_down) {
-                            input->quit_requested = true;
+                        // @Note: second 8 bits: Ascii translation
+                        // @TODO: Unicode, keyboard layouts, that kind of robust stuff
+                        u32 scan_code = (message.lParam >> 16) & 0xFFFF;
+                        WORD ascii_char;
+                        if (ToAscii(vk_code, scan_code, keyboard_state, &ascii_char, 0) == 1) {
+                            packed_event |= (ascii_char & 0xFF) << 8;
                         }
-                    } break;
-                    case VK_F5:  { win32_process_keyboard_message(&input->debug_fkeys[5],  is_down); } break;
-                    case VK_F6:  { win32_process_keyboard_message(&input->debug_fkeys[6],  is_down); } break;
-                    case VK_F7:  { win32_process_keyboard_message(&input->debug_fkeys[7],  is_down); } break;
-                    case VK_F8:  { win32_process_keyboard_message(&input->debug_fkeys[8],  is_down); } break;
-                    case VK_F9:  { win32_process_keyboard_message(&input->debug_fkeys[9],  is_down); } break;
-                    case VK_F10: { win32_process_keyboard_message(&input->debug_fkeys[10], is_down); } break;
-                    case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
-                    case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
 
-                    case 'W': { win32_process_keyboard_message(&input->controller.move_up, is_down); } break;
-                    case 'A': { win32_process_keyboard_message(&input->controller.move_left, is_down); } break;
-                    case 'S': { win32_process_keyboard_message(&input->controller.move_down, is_down); } break;
-                    case 'D': { win32_process_keyboard_message(&input->controller.move_right, is_down); } break;
+                        input->event_buffer[input->event_count++] = packed_event;
+                    }
+                } else {
+                    // @TODO: Handle key repeats?
+                    if (vk_code >= 'A' && vk_code <= 'Z') {
+                        win32_process_keyboard_message(&input->keys[vk_code - 'A'], is_down);
+                    }
 
-                    case VK_UP: { win32_process_keyboard_message(&input->controller.action_up, is_down); } break;
-                    case VK_LEFT: { win32_process_keyboard_message(&input->controller.action_left, is_down); } break;
-                    case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
-                    case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
+                    if (was_down == is_down) break;
 
-                    case VK_SPACE: { win32_process_keyboard_message(&input->space, is_down); } break;
-                    case VK_MENU: { win32_process_keyboard_message(&input->alt, is_down); } break;
-                    case VK_SHIFT: { win32_process_keyboard_message(&input->shift, is_down); } break;
-                    case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl, is_down); } break;
-                    case VK_DELETE: { win32_process_keyboard_message(&input->del, is_down); } break;
+                    switch (vk_code) {
+                        case VK_ESCAPE: {
+                            // @TODO: It's not very useful to keep track of escape
+                            // usage if the game quits right away if I hit it...
+                            running = false;
+                            win32_process_keyboard_message(&input->escape, is_down);
+                        } break;
 
-                    case VK_RETURN: {
-                        if (is_down && alt_is_down) {
-                            if (message.hwnd) {
-                                win32_toggle_fullscreen(message.hwnd);
+                        case VK_F1:  { win32_process_keyboard_message(&input->debug_fkeys[1],  is_down); } break;
+                        case VK_F2:  { win32_process_keyboard_message(&input->debug_fkeys[2],  is_down); } break;
+                        case VK_F3:  { win32_process_keyboard_message(&input->debug_fkeys[3],  is_down); } break;
+                        case VK_F4:  {
+                            win32_process_keyboard_message(&input->debug_fkeys[4], is_down);
+                            if (alt_is_down) {
+                                input->quit_requested = true;
                             }
-                        }
-                    } break;
+                        } break;
+                        case VK_F5:  { win32_process_keyboard_message(&input->debug_fkeys[5],  is_down); } break;
+                        case VK_F6:  { win32_process_keyboard_message(&input->debug_fkeys[6],  is_down); } break;
+                        case VK_F7:  { win32_process_keyboard_message(&input->debug_fkeys[7],  is_down); } break;
+                        case VK_F8:  { win32_process_keyboard_message(&input->debug_fkeys[8],  is_down); } break;
+                        case VK_F9:  { win32_process_keyboard_message(&input->debug_fkeys[9],  is_down); } break;
+                        case VK_F10: { win32_process_keyboard_message(&input->debug_fkeys[10], is_down); } break;
+                        case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
+                        case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
+
+                        case 'W': { win32_process_keyboard_message(&input->controller.move_up, is_down); } break;
+                        case 'A': { win32_process_keyboard_message(&input->controller.move_left, is_down); } break;
+                        case 'S': { win32_process_keyboard_message(&input->controller.move_down, is_down); } break;
+                        case 'D': { win32_process_keyboard_message(&input->controller.move_right, is_down); } break;
+
+                        case VK_UP: { win32_process_keyboard_message(&input->controller.action_up, is_down); } break;
+                        case VK_LEFT: { win32_process_keyboard_message(&input->controller.action_left, is_down); } break;
+                        case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
+                        case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
+
+                        case VK_SPACE: { win32_process_keyboard_message(&input->space, is_down); } break;
+                        case VK_MENU: { win32_process_keyboard_message(&input->alt, is_down); } break;
+                        case VK_SHIFT: { win32_process_keyboard_message(&input->shift, is_down); } break;
+                        case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl, is_down); } break;
+                        case VK_DELETE: { win32_process_keyboard_message(&input->del, is_down); } break;
+
+                        case VK_RETURN: {
+                            if (is_down && alt_is_down) {
+                                if (message.hwnd) {
+                                    win32_toggle_fullscreen(message.hwnd);
+                                }
+                            }
+                        } break;
+                    }
                 }
             } break;
 
@@ -548,6 +569,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
             DWORD previous_padded_write_cursor = 0;
 
+            BYTE keyboard_state[256];
+
             running = true;
             while (running) {
                 if (last_frame_time_is_valid) {
@@ -586,6 +609,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 focus_changed = new_in_focus != in_focus;
                 in_focus = new_in_focus;
 
+                new_input->event_mode = old_input->event_mode;
                 new_input->update_rate = game_update_rate;
                 new_input->frame_dt = 1.0f / new_input->update_rate;
                 new_input->in_focus = in_focus;
@@ -635,7 +659,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     win32_process_keyboard_message(&new_input->mouse_buttons[button_index], (GetKeyState(win32_button_id[button_index]) & (1 << 15)) != 0);
                 }
 
-                win32_handle_remaining_messages(new_input);
+                new_input->event_count = 0;
+                GetKeyboardState(keyboard_state);
+                win32_handle_remaining_messages(new_input, keyboard_state);
 
                 //
                 // Game Update and Render

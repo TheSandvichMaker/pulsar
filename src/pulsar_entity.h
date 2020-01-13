@@ -10,7 +10,7 @@ introspect(flags: true) enum EntityFlag {
 };
 
 introspect() enum EntityType {
-    EntityType_Null = 0,
+    EntityType_Null,
 
     // @Note: Physical Entities
     EntityType_Player = 1,
@@ -31,7 +31,7 @@ struct CollisionVolume {
     v2 offset;
 };
 
-introspect() struct Entity {
+struct Entity {
     EntityID guid;
     EntityType type;
 
@@ -47,35 +47,47 @@ introspect() struct Entity {
     ImageID sprite;
     v4 color;
 
-    // @Note: Player
-    f32 off_ground_timer;
-    f32 friction_of_last_touched_surface;
-    Entity* support;
-    v2 support_normal;
-    v2 local_p;
+    union {
+        struct {
+            // @Note: Player
+            f32 off_ground_timer;
+            f32 friction_of_last_touched_surface;
+            Entity* support;
+            v2 support_normal;
+            v2 local_p;
+        };
 
-    // @Note: Wall
-    f32 surface_friction;
-    u32 midi_note;
+        struct {
+            // @Note: Wall
+            f32 surface_friction;
+            u32 midi_note;
 
-    f32 movement_t;
-    Entity* sticking_entity;
-    v2 sticking_dp;
-    v2 midi_test_target;
+            f32 movement_t;
+            Entity* sticking_entity;
+            v2 sticking_dp;
+            v2 midi_test_target;
+        };
 
-    // @Note: Soundtrack Player
-    SoundtrackID soundtrack_id;
-    u32 playback_flags;
+        struct {
+            // @Note: Soundtrack Player
+            SoundtrackID soundtrack_id;
+            u32 playback_flags;
 
-    b32 soundtrack_has_been_played;
+            b32 soundtrack_has_been_played;
+        };
 
-    // @Note: Camera Zone;
-    v2 camera_zone;
-    v2 camera_rotation_arm;
+        struct {
+            // @Note: Camera Zone;
+            v2 camera_zone;
+            v2 camera_rotation_arm;
+        };
 
-    // @Note: Checkpoint
-    v2 checkpoint_zone;
-    v2 most_recent_player_position;
+        struct {
+            // @Note: Checkpoint
+            v2 checkpoint_zone;
+            v2 most_recent_player_position;
+        };
+    };
 };
 
 #endif /* PULSAR_ENTITY_H */

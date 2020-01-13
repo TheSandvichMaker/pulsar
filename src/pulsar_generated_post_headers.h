@@ -45,6 +45,119 @@ char* GetEnumNameOf_EntityType(int value) {
     }
 }
 
+char* GetEnumNameOf_PlatformKeyCode(int value) {
+    switch (value) {
+        case PKC_LButton: return "PKC_LButton";
+        case PKC_RButton: return "PKC_RButton";
+        case PKC_Cancel: return "PKC_Cancel";
+        case PKC_MButton: return "PKC_MButton";
+        case PKC_XButton1: return "PKC_XButton1";
+        case PKC_XButton2: return "PKC_XButton2";
+        case PKC_Back: return "PKC_Back";
+        case PKC_Tab: return "PKC_Tab";
+        case PKC_Clear: return "PKC_Clear";
+        case PKC_Return: return "PKC_Return";
+        case PKC_Shift: return "PKC_Shift";
+        case PKC_Control: return "PKC_Control";
+        case PKC_Alt: return "PKC_Alt";
+        case PKC_Pause: return "PKC_Pause";
+        case PKC_CapsLock: return "PKC_CapsLock";
+        case PKC_Kana: return "PKC_Kana";
+        case PKC_Junja: return "PKC_Junja";
+        case PKC_Final: return "PKC_Final";
+        case PKC_Kanji: return "PKC_Kanji";
+        case PKC_Escape: return "PKC_Escape";
+        case PKC_Convert: return "PKC_Convert";
+        case PKC_NonConvert: return "PKC_NonConvert";
+        case PKC_Accept: return "PKC_Accept";
+        case PKC_ModeChange: return "PKC_ModeChange";
+        case PKC_Space: return "PKC_Space";
+        case PKC_PageUp: return "PKC_PageUp";
+        case PKC_PageDown: return "PKC_PageDown";
+        case PKC_End: return "PKC_End";
+        case PKC_Home: return "PKC_Home";
+        case PKC_Left: return "PKC_Left";
+        case PKC_Up: return "PKC_Up";
+        case PKC_Right: return "PKC_Right";
+        case PKC_Down: return "PKC_Down";
+        case PKC_Select: return "PKC_Select";
+        case PKC_Print: return "PKC_Print";
+        case PKC_Execute: return "PKC_Execute";
+        case PKC_PrintScreen: return "PKC_PrintScreen";
+        case PKC_Insert: return "PKC_Insert";
+        case PKC_Delete: return "PKC_Delete";
+        case PKC_Help: return "PKC_Help";
+        case PKC_LSys: return "PKC_LSys";
+        case PKC_RSys: return "PKC_RSys";
+        case PKC_Apps: return "PKC_Apps";
+        case PKC_Sleep: return "PKC_Sleep";
+        case PKC_Numpad0: return "PKC_Numpad0";
+        case PKC_Numpad1: return "PKC_Numpad1";
+        case PKC_Numpad2: return "PKC_Numpad2";
+        case PKC_Numpad3: return "PKC_Numpad3";
+        case PKC_Numpad4: return "PKC_Numpad4";
+        case PKC_Numpad5: return "PKC_Numpad5";
+        case PKC_Numpad6: return "PKC_Numpad6";
+        case PKC_Numpad7: return "PKC_Numpad7";
+        case PKC_Numpad8: return "PKC_Numpad8";
+        case PKC_Numpad9: return "PKC_Numpad9";
+        case PKC_Multiply: return "PKC_Multiply";
+        case PKC_Add: return "PKC_Add";
+        case PKC_Separator: return "PKC_Separator";
+        case PKC_Subtract: return "PKC_Subtract";
+        case PKC_Decimal: return "PKC_Decimal";
+        case PKC_Divide: return "PKC_Divide";
+        case PKC_F1: return "PKC_F1";
+        case PKC_F2: return "PKC_F2";
+        case PKC_F3: return "PKC_F3";
+        case PKC_F4: return "PKC_F4";
+        case PKC_F5: return "PKC_F5";
+        case PKC_F6: return "PKC_F6";
+        case PKC_F7: return "PKC_F7";
+        case PKC_F8: return "PKC_F8";
+        case PKC_F9: return "PKC_F9";
+        case PKC_F10: return "PKC_F10";
+        case PKC_F11: return "PKC_F11";
+        case PKC_F12: return "PKC_F12";
+        case PKC_F13: return "PKC_F13";
+        case PKC_F14: return "PKC_F14";
+        case PKC_F15: return "PKC_F15";
+        case PKC_F16: return "PKC_F16";
+        case PKC_F17: return "PKC_F17";
+        case PKC_F18: return "PKC_F18";
+        case PKC_F19: return "PKC_F19";
+        case PKC_F20: return "PKC_F20";
+        case PKC_F21: return "PKC_F21";
+        case PKC_F22: return "PKC_F22";
+        case PKC_F23: return "PKC_F23";
+        case PKC_F24: return "PKC_F24";
+        case PKC_Numlock: return "PKC_Numlock";
+        case PKC_Scroll: return "PKC_Scroll";
+        case PKC_LShift: return "PKC_LShift";
+        case PKC_RShift: return "PKC_RShift";
+        case PKC_LControl: return "PKC_LControl";
+        case PKC_RControl: return "PKC_RControl";
+        case PKC_LAlt: return "PKC_LAlt";
+        case PKC_RAlt: return "PKC_RAlt";
+        case PKC_VolumeMute: return "PKC_VolumeMute";
+        case PKC_VolumeDown: return "PKC_VolumeDown";
+        case PKC_VolumeUp: return "PKC_VolumeUp";
+        case PKC_MediaNextTrack: return "PKC_MediaNextTrack";
+        case PKC_MediaPrevTrack: return "PKC_MediaPrevTrack";
+        case PKC_Oem1: return "PKC_Oem1";
+        case PKC_Plus: return "PKC_Plus";
+        case PKC_Comma: return "PKC_Comma";
+        case PKC_Minus: return "PKC_Minus";
+        case PKC_Period: return "PKC_Period";
+        case PKC_Oem2: return "PKC_Oem2";
+        case PKC_Oem3: return "PKC_Oem3";
+        case PKC_Play: return "PKC_Play";
+        case PKC_Zoom: return "PKC_Zoom";
+        case PKC_OemClear: return "PKC_OemClear";
+        default: return 0;
+    }
+}
+
 static MemberDefinition MembersOf_PackedImage[] = {
     { 0, MetaType_PixelFormat, 12, "pixel_format", (unsigned int)&((PackedImage*)0)->pixel_format, sizeof(PixelFormat) },
     { 0, MetaType_u32, 1, "w", (unsigned int)&((PackedImage*)0)->w, sizeof(u32) },
@@ -94,37 +207,6 @@ static MemberDefinition MembersOf_EditorAssets[] = {
     { 0, MetaType_ImageID, 11, "camera_icon", (unsigned int)&((EditorAssets*)0)->camera_icon, sizeof(ImageID) },
     { 0, MetaType_ImageID, 12, "speaker_icon", (unsigned int)&((EditorAssets*)0)->speaker_icon, sizeof(ImageID) },
     { 0, MetaType_ImageID, 15, "checkpoint_icon", (unsigned int)&((EditorAssets*)0)->checkpoint_icon, sizeof(ImageID) },
-};
-
-static MemberDefinition MembersOf_Entity[] = {
-    { 0, MetaType_EntityID, 4, "guid", (unsigned int)&((Entity*)0)->guid, sizeof(EntityID) },
-    { 0, MetaType_EntityType, 4, "type", (unsigned int)&((Entity*)0)->type, sizeof(EntityType) },
-    { 0, MetaType_u32, 5, "flags", (unsigned int)&((Entity*)0)->flags, sizeof(u32) },
-    { 0, MetaType_b32, 4, "dead", (unsigned int)&((Entity*)0)->dead, sizeof(b32) },
-    { 0, MetaType_v2, 1, "p", (unsigned int)&((Entity*)0)->p, sizeof(v2) },
-    { 0, MetaType_v2, 2, "dp", (unsigned int)&((Entity*)0)->dp, sizeof(v2) },
-    { 0, MetaType_v2, 3, "ddp", (unsigned int)&((Entity*)0)->ddp, sizeof(v2) },
-    { 0, MetaType_AxisAlignedBox2, 9, "collision", (unsigned int)&((Entity*)0)->collision, sizeof(AxisAlignedBox2) },
-    { 0, MetaType_ImageID, 6, "sprite", (unsigned int)&((Entity*)0)->sprite, sizeof(ImageID) },
-    { 0, MetaType_v4, 5, "color", (unsigned int)&((Entity*)0)->color, sizeof(v4) },
-    { 0, MetaType_f32, 16, "off_ground_timer", (unsigned int)&((Entity*)0)->off_ground_timer, sizeof(f32) },
-    { 0, MetaType_f32, 32, "friction_of_last_touched_surface", (unsigned int)&((Entity*)0)->friction_of_last_touched_surface, sizeof(f32) },
-    { MetaMemberFlag_IsPointer, MetaType_Entity, 7, "support", (unsigned int)&((Entity*)0)->support, sizeof(Entity) },
-    { 0, MetaType_v2, 14, "support_normal", (unsigned int)&((Entity*)0)->support_normal, sizeof(v2) },
-    { 0, MetaType_v2, 7, "local_p", (unsigned int)&((Entity*)0)->local_p, sizeof(v2) },
-    { 0, MetaType_f32, 16, "surface_friction", (unsigned int)&((Entity*)0)->surface_friction, sizeof(f32) },
-    { 0, MetaType_u32, 9, "midi_note", (unsigned int)&((Entity*)0)->midi_note, sizeof(u32) },
-    { 0, MetaType_f32, 10, "movement_t", (unsigned int)&((Entity*)0)->movement_t, sizeof(f32) },
-    { MetaMemberFlag_IsPointer, MetaType_Entity, 15, "sticking_entity", (unsigned int)&((Entity*)0)->sticking_entity, sizeof(Entity) },
-    { 0, MetaType_v2, 11, "sticking_dp", (unsigned int)&((Entity*)0)->sticking_dp, sizeof(v2) },
-    { 0, MetaType_v2, 16, "midi_test_target", (unsigned int)&((Entity*)0)->midi_test_target, sizeof(v2) },
-    { 0, MetaType_SoundtrackID, 13, "soundtrack_id", (unsigned int)&((Entity*)0)->soundtrack_id, sizeof(SoundtrackID) },
-    { 0, MetaType_u32, 14, "playback_flags", (unsigned int)&((Entity*)0)->playback_flags, sizeof(u32) },
-    { 0, MetaType_b32, 26, "soundtrack_has_been_played", (unsigned int)&((Entity*)0)->soundtrack_has_been_played, sizeof(b32) },
-    { 0, MetaType_v2, 11, "camera_zone", (unsigned int)&((Entity*)0)->camera_zone, sizeof(v2) },
-    { 0, MetaType_v2, 19, "camera_rotation_arm", (unsigned int)&((Entity*)0)->camera_rotation_arm, sizeof(v2) },
-    { 0, MetaType_v2, 15, "checkpoint_zone", (unsigned int)&((Entity*)0)->checkpoint_zone, sizeof(v2) },
-    { 0, MetaType_v2, 27, "most_recent_player_position", (unsigned int)&((Entity*)0)->most_recent_player_position, sizeof(v2) },
 };
 
 #endif

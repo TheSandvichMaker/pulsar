@@ -92,11 +92,13 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
             } break;
 
             case EntityType_Checkpoint: {
-                AxisAlignedBox2 checkpoint_box = aab_center_dim(entity->p, entity->checkpoint_zone);
-                AxisAlignedBox2 player_box = offset(game_state->player->collision, game_state->player->p);
-                if (aab_contained_in_aab(checkpoint_box, player_box)) {
-                    game_state->last_activated_checkpoint = entity;
-                    entity->most_recent_player_position = game_state->player->p;
+                if (game_state->player) {
+                    AxisAlignedBox2 checkpoint_box = aab_center_dim(entity->p, entity->checkpoint_zone);
+                    AxisAlignedBox2 player_box = offset(game_state->player->collision, game_state->player->p);
+                    if (aab_contained_in_aab(checkpoint_box, player_box)) {
+                        game_state->last_activated_checkpoint = entity;
+                        entity->most_recent_player_position = game_state->player->p;
+                    }
                 }
             } break;
 
