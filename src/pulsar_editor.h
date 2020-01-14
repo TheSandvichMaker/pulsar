@@ -168,6 +168,8 @@ struct EditorState {
     b32 initialized;
     b32 shown;
 
+    ConsoleState console_state;
+
     MemoryArena* arena;
 
     Level* active_level;
@@ -220,16 +222,13 @@ struct EditorState {
     Entity* selected_entity;
 
     EntityType current_editable_type;
-    u32 editable_parameter_count[EntityType_Count];
-    EditableParameter* editable_parameter_info[EntityType_Count];
+    LinearBuffer<EditableParameter>* editable_parameter_info[EntityType_Count];
 
     EntityHash entity_hash[MAX_ENTITY_COUNT];
 
     u32 undo_most_recent;
     u32 undo_oldest;
     u8 undo_buffer[UNDO_BUFFER_SIZE];
-
-    ConsoleState console_state;
 };
 
 struct EditorLayout {

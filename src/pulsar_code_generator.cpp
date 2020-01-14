@@ -15,6 +15,7 @@
 
 #include "pulsar_memory.h"
 #include "pulsar_memory_arena.h"
+#include "pulsar_template_array.h"
 
 #include "file_io.h"
 #include "file_io.cpp"
@@ -442,37 +443,22 @@ struct StructMember {
     Token name;
 };
 
-#define PULSAR_ARRAY_TYPE StructMember
-#include "pulsar_template_array.h"
-
-#define PULSAR_ARRAY_TYPE Token
-#include "pulsar_template_array.h"
-
 struct MetaStruct {
     Token name;
-    PULSAR_ARRAY(StructMember) members;
+    Array<StructMember> members;
 };
 
 struct MetaEnum {
     Token name;
-    PULSAR_ARRAY(Token) members;
+    Array<Token> members;
     b32 is_flags;
 };
 
-#define PULSAR_ARRAY_TYPE MetaType
-#include "pulsar_template_array.h"
+global Array<MetaType> meta_type_array;
+global Array<MetaStruct> meta_struct_array;
+global Array<MetaEnum> meta_enum_array;
 
-#define PULSAR_ARRAY_TYPE MetaStruct
-#include "pulsar_template_array.h"
-
-#define PULSAR_ARRAY_TYPE MetaEnum
-#include "pulsar_template_array.h"
-
-global PULSAR_ARRAY(MetaType) meta_type_array;
-global PULSAR_ARRAY(MetaStruct) meta_struct_array;
-global PULSAR_ARRAY(MetaEnum) meta_enum_array;
-
-inline void add_meta_type_if_unique(PULSAR_ARRAY(MetaType)* type_array, Token type_token) {
+inline void add_meta_type_if_unique(Array<MetaType>* type_array, Token type_token) {
     b32 already_exists = false;
     for (size_t i = 0; i < type_array->count; i++) {
         MetaType test = type_array->data[i];

@@ -38,6 +38,7 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
                     // entity->ddp -= entity->support_normal*dot(entity->ddp, entity->support_normal);
 
                     if (was_pressed(controller->move_up)) {
+                        // play_synth(&game_state->audio_mixer, synth_test_impulse);
                         // play_sound(&game_state->audio_mixer, game_state->test_sound);
                         entity->ddp.y += 400.0f;
                         entity->support = 0;

@@ -3,14 +3,13 @@
 
 #define MEMORY_ARENA_DEFAULT_ALIGN 4
 
-struct LinearBuffer;
 struct MemoryArena {
     size_t size;
     size_t used;
     u8* base_ptr;
 
     s32 temp_count;
-    LinearBuffer* active_linear_buffer;
+    void* active_linear_buffer;
 };
 
 struct TemporaryMemory {
@@ -80,7 +79,7 @@ inline void* get_next_allocation_location(MemoryArena* arena, size_t align = MEM
 #define push_struct(arena, type, ...) (type*)push_size_(arena, sizeof(type), ##__VA_ARGS__)
 #define push_array(arena, count, type, ...) (type*)push_size_(arena, sizeof(type) * (count), ##__VA_ARGS__)
 #define push_size(arena, size, ...) push_size_(arena, size, ##__VA_ARGS__)
-inline void* push_size_(MemoryArena* arena, size_t size_init, AllocateParams params = default_allocate_params(), LinearBuffer* lb = 0) {
+inline void* push_size_(MemoryArena* arena, size_t size_init, AllocateParams params = default_allocate_params(), void* lb = 0) {
     assert(arena->active_linear_buffer == lb);
 
     s32 align = align_or(params, MEMORY_ARENA_DEFAULT_ALIGN);
@@ -99,45 +98,56 @@ inline void* push_size_(MemoryArena* arena, size_t size_init, AllocateParams par
     return result;
 }
 
+template <typename T>
 struct LinearBuffer {
     MemoryArena* arena;
     u32 flags;
     size_t count;
-    void* data;
+    T* data;
 };
 
-#define begin_linear_buffer(arena, type, ...) (cast(type*) begin_linear_buffer_(arena, ##__VA_ARGS__))
-inline void* begin_linear_buffer_(MemoryArena* arena, AllocateParams params = default_allocate_params()) {
+template <typename T>
+inline LinearBuffer<T>* begin_linear_buffer(MemoryArena* arena, AllocateParams params = no_clear()) {
     assert(!arena->active_linear_buffer);
 
     // @TODO: Make it so that header->data is aligned to the given params.align_
-    LinearBuffer* header = push_struct(arena, LinearBuffer, align(params.align_, false));
+    LinearBuffer<T>* header = push_struct(arena, LinearBuffer<T>, align(params.align_, false));
     header->arena = arena;
     header->flags = params.flags;
     header->count = 0;
-    header->data = header + 1;
+    header->data = cast(T*) (header + 1);
 
     arena->active_linear_buffer = header;
 
-    return header->data;
+    return header;
 }
 
-#define lb_header(buffer) (cast(LinearBuffer*) buffer - 1)
-#define lb_arena(buffer) lb_header(buffer)->arena
-#define lb_count(buffer) lb_header(buffer)->count
-#define lb_push_n(buffer, n) \
-    (push_size(lb_arena(buffer), n*sizeof(*buffer), align(1, lb_header(buffer)->flags), lb_header(buffer)), lb_count(buffer) += (n), &buffer[lb_count(buffer) - (n)])
-#define lb_push(buffer) lb_push_n(buffer, 1)
-#define lb_add(buffer, item) (lb_push(buffer), buffer[lb_count(buffer) - 1] = item)
+template <typename T>
+inline T* lb_push_n(LinearBuffer<T>* buf, size_t n) {
+    T* result = push_array(buf->arena, n, T, align(1, buf->flags), buf);
+    buf->count += n;
+    return result;
+}
 
-inline size_t end_linear_buffer(void* buffer) {
-    LinearBuffer* header = lb_header(buffer);
-    assert(header->arena->active_linear_buffer == header);
+template <typename T>
+inline T* lb_push(LinearBuffer<T>* buf) {
+    T* result = lb_push_n(buf, 1);
+    return result;
+}
 
-    header->arena->active_linear_buffer = 0;
-    header->arena = 0;
+template <typename T>
+inline T* lb_add(LinearBuffer<T>* buf, T item) {
+    T* result = lb_push(buf);
+    *result = item;
+    return result;
+}
 
-    return header->count;
+template <typename T>
+inline void end_linear_buffer(LinearBuffer<T>* buf) {
+    assert(buf->arena->active_linear_buffer == buf);
+
+    buf->arena->active_linear_buffer = 0;
+    buf->arena = 0;
 }
 
 inline char* push_string(MemoryArena* arena, size_t length, char* source) {

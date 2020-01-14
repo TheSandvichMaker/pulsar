@@ -16,6 +16,7 @@
 #include "asset_loading.cpp"
 
 #include "pulsar_asset_pack_file_format.h"
+#include "pulsar_template_array.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
@@ -49,9 +50,7 @@ struct AssetDescription {
 
 global MemoryArena global_arena;
 
-#define PULSAR_ARRAY_TYPE AssetDescription
-#include "pulsar_template_array.h"
-global PULSAR_ARRAY(AssetDescription) asset_descriptions;
+global Array<AssetDescription> asset_descriptions;
 
 global u32 packed_asset_count = 1; // @Note: Reserving the 0th index for the null asset
 

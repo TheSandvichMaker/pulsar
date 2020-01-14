@@ -1,10 +1,6 @@
 #include "pulsar_main.h"
 #include "pulsar_generated_post_headers.h"
 
-#define STB_SPRINTF_STATIC 1
-#define STB_SPRINTF_IMPLEMENTATION 1
-#include "external/stb_sprintf.h"
-
 inline void dbg_text(char* format_string, ...) {
     va_list va_args;
     va_start(va_args, format_string);
@@ -58,6 +54,7 @@ global Serializable entity_serializables[] = {
     // @Note: Wall
     SERIALIZABLE(Entity, EntityType_Wall, surface_friction),
     SERIALIZABLE(Entity, EntityType_Wall, midi_note),
+    SERIALIZABLE(Entity, EntityType_Wall, midi_test_target),
     // @Note: Soundtrack Player
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
@@ -88,7 +85,7 @@ struct LevFileHeader {
 internal void write_level_to_disk(MemoryArena* arena, Level* level, String level_name) {
     TemporaryMemory temp = begin_temporary_memory(arena);
 
-    u8* stream = begin_linear_buffer(arena, u8, align_no_clear(1));
+    LinearBuffer<u8>* stream = begin_linear_buffer<u8>(arena);
 
     // @TODO: I should have some kind of nice way to write byte streams to memory arenas
 #define write_stream(size, data) { u8* buf = lb_push_n(stream, size); copy(size, data, buf); }
@@ -137,7 +134,9 @@ internal void write_level_to_disk(MemoryArena* arena, Level* level, String level
     end_linear_buffer(stream);
 
     char* temp_level_name_cstr = push_string_and_null_terminate(arena, level_name.len, level_name.data);
-    platform.write_entire_file(temp_level_name_cstr, cast(u32) lb_count(stream), stream);
+    platform.write_entire_file(temp_level_name_cstr, cast(u32) stream->count, stream->data);
+
+    log_print(LogLevel_Info, "Saved level '%.*s' to disk", PRINTF_STRING(level_name));
 
     end_temporary_memory(temp);
 }
@@ -182,11 +181,11 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
             header->prelude.magic[3] == 'l'
         ) {
             if (header->entity_member_count != ARRAY_COUNT(entity_serializables)) {
-                dbg_text("Level Load Warning: Member count mismatch: %u in file, expected %u\n", header->entity_member_count, ARRAY_COUNT(entity_serializables));
+                log_print(LogLevel_Warn, "Level Load Warning: Member count mismatch: %u in file, expected %u", header->entity_member_count, ARRAY_COUNT(entity_serializables));
             }
 
             if (header->prelude.version != LEV_VERSION) {
-                dbg_text("Level Load Warning: Version mismatch: %u in file, expected %u\n", header->prelude.version, LEV_VERSION);
+                log_print(LogLevel_Warn, "Level Load Warning: Version mismatch: %u in file, expected %u", header->prelude.version, LEV_VERSION);
             }
 
             assert(level_name.len <= level->name_length);
@@ -221,23 +220,23 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
                             }
                         } else {
                             level_load_error = true;
-                            dbg_text("Level Load Error: Member size mismatch: %u in file, expected %u\n", data_size, ser->size);
+                            log_print(LogLevel_Error, "Level Load Error: Member size mismatch: %u in file, expected %u", data_size, ser->size);
                             goto level_load_end;
                         }
                     } else {
-                        dbg_text("Level Load Warning: Could not find matching member '%.*s'\n", member_name_length, member_name);
+                        log_print(LogLevel_Error, "Level Load Warning: Could not find matching member '%.*s'", member_name_length, member_name);
                     }
                 }
             }
         } else {
             level_load_error = true;
-            dbg_text("Level Load Error: Header did not start with magic value 'levl'\n");
+            log_print(LogLevel_Error, "Level Load Error: Header did not start with magic value 'levl'");
             goto level_load_end;
         }
 #undef read_stream
     } else {
         level_load_error = true;
-        dbg_text("Level Load Error: Could not open file '%s'\n", level_name);
+        log_print(LogLevel_Error, "Level Load Error: Could not open file '%.*s'", PRINTF_STRING(level_name));
         goto level_load_end;
     }
 
@@ -245,6 +244,8 @@ level_load_end:
     if (level_load_error) {
         level->entity_count = 0;
         level->first_available_guid = 1;
+    } else {
+        log_print(LogLevel_Info, "Successfully loaded level '%.*s'", PRINTF_STRING(level_name));
     }
 
     end_temporary_memory(temp);

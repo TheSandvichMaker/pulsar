@@ -364,15 +364,18 @@ inline void load_level(EditorState* editor, Level* level) {
 }
 
 inline void create_debug_level(EditorState* editor) {
+    editor->active_level->entity_count = 1;
+    editor->active_level->first_available_guid = 1;
+
     add_player(editor, vec2(-8.0f, 1.5f));
 
-    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "track1_1");
+    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "test_soundtrack");
     add_soundtrack_player(editor, soundtrack_id);
 
     add_wall(editor, aab_min_max(vec2(-35.0f, -0.75f), vec2(1.25f, 0.75f)));
 
     for (s32 i = 0; i < 13; i++) {
-        Entity* wall = add_wall(editor, aab_center_dim(vec2(2.0f + 1.5f*i, cast(f32) i), vec2(1.5f, 1.5f)), i % 2 == 1).ptr;
+        Entity* wall = add_wall(editor, aab_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f)), i % 2 == 1).ptr;
         wall->midi_note = 60 + i;
     }
 
@@ -472,8 +475,8 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
                 Image* glyph = get_image(editor->assets, glyph_id);
                 layout->at_p = vec2(roundf(layout->at_p.x), roundf(layout->at_p.y));
                 v2 p = layout->at_p + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
-                push_image(&editor->render_context, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f), 1000.0f);
-                push_image(&editor->render_context, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color, 1000.0f);
+                push_image(&editor->render_context, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f));
+                push_image(&editor->render_context, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
 
                 AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
                 layout->last_print_bounds = aab_union(layout->last_print_bounds, glyph_aab);
@@ -534,7 +537,7 @@ DECLARE_EDITABLE_TYPE_INFERENCER(EntityPtr)
 
 #define add_editable(editables, struct_type, member, ...) \
     add_editable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offset_of(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
-inline EditableParameter* add_editable_(EditableParameter* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
+inline EditableParameter* add_editable_(LinearBuffer<EditableParameter>* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
     EditableParameter* parameter = lb_push(editables);
     parameter->type = type;
     parameter->name = name;
@@ -546,32 +549,30 @@ inline EditableParameter* add_editable_(EditableParameter* editables, EditableTy
 
 #define add_viewable(editables, struct_type, member, ...) \
     add_viewable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offset_of(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
-inline EditableParameter* add_viewable_(EditableParameter* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
+inline EditableParameter* add_viewable_(LinearBuffer<EditableParameter>* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
     return add_editable_(editables, type, name, offset, size, Editable_Static|flags);
 }
 
-inline EditableParameter* begin_editables(EditorState* editor, EntityType type) {
+inline LinearBuffer<EditableParameter>* begin_editables(EditorState* editor, EntityType type) {
     assert(editor->current_editable_type == EntityType_Null);
 
     editor->current_editable_type = type;
-    assert(editor->editable_parameter_count[editor->current_editable_type] == 0);
 
-    editor->editable_parameter_info[editor->current_editable_type] = begin_linear_buffer(editor->arena, EditableParameter);
+    editor->editable_parameter_info[editor->current_editable_type] = begin_linear_buffer<EditableParameter>(editor->arena);
     return editor->editable_parameter_info[editor->current_editable_type];
 }
 
-inline void end_editables(EditorState* editor, EditableParameter* editables) {
+inline void end_editables(EditorState* editor, LinearBuffer<EditableParameter>* editables) {
     assert(editor->current_editable_type != EntityType_Null);
 
     end_linear_buffer(editables);
-    editor->editable_parameter_count[editor->current_editable_type] = cast(u32) lb_count(editables);
 
     editor->current_editable_type = EntityType_Null;
 }
 
 internal void set_up_editable_parameters(EditorState* editor) {
     EditableParameter* editable = 0;
-    EditableParameter* editables = 0;
+    LinearBuffer<EditableParameter>* editables = 0;
 
     editables = begin_editables(editor, EntityType_Player);
     {
@@ -796,8 +797,6 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
         create_debug_level(editor);
     }
 
-    // write_level_to_disk(game_state, active_level, "test_level.txt");
-
     return editor;
 }
 
@@ -896,6 +895,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                         /* Just eat this one silently to avoid leaving a ` or ~ in the console when closing */
                     } break;
 
+                    case PKC_Delete: {
+                        console->input_buffer_count = 0;
+                    } break;
+
                     default: {
                         if (ascii) {
                             if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
@@ -912,14 +915,42 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*console->openness_t;
             AxisAlignedBox2 console_log_box = aab_min_max(vec2(0.0f, console_log_box_height), vec2(width, height));
-            push_shape(&editor->render_context, transform2d(vec2(0, 0)), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, 0.5f));
+            push_shape(&editor->render_context, default_transform2d(), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, 0.65f));
+
+            PlatformLogMessage* selected_message = 0;
+
+            EditorLayout log = make_layout(editor, vec2(4.0f, console_log_box_height + get_line_spacing(editor->font) + get_baseline(editor->font)), true);
+            for (PlatformLogMessage* message = platform.get_most_recent_log_message(); message; message = message->next) {
+                if (log.at_p.y < height) {
+                    v4 color = COLOR_WHITE;
+                    if (message->level == LogLevel_Error) {
+                        color = COLOR_RED;
+                    } else if (message->level == LogLevel_Warn) {
+                        color = COLOR_YELLOW;
+                    }
+                    editor_print_line(&log, color, message->text);
+
+                    if (is_in_aab(log.last_print_bounds, mouse_p)) {
+                        selected_message = message;
+                    }
+                } else {
+                    break;
+                }
+            }
 
             v2 input_box_min = vec2(0.0f, console_log_box_height - console_input_box_height);
             AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
-            push_shape(&editor->render_context, transform2d(vec2(0, 0)), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, 0.8f));
+            push_shape(&editor->render_context, default_transform2d(), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, 0.8f));
 
             EditorLayout input_box = make_layout(editor, input_box_min + vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)));
             editor_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
+
+            if (selected_message) {
+                EditorLayout log_tooltip = make_layout(editor, mouse_p + vec2(0.0f, 12.0f), true);
+                editor->render_context.sort_key_bias += 100.0f;
+                editor_print_line(&log_tooltip, COLOR_WHITE, "\"%s\":%s():%u", selected_message->file, selected_message->function, selected_message->line);
+                push_shape(&editor->render_context, default_transform2d(), rectangle(log_tooltip.last_print_bounds), vec4(0.0f, 0.0f, 0.0f, 0.8f), ShapeRenderMode_Fill, -10.0f);
+            }
 
             editor->render_context.sort_key_bias = old_sort_bias;
         }
@@ -946,6 +977,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
     editor_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
+
+    if (was_pressed(get_key(input, 'P'))) {
+        log_print(LogLevel_Warn, "I am an independent woman");
+    }
 
     if (editor->level_saved_timer > 0.0f) {
         editor->level_saved_timer -= input->frame_dt;
@@ -1248,13 +1283,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
         layout.depth++;
 
-        EditableParameter* editables = editor->editable_parameter_info[selected->type];
+        LinearBuffer<EditableParameter>* editables = editor->editable_parameter_info[selected->type];
         if (editables) {
             EditableParameter* highlighted_editable = 0;
 
-            u32 editables_count = editor->editable_parameter_count[selected->type];
-            for (u32 editable_index = 0; editable_index < editables_count; editable_index++) {
-                EditableParameter* editable = editables + editable_index;
+            for (u32 editable_index = 0; editable_index < editables->count; editable_index++) {
+                EditableParameter* editable = editables->data + editable_index;
                 void** editable_ptr = cast(void**) (cast(u8*) selected + editable->offset);
 
                 EditorWidget widget;

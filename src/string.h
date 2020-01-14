@@ -84,6 +84,7 @@ inline s32 parse_integer(char* start, char** end) {
     return result;
 }
 
+#define PRINTF_STRING(string) cast(int) (string).len, (string).data
 typedef struct String {
     size_t len;
     char* data;

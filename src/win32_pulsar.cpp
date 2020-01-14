@@ -1,9 +1,4 @@
-/* Big List of @TODOs
-
- * Find (lower latency) alternative to DirectSound, WASAPI?
- * Decide on asset loading strategy (pack files?)
-
-*/
+// @TODO: Use large pages with VirtualAlloc
 
 #include <windows.h>
 #include <dsound.h>
@@ -12,9 +7,15 @@
 #include <gl/gl.h>
 #include <stdio.h>
 
+#define STB_SPRINTF_STATIC 1
+#define STB_SPRINTF_IMPLEMENTATION 1
+#include "external/stb_sprintf.h"
+
 #include "common.h"
 
+#define PULSAR_MEMORY_MALLOC_ALLOCATOR 1
 #include "pulsar_memory.h"
+
 #include "pulsar_memory_arena.h"
 #include "pulsar_platform_bridge.h"
 
@@ -42,14 +43,29 @@ global b32 running;
 global b32 in_focus;
 global b32 focus_changed;
 
-global MemoryArena platform_arena;
+#define WIN32_LOG_MEMORY_CHUNK_SIZE MEGABYTES(1)
+struct Win32LogMemory {
+    Win32LogMemory* next;
+    size_t used;
+    char memory[WIN32_LOG_MEMORY_CHUNK_SIZE];
+};
 
-internal DEBUG_PLATFORM_PRINT(win32_debug_print) {
-    OutputDebugStringA(text);
-}
+struct Win32State {
+    MemoryArena platform_arena;
+
+    b32 log_file_valid;
+    b32 log_memory_valid;
+
+    PlatformLogMessage* most_recent_log_message;
+    Win32LogMemory* first_log_memory;
+
+    HANDLE log_file;
+};
+
+global Win32State win32_state;
 
 internal PLATFORM_ALLOCATE_MEMORY(win32_allocate_memory) {
-    void* result = VirtualAlloc(NULL, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    void* result = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     return result;
 }
 
@@ -57,6 +73,63 @@ internal PLATFORM_DEALLOCATE_MEMORY(win32_deallocate_memory) {
     if (memory) {
         VirtualFree(memory, 0, MEM_RELEASE);
     }
+}
+
+internal DEBUG_PLATFORM_PRINT(win32_debug_print) {
+    OutputDebugStringA(text);
+}
+
+internal PLATFORM_LOG_PRINT(win32_log_print) {
+    va_list va_args;
+    va_start(va_args, format_string);
+
+    s32 text_size = stbsp_vsnprintf(0, 0, format_string, va_args);
+    s32 null_terminated_text_size = text_size + 1;
+
+    if (text_size > 0) {
+        Win32LogMemory* memory = win32_state.first_log_memory;
+        if (!memory || memory->used + null_terminated_text_size > WIN32_LOG_MEMORY_CHUNK_SIZE) {
+            Win32LogMemory* new_memory = push_struct(&win32_state.platform_arena, Win32LogMemory, no_clear());
+
+            new_memory->next = win32_state.first_log_memory;
+            win32_state.first_log_memory = new_memory;
+
+            new_memory->used = 0;
+
+            memory = new_memory;
+        }
+
+        char* text_location = memory->memory + memory->used;
+
+        s32 printed_size = stbsp_vsnprintf(text_location, null_terminated_text_size, format_string, va_args);
+        if (printed_size == text_size) {
+            memory->used += null_terminated_text_size;
+
+            PlatformLogMessage* message = push_struct(&win32_state.platform_arena, PlatformLogMessage);
+
+            message->next = win32_state.most_recent_log_message;
+            win32_state.most_recent_log_message = message;
+
+            message->file = file;
+            message->function = function;
+
+            message->text = text_location;
+            message->text_length = text_size;
+
+            message->line = line;
+
+            message->level = log_level;
+        } else {
+            INVALID_CODE_PATH;
+        }
+    }
+
+    va_end(va_args);
+}
+
+internal PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(win32_get_most_recent_log_message) {
+    PlatformLogMessage* result = win32_state.most_recent_log_message;
+    return result;
 }
 
 internal PLATFORM_ALLOCATE_TEXTURE(win32_allocate_texture) {
@@ -110,7 +183,7 @@ internal PLATFORM_WRITE_ENTIRE_FILE(win32_write_entire_file) {
     if (file_handle != INVALID_HANDLE_VALUE) {
         DWORD bytes_written;
         if (WriteFile(file_handle, data, size, &bytes_written, NULL)) {
-            // File read successfully
+            // File written successfully
             result = (bytes_written == size);
         } else {
             // TODO: Logging
@@ -448,10 +521,10 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
 }
 
 internal void win32_output_image(GameRenderCommands* commands, HDC window_dc) {
-    TemporaryMemory temp = begin_temporary_memory(&platform_arena);
+    TemporaryMemory temp = begin_temporary_memory(&win32_state.platform_arena);
 
     SortEntry* sort_entries = cast(SortEntry*) commands->command_buffer;
-    SortEntry* sort_temp_space = push_array(&platform_arena, commands->sort_entry_count, SortEntry, no_clear());
+    SortEntry* sort_temp_space = push_array(&win32_state.platform_arena, commands->sort_entry_count, SortEntry, no_clear());
 
     radix_sort(commands->sort_entry_count, sort_entries, sort_temp_space);
 
@@ -466,6 +539,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         LARGE_INTEGER perf_count_frequency_result;
         QueryPerformanceFrequency(&perf_count_frequency_result);
         perf_count_frequency = perf_count_frequency_result.QuadPart;
+    }
+
+    win32_state.log_file = CreateFileA("test_log.txt", GENERIC_WRITE, NULL, NULL, CREATE_ALWAYS, NULL, NULL);
+    if (win32_state.log_file != INVALID_HANDLE_VALUE) {
+        win32_state.log_file_valid = true;
     }
 
     WNDCLASSA window_class = {};
@@ -526,11 +604,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             size_t platform_storage_size = MEGABYTES(128);
             void* platform_storage = win32_allocate_memory(platform_storage_size);
 
-            initialize_arena(&platform_arena, platform_storage_size, platform_storage);
+            initialize_arena(&win32_state.platform_arena, platform_storage_size, platform_storage);
 
             GameRenderCommands render_commands = {};
             render_commands.command_buffer_size = MEGABYTES(32);
-            render_commands.command_buffer = cast(u8*) push_size(&platform_arena, render_commands.command_buffer_size);
+            render_commands.command_buffer = cast(u8*) push_size(&win32_state.platform_arena, render_commands.command_buffer_size);
 
             b32 sound_is_valid = false;
 
@@ -551,12 +629,15 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.deallocate = win32_deallocate_memory;
             game_memory.platform_api.allocate_texture = win32_allocate_texture;
             game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
+            game_memory.platform_api.log_print = win32_log_print;
+            game_memory.platform_api.get_most_recent_log_message = win32_get_most_recent_log_message;
+
+#if PULSAR_DEBUG
             game_memory.platform_api.debug_print = win32_debug_print;
+#endif
 
             PlatformDebugInfo* debug_info = &game_memory.debug_info;
-            debug_info->frame_history = push_struct(&platform_arena, DebugFrameTimeHistory);
-            debug_info->print_size = MEGABYTES(4);
-            debug_info->print = cast(char*) push_size(&platform_arena, debug_info->print_size);
+            debug_info->frame_history = push_struct(&win32_state.platform_arena, DebugFrameTimeHistory);
 
             GameInput old_input_ = {};
             GameInput new_input_ = {};

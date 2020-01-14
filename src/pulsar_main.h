@@ -46,7 +46,7 @@
 //     platform asks for more than a frame's worth of audio)
 //
 // Low importance:
-// - Templatize LinearBuffer? Maybe?? Maybe not.
+// - Un-templatize LinearBuffer? I'm not sure I like it that much
 // - Shaders?
 // - Make some kind entity system besides just the monolithic entities I've got now
 
@@ -191,6 +191,8 @@ global GameState* dbg_game_state;
 #endif
 
 global PlatformAPI platform;
+
+#define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);

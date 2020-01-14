@@ -9,27 +9,11 @@
 #include "pulsar_memory.h"
 #include "pulsar_asset_pack_file_format.h"
 
-struct PlatformFileHandle {
-    b32 no_errors;
-    void* handle;
-};
-
 #define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name, Allocator allocator)
 typedef PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile);
 
 #define PLATFORM_WRITE_ENTIRE_FILE(name) b32 name(char* file_name, u32 size, void* data)
 typedef PLATFORM_WRITE_ENTIRE_FILE(PlatformWriteEntireFile);
-
-#if 0
-#define PLATFORM_OPEN_FILE(name) PlatformFileHandle name(char* file_name)
-typedef PLATFORM_OPEN_FILE(PlatformOpenFile);
-
-#define PLATFORM_READ_FROM_FILE(name) void* name(PlatformFileHandle* handle, size_t offset, size_t amount)
-typedef PLATFORM_READ_FROM_FILE(PlatformReadFromFile);
-
-#define PLATFORM_WRITE_TO_FILE(name) void name(PlatformFileHandle* handle, size_t offset, size_t amount, void* data)
-typedef PLATFORM_WRITE_TO_FILE(PlatformWriteToFile);
-#endif
 
 #define PLATFORM_ALLOCATE_MEMORY(name) void* name(size_t size)
 typedef PLATFORM_ALLOCATE_MEMORY(PlatformAllocateMemory);
@@ -46,6 +30,32 @@ typedef PLATFORM_DEALLOCATE_TEXTURE(PlatformDeallocateTexture);
 #define DEBUG_PLATFORM_PRINT(name) void name(char* text)
 typedef DEBUG_PLATFORM_PRINT(DebugPlatformPrint);
 
+enum PlatformLogLevel {
+    LogLevel_Info  = 2,
+    LogLevel_Warn  = 8,
+    LogLevel_Error = 10,
+};
+
+struct PlatformLogMessage {
+    PlatformLogMessage* next;
+
+    char* file;
+    char* function;
+
+    char* text;
+    u32 text_length;
+
+    u32 line;
+
+    PlatformLogLevel level;
+};
+
+#define PLATFORM_LOG_PRINT(name) void name(PlatformLogLevel log_level, char* file, char* function, u32 line, char* format_string, ...)
+typedef PLATFORM_LOG_PRINT(PlatformLogPrint);
+
+#define PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(name) PlatformLogMessage* name()
+typedef PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(PlatformGetMostRecentLogMessage);
+
 struct PlatformAPI {
     PlatformReadEntireFile* read_entire_file;
     PlatformWriteEntireFile* write_entire_file;
@@ -53,6 +63,9 @@ struct PlatformAPI {
     PlatformDeallocateMemory* deallocate;
     PlatformAllocateTexture* allocate_texture;
     PlatformDeallocateTexture* deallocate_texture;
+
+    PlatformLogPrint* log_print;
+    PlatformGetMostRecentLogMessage* get_most_recent_log_message;
 
 #if PULSAR_DEBUG
     DebugPlatformPrint* debug_print;
@@ -74,9 +87,6 @@ struct DebugProfilingEvent {
 
 struct PlatformDebugInfo {
     DebugFrameTimeHistory* frame_history;
-
-    u32 print_size;
-    char* print;
 };
 #endif
 
@@ -273,7 +283,7 @@ introspect() enum PlatformKeyCode {
 
 // @Note: The platform input event buffer is for when you want to do text input, basically. It's cleared each frame, so
 // this is the maximum number of key down events that can be logged in a single frame.
-#define PLATFORM_INPUT_EVENT_BUFFER_SIZE 128
+#define PLATFORM_INPUT_EVENT_BUFFER_SIZE 32
 struct GameInput {
     b32 in_focus, focus_changed;
     f32 update_rate, frame_dt;
