@@ -1,3 +1,14 @@
+inline v2 get_screen_dim(RenderContext* render_context) {
+    v2 result = vec2(render_context->commands->width, render_context->commands->height);
+    return result;
+}
+
+inline f32 get_aspect_ratio(RenderContext* render_context) {
+    v2 dim = get_screen_dim(render_context);
+    f32 result = dim.x / dim.y;
+    return result;
+}
+
 inline void render_worldspace(RenderContext* render_context, f32 vertical_fov) {
     render_context->vertical_fov = vertical_fov;
 }
@@ -35,6 +46,12 @@ inline Transform2D screen_to_world(RenderContext* render_context, Transform2D sc
     result.scale  = pixels_to_units*(screen_t.scale);
     result.rotation_arm = rotate(result.rotation_arm, render_context->camera_rotation_arm);
 
+    return result;
+}
+
+inline f32 approximate_camera_distance_from_vfov(f32 vfov) {
+    f32 approx_height_of_screen = 35.0f;
+    f32 result = approx_height_of_screen / tan(vfov);
     return result;
 }
 

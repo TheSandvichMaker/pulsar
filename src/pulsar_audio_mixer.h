@@ -15,7 +15,11 @@ typedef SOUND_SYNTH(Synth);
 
 struct PlayingSound {
     b32 initialized;
+
     f32 current_volume[2];
+    f32 dv_over_t[2]; // v: volume
+    f32 target_volume[2];
+
     u32 samples_played;
 
     u32 flags;
@@ -26,7 +30,7 @@ struct PlayingSound {
         Synth* synth;
     };
 
-    struct PlayingMidi* synced_midi;
+    struct PlayingMidi* synced_midi; // Icky
 
     PlayingSound* next;
 };

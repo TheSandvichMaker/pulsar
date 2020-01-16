@@ -59,7 +59,8 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
     // @Note: Camera Zone
-    SERIALIZABLE(Entity, EntityType_CameraZone, camera_zone),
+    SERIALIZABLE(Entity, EntityType_CameraZone, active_region),
+    SERIALIZABLE(Entity, EntityType_CameraZone, view_region_height),
     SERIALIZABLE(Entity, EntityType_CameraZone, camera_rotation_arm),
     // @Note: Checkpoint
     SERIALIZABLE(Entity, EntityType_Checkpoint, checkpoint_zone),
@@ -78,7 +79,6 @@ struct LevFileHeader {
     } prelude;
 
     u32 entity_count;
-    u32 entity_member_count;
 };
 #pragma pack(pop)
 
@@ -101,7 +101,6 @@ internal void write_level_to_disk(MemoryArena* arena, Level* level, String level
     header.prelude.header_size = sizeof(header);
 
     header.entity_count = level->entity_count;
-    header.entity_member_count = ARRAY_COUNT(entity_serializables);
 
     write_stream(sizeof(header), &header);
 
@@ -180,10 +179,6 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
             header->prelude.magic[2] == 'v' &&
             header->prelude.magic[3] == 'l'
         ) {
-            if (header->entity_member_count != ARRAY_COUNT(entity_serializables)) {
-                log_print(LogLevel_Warn, "Level Load Warning: Member count mismatch: %u in file, expected %u", header->entity_member_count, ARRAY_COUNT(entity_serializables));
-            }
-
             if (header->prelude.version != LEV_VERSION) {
                 log_print(LogLevel_Warn, "Level Load Warning: Version mismatch: %u in file, expected %u", header->prelude.version, LEV_VERSION);
             }
@@ -273,7 +268,6 @@ inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
     push_shape(&dbg_game_state->render_context, t, arrow, color, ShapeRenderMode_Outline);
 }
 
-#define MAX_COLLISION_ITERATIONS 4
 inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0) {
     if (!game_state->first_free_playing_midi) {
         game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
@@ -295,13 +289,14 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     return playing_midi;
 }
 
-inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags) {
+inline PlayingSound* play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags) {
     Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
     PlayingSound* playing_sound = play_sound(&game_state->audio_mixer, sound, flags);
     for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
         MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
         play_midi(game_state, track, flags, playing_sound);
     }
+    return playing_sound;
 }
 
 inline void stop_all_midi_tracks(GameState* game_state) {
@@ -365,6 +360,8 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
     game_state->game_mode = game_mode;
 }
 
+global PlayingSound* test_sound;
+
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
@@ -382,6 +379,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     u32 width = render_commands->width;
     u32 height = render_commands->height;
+    f32 aspect_ratio = cast(f32) width / cast(f32) height;
 
     if (!memory->initialized) {
         initialize_arena(&game_state->permanent_arena, memory->permanent_storage_size - sizeof(GameState), cast(u8*) memory->permanent_storage + sizeof(GameState));
@@ -406,6 +404,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // PlayingSound* test_tone = play_synth(&game_state->audio_mixer, synth_test_tone);
         // change_volume(test_tone, vec2(0.25f, 0.25f));
 
+        // test_sound = play_sound(&game_state->audio_mixer, get_sound_by_name(&game_state->assets, "test_music"));
+
         memory->initialized = true;
     }
 
@@ -426,14 +426,27 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     if (game_state->game_mode == GameMode_Ingame) {
         Entity* camera_target = game_state->camera_target;
-        if (camera_target) {
-            game_state->render_context.camera_p = camera_target->p;
+        Entity* camera_zone = game_state->active_camera_zone;
+        if (camera_target && camera_zone) {
+            if (!is_in_region(camera_zone->active_region + camera_target->collision, camera_target->p - camera_zone->p)) {
+                camera_zone = game_state->active_camera_zone = 0;
+            }
         }
 
-        if (game_state->active_camera_zone) {
-            render_context->camera_p = game_state->active_camera_zone->p;
-            render_context->camera_rotation_arm = game_state->active_camera_zone->camera_rotation_arm;
-            render_worldspace(render_context, game_state->active_camera_zone->camera_zone.y);
+        if (camera_target) {
+            game_state->render_context.camera_p = camera_target->p;
+
+            if (camera_zone) {
+                v2 rel_camera_p = camera_target->p - camera_zone->p;
+                v2 view_region = vec2(aspect_ratio*camera_zone->view_region_height, camera_zone->view_region_height);
+                v2 movement_zone = max(vec2(0, 0), camera_zone->active_region - view_region);
+                rel_camera_p = clamp(rel_camera_p, -0.5f*movement_zone, 0.5f*movement_zone);
+
+                render_context->camera_p = camera_zone->p + rel_camera_p;
+                render_context->camera_rotation_arm = camera_zone->camera_rotation_arm;
+
+                render_worldspace(render_context, view_region.y);
+            }
         }
     }
 
@@ -472,19 +485,17 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     // Post-Sim
     //
 
-
     EditorState* editor = game_state->editor_state;
 
     if (was_pressed(input->debug_fkeys[2])) {
         editor->shown = !editor->shown;
     }
 
-    execute_editor(game_state, editor, input, memory->debug_info.frame_history);
-    if (game_state->camera_target && game_state->active_camera_zone) {
-        if (!is_in_aab(aab_center_dim(game_state->active_camera_zone->p, game_state->active_camera_zone->camera_zone), game_state->camera_target->p)) {
-            game_state->active_camera_zone = 0;
-        }
+    if (was_pressed(input->debug_fkeys[3])) {
+        editor->show_statistics = !editor->show_statistics;
     }
+
+    execute_editor(game_state, editor, input, memory->debug_info.frame_history);
 
     u32 active_entity_count = 0;
     Entity* active_entities = 0;
@@ -528,12 +539,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                             INVALID_CODE_PATH;
                         }
                     }
-                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->camera_zone)), entity->color, ShapeRenderMode_Outline);
-
-                    f32 aspect_ratio = cast(f32) width / cast(f32) height;
-                    f32 zone_height = entity->camera_zone.y;
-                    AxisAlignedBox2 visible_zone = aab_center_dim(vec2(0, 0), vec2(aspect_ratio*zone_height, zone_height));
-                    push_shape(render_context, transform, rectangle(visible_zone), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
+                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
+                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
                 } break;
 
                 case EntityType_Checkpoint: {

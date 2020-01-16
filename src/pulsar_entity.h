@@ -26,11 +26,6 @@ introspect() enum EntityType {
 
 struct EntityID { u32 value; };
 
-struct CollisionVolume {
-    v2 dim;
-    v2 offset;
-};
-
 struct Entity {
     EntityID guid;
     EntityType type;
@@ -42,7 +37,7 @@ struct Entity {
     v2 dp;
     v2 ddp;
 
-    AxisAlignedBox2 collision;
+    v2 collision;
 
     ImageID sprite;
     v4 color;
@@ -64,7 +59,6 @@ struct Entity {
             u32 midi_note;
 
             f32 movement_t;
-            Entity* sticking_entity;
             v2 sticking_dp;
             v2 midi_test_target;
         };
@@ -74,12 +68,13 @@ struct Entity {
             SoundtrackID soundtrack_id;
             u32 playback_flags;
 
-            b32 soundtrack_has_been_played;
+            PlayingSound* playing;
         };
 
         struct {
             // @Note: Camera Zone;
-            v2 camera_zone;
+            v2 active_region;
+            f32 view_region_height;
             v2 camera_rotation_arm;
         };
 

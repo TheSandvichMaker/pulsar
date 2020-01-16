@@ -2,129 +2,6 @@
 // @TODO: Take a more intelligent approach to dead entities so I don't have to put in tons of error-prone checks for it
 //
 
-inline b32 on_ground(Entity* entity) {
-    b32 result = entity->flags & EntityFlag_OnGround;
-    return result;
-}
-
-internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 frame_dt) {
-    RenderContext* render_context = &game_state->render_context;
-    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
-        Entity* entity = game_state->entities + entity_index;
-        assert(entity->type != EntityType_Null);
-
-        entity->ddp = vec2(0, 0);
-
-        if (entity->dead) {
-            continue;
-        }
-
-        switch (entity->type) {
-            case EntityType_Player: {
-                if (!game_state->camera_target) {
-                    game_state->camera_target = entity;
-                }
-
-                GameController* controller = &input->controller;
-                f32 move_speed = entity->support ? 50.0f : 10.0f;
-                if (controller->move_left.is_down) {
-                    entity->ddp.x -= move_speed;
-                }
-                if (controller->move_right.is_down) {
-                    entity->ddp.x += move_speed;
-                }
-
-                if (entity->support) {
-                    // entity->ddp -= entity->support_normal*dot(entity->ddp, entity->support_normal);
-
-                    if (was_pressed(controller->move_up)) {
-                        // play_synth(&game_state->audio_mixer, synth_test_impulse);
-                        // play_sound(&game_state->audio_mixer, game_state->test_sound);
-                        entity->ddp.y += 400.0f;
-                        entity->jumped = true;
-                    }
-                }
-            } break;
-
-            case EntityType_Wall: {
-                v2 movement = {};
-                for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
-                    ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
-                    if (event.note_value == entity->midi_note) {
-                        if (event.type == MidiEvent_NoteOn) {
-                            entity->midi_test_target.y += 0.5f*(event.note_value - 59);
-                        } else if (event.type == MidiEvent_NoteOff) {
-                            entity->midi_test_target.y -= 0.5f*(event.note_value - 59);
-                        } else {
-                            INVALID_CODE_PATH;
-                        }
-                    }
-                }
-                movement = 5.0f*(entity->midi_test_target - entity->p);
-                // entity->p += entity->sim_dt*movement;
-                entity->dp = movement;
-                entity->movement_t += frame_dt;
-#if 0
-                Entity* sticking_entity = entity->sticking_entity;
-                if (sticking_entity) {
-                    sticking_entity->p += movement;
-                    sticking_entity->sticking_dp = rcp_dt*movement;
-                }
-#endif
-            } break;
-
-            case EntityType_SoundtrackPlayer: {
-                if (!entity->soundtrack_has_been_played) {
-                    Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
-                    play_soundtrack(game_state, soundtrack, entity->playback_flags);
-                    entity->soundtrack_has_been_played = true;
-                } else {
-                    entity->color = COLOR_GREEN;
-                }
-            } break;
-
-            case EntityType_CameraZone: {
-                Entity* camera_target = game_state->camera_target;
-                if (camera_target) {
-                    if (is_in_aab(aab_center_dim(entity->p, entity->camera_zone), camera_target->p)) {
-                        game_state->active_camera_zone = entity;
-                    }
-                }
-            } break;
-
-            case EntityType_Checkpoint: {
-                if (game_state->player) {
-                    AxisAlignedBox2 checkpoint_box = aab_center_dim(entity->p, entity->checkpoint_zone);
-                    AxisAlignedBox2 player_box = offset(game_state->player->collision, game_state->player->p);
-                    if (aab_contained_in_aab(checkpoint_box, player_box)) {
-                        game_state->last_activated_checkpoint = entity;
-                        entity->most_recent_player_position = game_state->player->p;
-                    }
-                }
-            } break;
-
-            INVALID_DEFAULT_CASE;
-        }
-    }
-}
-
-inline void kill_player(GameState* game_state) {
-    assert(game_state->player);
-    if (!game_state->player->dead) {
-        game_state->player->dead = true;
-        game_state->player->support = 0;
-        game_state->player_respawn_timer = 2.0f;
-    }
-}
-
-inline void process_collision_logic(GameState* game_state, Entity* collider, Entity* collidee) {
-    if (collider->type == EntityType_Player) {
-        if (collidee->flags & EntityFlag_Hazard) {
-            kill_player(game_state);
-        }
-    }
-}
-
 struct TraceInfo {
     f32 t;
     v2 hit_normal;
@@ -196,12 +73,29 @@ inline v2 grazing_reflect(v2 in, v2 n) {
     return result;
 }
 
-inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
-    /*
-     * @TODO: Entities shouldn't be modified in here at all, that should be deferred,
-     * all the changes applied to entities should be stored in PhysicsMoveResult instead.
-     */
+inline b32 on_ground(Entity* entity) {
+    b32 result = entity->flags & EntityFlag_OnGround;
+    return result;
+}
 
+inline void kill_player(GameState* game_state) {
+    assert(game_state->player);
+    if (!game_state->player->dead) {
+        game_state->player->dead = true;
+        game_state->player->support = 0;
+        game_state->player_respawn_timer = 2.0f;
+    }
+}
+
+inline void process_collision_logic(GameState* game_state, Entity* collider, Entity* collidee) {
+    if (collider->type == EntityType_Player) {
+        if (collidee->flags & EntityFlag_Hazard) {
+            kill_player(game_state);
+        }
+    }
+}
+
+inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
     f32 t = 1.0f;
 
     f32 epsilon = 1.0e-3f;
@@ -223,7 +117,7 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
     entity->dp += ddp*dt;
 
     if (entity->flags & EntityFlag_Collides) {
-        u32 max_iterations = 8;
+        u32 max_iterations = 4;
         u32 iteration_count = 0;
         while (t > epsilon && iteration_count < max_iterations) {
             b32 did_collide = false;
@@ -239,14 +133,10 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
                     // @Note: Right now the policy is that there are no collisions between two physical entities, so test_delta is calculated using only the test_entity's dp.
                     // ddp is for physics.
                     v2 test_delta = test_entity->dp*dt;
-                    test_entity->sticking_entity = 0;
-#if 1
-                    //
-                    // AABB path
-                    //
 
                     v2 rel_p = entity->p - test_entity->p;
-                    AxisAlignedBox2 test_aab = aab_sum(entity->collision, test_entity->collision);
+                    v2 test_region = entity->collision + test_entity->collision;
+                    AxisAlignedBox2 test_aab = aab_center_dim(vec2(0, 0), test_region);
 
                     if (is_in_aab(test_aab, rel_p)) {
                         f32 best_distance = F32_MAX;
@@ -313,7 +203,234 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
                             }
                         }
                     }
-#else
+                }
+            }
+
+            if (!did_collide) {
+                t = 0.0f;
+            }
+
+            entity->p += delta;
+
+            iteration_count++;
+        }
+
+        if (iteration_count >= max_iterations) {
+            assert(iteration_count == max_iterations);
+            log_print(LogLevel_Warn, "Player move reached %u iterations", max_iterations);
+        }
+    }
+
+    if (entity->jumped) {
+        entity->jumped = false;
+        entity->support = 0;
+    }
+}
+
+internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_dt) {
+    game_state->midi_event_buffer_count = 0;
+    for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
+        PlayingMidi* playing_midi = *playing_midi_ptr;
+
+        MidiTrack* track = playing_midi->track;
+        if (playing_midi->event_index < track->event_count) {
+            u32 ticks_for_frame = round_f32_to_u32((cast(f32) track->ticks_per_second)*frame_dt);
+
+            // @Note: I moved the sync to output_playing_sounds, which means that if the midi track has a sync sound
+            // playing_midi->tick_timer will be synced to it at the end of every frame, meaning this addition here
+            // will be overwritten. It's here to account for midi events that would happen during the frame, and to
+            // advance the tick timer if the midi track has no sync sound - 16/01/2020
+            playing_midi->tick_timer += ticks_for_frame;
+            // P.S: This is the kind of comment I don't want to have, because it is extremely vulnerable to going out
+            // of date, but I thought it was relevant to note because it's not clear from this code here that this
+            // behaviour is happening.
+
+            MidiEvent event = track->events[playing_midi->event_index];
+            while (event.absolute_time_in_ticks <= playing_midi->tick_timer && playing_midi->event_index < track->event_count) {
+                playing_midi->event_index++;
+
+                ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
+                active_event->midi_event = event;
+                f32 timing_into_frame = cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame;
+                active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
+
+                assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
+
+                event = track->events[playing_midi->event_index];
+            }
+        }
+
+        if (playing_midi->event_index >= track->event_count) {
+            assert(playing_midi->event_index == track->event_count);
+            if (playing_midi->flags & Playback_Looping) {
+                playing_midi->event_index = 0;
+                playing_midi->tick_timer = 0;
+                playing_midi_ptr = &playing_midi->next;
+            } else {
+                *playing_midi_ptr = playing_midi->next;
+                playing_midi->next = game_state->first_free_playing_midi;
+                game_state->first_free_playing_midi = playing_midi;
+            }
+        } else {
+            playing_midi_ptr = &playing_midi->next;
+        }
+    }
+
+    RenderContext* render_context = &game_state->render_context;
+
+    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
+        Entity* entity = game_state->entities + entity_index;
+        assert(entity->type != EntityType_Null);
+
+        entity->ddp = vec2(0, 0);
+
+        if (entity->dead) {
+            continue;
+        }
+
+        switch (entity->type) {
+            case EntityType_Player: {
+                if (!game_state->camera_target) {
+                    game_state->camera_target = entity;
+                }
+
+                GameController* controller = &input->controller;
+                f32 move_speed = entity->support ? 50.0f : 10.0f;
+                if (controller->move_left.is_down) {
+                    entity->ddp.x -= move_speed;
+                }
+                if (controller->move_right.is_down) {
+                    entity->ddp.x += move_speed;
+                }
+
+                if (entity->support) {
+                    // entity->ddp -= entity->support_normal*dot(entity->ddp, entity->support_normal);
+
+                    if (was_pressed(controller->move_up)) {
+                        // play_synth(&game_state->audio_mixer, synth_test_impulse);
+                        // play_sound(&game_state->audio_mixer, game_state->test_sound);
+                        entity->ddp.y += 400.0f;
+                        entity->jumped = true;
+                    }
+                }
+            } break;
+
+            case EntityType_Wall: {
+                v2 movement = {};
+                for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
+                    ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
+                    if (event.note_value == entity->midi_note) {
+                        if (event.type == MidiEvent_NoteOn) {
+                            entity->midi_test_target.y += 0.5f*(event.note_value - 59);
+                        } else if (event.type == MidiEvent_NoteOff) {
+                            entity->midi_test_target.y -= 0.5f*(event.note_value - 59);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                    }
+                }
+                movement = 5.0f*(entity->midi_test_target - entity->p);
+                // entity->p += entity->sim_dt*movement;
+                entity->dp = movement;
+                entity->movement_t += frame_dt;
+#if 0
+                Entity* sticking_entity = entity->sticking_entity;
+                if (sticking_entity) {
+                    sticking_entity->p += movement;
+                    sticking_entity->sticking_dp = rcp_dt*movement;
+                }
+#endif
+            } break;
+
+            case EntityType_SoundtrackPlayer: {
+                if (!entity->playing) {
+                    Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
+                    entity->playing = play_soundtrack(game_state, soundtrack, entity->playback_flags);
+                } else {
+                    entity->color = COLOR_GREEN;
+                }
+
+                f32 aspect_ratio = get_aspect_ratio(&game_state->render_context);
+
+                v2 camera_p;
+                if (game_state->active_camera_zone) {
+                    camera_p = game_state->active_camera_zone->p;
+                    camera_p /= vec2(aspect_ratio*game_state->active_camera_zone->view_region_height, game_state->active_camera_zone->view_region_height);
+                } else {
+                    camera_p = game_state->camera_target->p;
+                    camera_p /= vec2(aspect_ratio*game_state->render_context.vertical_fov, game_state->render_context.vertical_fov);
+                }
+
+                v2 volume = vec2(1.0f, 1.0f);
+
+                v2 rel_p = vec2(abs(camera_p.x), abs(camera_p.y)) - entity->p;
+
+                f32 distance = length(max(rel_p, vec2(0, 0))) + min(max(rel_p.x, rel_p.y), 0.0f);
+                if (distance > 0.0f) {
+                    if (entity->p.x > camera_p.x) {
+                        volume.e[0] = clamp01(1.0f - distance);
+                    } else {
+                        volume.e[1] = clamp01(1.0f - distance);
+                    }
+
+                    distance += 1;
+                    volume *= clamp01(1.0f/(distance*distance));
+                }
+
+                change_volume(entity->playing, 0.1f, volume);
+            } break;
+
+            case EntityType_CameraZone: {
+                Entity* camera_target = game_state->camera_target;
+                if (camera_target) {
+                    if (is_in_region(entity->active_region, camera_target->p - entity->p)) {
+                        game_state->active_camera_zone = entity;
+                    }
+                }
+            } break;
+
+            case EntityType_Checkpoint: {
+                Entity* player = game_state->player;
+                if (player) {
+                    if (is_in_region(entity->checkpoint_zone - player->collision, entity->p - player->p)) {
+                        game_state->last_activated_checkpoint = entity;
+                        entity->most_recent_player_position = player->p;
+                    }
+                }
+            } break;
+
+            INVALID_DEFAULT_CASE;
+        }
+    }
+
+    player_move(game_state, game_state->player, frame_dt);
+
+    for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
+        Entity* entity = game_state->entities + entity_index;
+        if (!(entity->flags & EntityFlag_Physical)) {
+            entity->p += entity->dp*frame_dt;
+        }
+
+        switch (entity->type) {
+            case EntityType_Player: {
+                if (entity->support) {
+                    Entity* support = entity->support;
+                    v2 test_region = entity->collision + support->collision;
+                    v2 rel_p = entity->p - support->p;
+                    if (rel_p.x < -test_region.x || rel_p.x > test_region.x) {
+                        entity->support = 0;
+                    }
+                }
+            } break;
+        }
+    }
+}
+
+//
+//
+//
+
+#if 0
                     //
                     // Old GJK path
                     //
@@ -354,124 +471,3 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
                         result->dp -= collision.vector*dot(result->dp, collision.vector);
                     }
 #endif
-                }
-            }
-
-            if (!did_collide) {
-                t = 0.0f;
-            }
-
-            entity->p += delta;
-
-            iteration_count++;
-        }
-
-        if (iteration_count >= max_iterations) {
-            assert(iteration_count == max_iterations);
-            log_print(LogLevel_Warn, "Player move exceeded %u iterations", max_iterations);
-        }
-    }
-
-    if (entity->jumped) {
-        entity->jumped = false;
-        entity->support = 0;
-    }
-}
-
-#if 0
-internal void simulate_entity(GameState* game_state, Entity* entity, PhysicsMoveResult* move, f32 dt) {
-    if (!entity->dead) {
-        if (entity->flags & EntityFlag_Physical) {
-            assert(move);
-            entity->p = move->p;
-            entity->dp = move->dp;
-            entity->ddp = move->ddp;
-            entity->support = move->support;
-            entity->support_normal = move->support_normal;
-            if (move->colliding_entity) {
-                move->colliding_entity->color = vec4(0, 0.5f, 0, 1);
-            }
-        } else {
-            entity->p += entity->dp*dt;
-        }
-
-        switch (entity->type) {
-            case EntityType_Player: {
-                if (entity->support) {
-                    AxisAlignedBox2 test_aab = aab_sum(entity->collision, entity->support->collision);
-                    v2 rel_p = entity->p - entity->support->p;
-                    if (rel_p.x < test_aab.min.x || rel_p.x > test_aab.max.x) {
-                        entity->support = 0;
-                    }
-                }
-
-                if (move && move->colliding_entity) {
-                    if (move->colliding_entity->flags & EntityFlag_Hazard) {
-                        kill_player(game_state);
-                    }
-                }
-            } break;
-        }
-    }
-}
-#endif
-
-internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_dt) {
-    game_state->midi_event_buffer_count = 0;
-    for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
-        PlayingMidi* playing_midi = *playing_midi_ptr;
-
-        MidiTrack* track = playing_midi->track;
-        if (playing_midi->event_index < track->event_count) {
-#if 0
-            // @Note: I moved the sync to output_playing_sounds
-            if (playing_midi->sync_sound) {
-                assert(track->ticks_per_second == 48000);
-                playing_midi->tick_timer = playing_midi->sync_sound->samples_played;
-            }
-#endif
-
-            u32 ticks_for_frame = round_f32_to_u32((cast(f32) track->ticks_per_second)*frame_dt);
-            playing_midi->tick_timer += ticks_for_frame;
-
-            MidiEvent event = track->events[playing_midi->event_index];
-            while (event.absolute_time_in_ticks <= playing_midi->tick_timer && playing_midi->event_index < track->event_count) {
-                playing_midi->event_index++;
-
-                ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
-                active_event->midi_event = event;
-                f32 timing_into_frame = cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame;
-                active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
-
-                assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
-
-                event = track->events[playing_midi->event_index];
-            }
-        }
-
-        if (playing_midi->event_index >= track->event_count) {
-            assert(playing_midi->event_index == track->event_count);
-            if (playing_midi->flags & Playback_Looping) {
-                playing_midi->event_index = 0;
-                playing_midi->tick_timer = 0;
-                playing_midi_ptr = &playing_midi->next;
-            } else {
-                *playing_midi_ptr = playing_midi->next;
-                playing_midi->next = game_state->first_free_playing_midi;
-                game_state->first_free_playing_midi = playing_midi;
-            }
-        } else {
-            playing_midi_ptr = &playing_midi->next;
-        }
-    }
-
-    execute_entity_logic(game_state, input, frame_dt);
-    player_move(game_state, game_state->player, frame_dt);
-
-    for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
-        Entity* entity = game_state->entities + entity_index;
-        if (!(entity->flags & EntityFlag_Physical)) {
-            entity->p += entity->dp*frame_dt;
-        }
-    }
-}

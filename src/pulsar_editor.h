@@ -26,6 +26,7 @@ enum EditableFlag {
 enum EditableType {
     Editable_u32,
     Editable_s32,
+    Editable_f32,
     Editable_v2,
     Editable_AxisAlignedBox2,
     Editable_EntityID,
@@ -172,6 +173,7 @@ inline String input_buffer_as_string(ConsoleState* console) {
 struct EditorState {
     b32 initialized;
     b32 shown;
+    b32 show_statistics;
 
     ConsoleState console_state;
 
@@ -193,7 +195,7 @@ struct EditorState {
     Font* big_font;
     Font* font;
 
-    AxisAlignedBox2 default_collision;
+    v2 default_collision;
 
     f32 zoom;
 

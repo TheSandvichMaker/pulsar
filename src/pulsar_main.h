@@ -195,7 +195,7 @@ global PlatformAPI platform;
 #define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
-inline void play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);
+inline PlayingSound* play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);
 inline void dbg_draw_arrow(v2 start, v2 end, v4 color);
 
 #define DEFINE_COLORS(MIDDLE_FIX, VALUE, COUNTER_VALUE) \

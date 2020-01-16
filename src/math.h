@@ -447,6 +447,16 @@ inline v2 rotate_clockwise(v2 v, v2 cos_sin) {
     return result;
 }
 
+inline b32 is_in_region(v2 region, v2 p) {
+    b32 result = abs(p.x) <= 0.5f*region.x && abs(p.y) <= 0.5f*region.y;
+    return result;
+}
+
+inline v2 clamp_to_region(v2 region, v2 p) {
+    v2 result = clamp(p, min(vec2(0.0f, 0.0f), -region), max(vec2(0.0f, 0.0f), region));
+    return result;
+}
+
 //
 // NOTE: AxisAlignedBox2
 //

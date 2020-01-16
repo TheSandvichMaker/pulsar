@@ -1,4 +1,4 @@
-internal void initialize_audio_mixer(AudioMixer* mixer, MemoryArena* permanent_arena) {
+inline void initialize_audio_mixer(AudioMixer* mixer, MemoryArena* permanent_arena) {
     mixer->arena = permanent_arena;
     mixer->first_playing_sound = 0;
     mixer->first_free_playing_sound = 0;
@@ -6,7 +6,7 @@ internal void initialize_audio_mixer(AudioMixer* mixer, MemoryArena* permanent_a
     mixer->master_volume[1] = 1.0f;
 }
 
-internal PlayingSound* play_sound_internal(AudioMixer* mixer, u32 flags = 0) {
+inline PlayingSound* play_sound_internal(AudioMixer* mixer, u32 flags = 0) {
     if (!mixer->first_free_playing_sound) {
         mixer->first_free_playing_sound = push_struct(mixer->arena, PlayingSound);
         mixer->first_free_playing_sound->next = 0;
@@ -26,14 +26,14 @@ internal PlayingSound* play_sound_internal(AudioMixer* mixer, u32 flags = 0) {
     return playing_sound;
 }
 
-internal PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0) {
+inline PlayingSound* play_sound(AudioMixer* mixer, Sound* sound, u32 flags = 0) {
     PlayingSound* playing_sound = play_sound_internal(mixer, flags);
     playing_sound->source_type = SoundSource_Sound;
     playing_sound->sound = sound;
     return playing_sound;
 }
 
-internal PlayingSound* play_synth(AudioMixer* mixer, Synth* synth, u32 flags = 0) {
+inline PlayingSound* play_synth(AudioMixer* mixer, Synth* synth, u32 flags = 0) {
     PlayingSound* playing_sound = play_sound_internal(mixer, flags);
     playing_sound->source_type = SoundSource_Synth;
     playing_sound->synth = synth;
@@ -52,18 +52,16 @@ internal SOUND_SYNTH(synth_test_impulse) {
     return result;
 }
 
-internal void change_volume(PlayingSound* sound, v2 target_volume) {
-    sound->current_volume[0] = target_volume.e[0];
-    sound->current_volume[1] = target_volume.e[1];
-}
-
-// NOTE: pan is in degrees using the constant power law, -45° for full left, 0° for center, 45° for full right.
-// TODO: note that fading between different pans is linear and thus slightly incorrect.
-inline void change_balance(PlayingSound* sound, f32 amplitude, f32 pan) {
-    f32 pow = square_root(2.0f) / 2.0f;
-    f32 theta = deg_to_rad(pan);
-    v2 volume = pow * vec2(cos(theta), sin(theta));
-    change_volume(sound, amplitude * volume);
+inline void change_volume(PlayingSound* sound, f32 t, v2 target_volume) {
+    if (t > 0.0f) {
+        sound->dv_over_t[0] = (target_volume.e[0] - sound->current_volume[0]) / t;
+        sound->dv_over_t[1] = (target_volume.e[1] - sound->current_volume[1]) / t;
+        sound->target_volume[0] = target_volume.e[0];
+        sound->target_volume[1] = target_volume.e[1];
+    } else {
+        sound->current_volume[0] = target_volume.e[0];
+        sound->current_volume[1] = target_volume.e[1];
+    }
 }
 
 inline void stop_all_sounds(AudioMixer* mixer) {
@@ -80,8 +78,14 @@ inline void stop_all_sounds(AudioMixer* mixer) {
 
 internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* sound_buffer, MemoryArena* temp_arena) {
     // @TODO:
-    // - Formalize the handling of channels in the mixer.
-    // - Restore Handmade Hero functionality (smooth volume fade, variable playback rate).
+    // Formalize the handling of channels in the mixer.
+    // Restore Handmade Hero functionality (smooth volume fade, variable playback rate).
+    //
+    // I think the having to output speculative audio versus making canonical
+    // changes has a risk of spiraling into error prone complexity, as the
+    // volume fades already are starting to demonstrate. There should be a way
+    // to make that better. Specifically, using the same code paths for the
+    // speculative and canonical parts seems like a key point.
     TemporaryMemory mixer_memory = begin_temporary_memory(temp_arena);
 
     u32 sample_count = sound_buffer->samples_to_write;
@@ -96,14 +100,29 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
         b32 looping = playing_sound->flags & Playback_Looping;
 
         if (playing_sound->initialized) {
-            // @Incomplete: This approach will not work with a smooth variable playback rate
+            // @Incomplete: With this approach, if left unaccounted for, midi sync will have a 1 frame delay
+            // @Incomplete: This approach as-is will not work with a smooth variable playback rate (maths may be able to get to the rescue)
             playing_sound->samples_played += sound_buffer->samples_committed;
+
+            for (u32 channel = 0; channel < 2; channel++) {
+                f32 volume_c = playing_sound->dv_over_t[channel] / cast(f32) sound_buffer->sample_rate;
+
+                playing_sound->current_volume[channel] += volume_c*sound_buffer->samples_committed;
+
+                if (volume_c > 0.0f) {
+                    playing_sound->current_volume[channel] = min(playing_sound->current_volume[channel], playing_sound->target_volume[channel]);
+                } else {
+                    playing_sound->current_volume[channel] = max(playing_sound->current_volume[channel], playing_sound->target_volume[channel]);
+                }
+            }
         } else {
             playing_sound->samples_played = 0;
             playing_sound->initialized = true;
         }
 
         if (playing_sound->synced_midi) {
+            // @Note: This is here for the sake of handling looping correctly, but I don't like it. I want to move this
+            // out of the mixer.
             playing_sound->synced_midi->tick_timer = playing_sound->samples_played;
         }
 
@@ -111,7 +130,6 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
             Sound* sound = playing_sound->sound;
 
             if (sound) {
-                // @Incomplete: With this approach, if left unaccounted for, midi sync will have a 1 frame delay
                 if (looping) {
                     if (playing_sound->samples_played >= sound->sample_count) {
                         playing_sound->samples_played %= sound->sample_count;
@@ -142,10 +160,6 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
             f32* dest1 = float_channel1;
             f32* dest[2] = { dest0, dest1 };
 
-            v2 volume;
-            volume.e[0] = mixer->master_volume[0]*playing_sound->current_volume[0];
-            volume.e[1] = mixer->master_volume[1]*playing_sound->current_volume[1];
-
             if (playing_sound->source_type == SoundSource_Sound) {
                 Sound* sound = playing_sound->sound;
 
@@ -167,14 +181,23 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                         }
                     }
 
-                    u32 begin_sample_position = samples_played;
-                    u32 end_sample_position = begin_sample_position + samples_to_mix;
-                    for (u32 sample_index = begin_sample_position; sample_index < end_sample_position; sample_index++) {
-                        u32 wrapped_sample_index = sample_index % sound->sample_count;
+                    f32 volume_c[2];
+                    volume_c[0] = playing_sound->dv_over_t[0] / cast(f32) sound_buffer->sample_rate;
+                    volume_c[1] = playing_sound->dv_over_t[1] / cast(f32) sound_buffer->sample_rate;
+
+                    for (u32 sample_index = 0; sample_index < samples_to_mix; sample_index++) {
+                        u32 mapped_sample_index = (samples_played + sample_index) % sound->sample_count;
 
                         for (u32 channel = 0; channel < sound->channel_count; channel++) {
-                            f32 sample_value = cast(f32) (sound->samples + sound->sample_count*channel)[wrapped_sample_index];
-                            *dest[channel]++ += volume.e[channel]*sample_value;
+                            f32 volume = volume_c[channel]*sample_index + playing_sound->current_volume[channel];
+                            if (volume_c[channel] > 0.0f) {
+                                volume = min(volume, playing_sound->target_volume[channel]);
+                            } else {
+                                volume = max(volume, playing_sound->target_volume[channel]);
+                            }
+
+                            f32 sample_value = cast(f32) (sound->samples + sound->sample_count*channel)[mapped_sample_index];
+                            *dest[channel]++ += volume*(sample_value / cast(f32) INT16_MAX);
                         }
                     }
 
@@ -192,7 +215,8 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                 for (u32 sample_index = 0; sample_index < total_samples_to_mix; sample_index++) {
                     // @TODO: Formalize channels
                     for (u32 channel = 0; channel < 2; channel++) {
-                        *dest[channel]++ += cast(f32) INT16_MAX*volume.e[channel]*playing_sound->synth(2, channel, sound_buffer->sample_rate, samples_played + sample_index, 440.0f);
+                        // @TODO: Decide on a way synths can communicate they're done playing
+                        *dest[channel]++ += cast(f32) playing_sound->current_volume[channel]*playing_sound->synth(2, channel, sound_buffer->sample_rate, samples_played + sample_index, 440.0f);
                     }
                 }
             }
@@ -207,8 +231,8 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
     f32* source1 = float_channel1;
     s16* sample_out = sound_buffer->samples;
     for (u32 sample_index = 0; sample_index < sample_count; sample_index++) {
-        *sample_out++ = cast(s16) (*source0++);
-        *sample_out++ = cast(s16) (*source1++);
+        *sample_out++ = cast(s16) (mixer->master_volume[0]*(INT16_MAX*(*source0++)));
+        *sample_out++ = cast(s16) (mixer->master_volume[1]*(INT16_MAX*(*source1++)));
     }
 
     end_temporary_memory(mixer_memory);

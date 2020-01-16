@@ -97,6 +97,13 @@ inline Shape2D rectangle(AxisAlignedBox2 aab) {
     return result;
 }
 
+inline Shape2D rectangle(v2 dim) {
+    Shape2D result = {};
+    result.type = Shape_Rectangle;
+    result.bounding_box = aab_center_dim(vec2(0, 0), dim);
+    return result;
+}
+
 inline Shape2D point() {
     Shape2D result = {};
     result.type = Shape_Point;

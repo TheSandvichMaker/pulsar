@@ -61,7 +61,7 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     Entity* entity = result.ptr;
 
     entity->p = starting_p;
-    entity->collision = aab_min_max(vec2(-0.2f, -0.5f), vec2(0.2f, 0.5f));
+    entity->collision = vec2(0.4f, 1.0f);
     entity->color = vec4(1, 1, 1, 1);
 
     entity->flags |= EntityFlag_Physical|EntityFlag_Collides;
@@ -83,9 +83,7 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
         entity->flags |= EntityFlag_Hazard;
     }
 
-    aab = offset(aab, -entity->p);
-
-    entity->collision = aab;
+    entity->collision = get_dim(aab);
 
     return result;
 }
@@ -105,12 +103,13 @@ inline AddEntityResult add_soundtrack_player(EditorState* editor, SoundtrackID s
     return result;
 }
 
-inline AddEntityResult add_camera_zone(EditorState* editor, AxisAlignedBox2 zone, f32 rotation = 0.0f) {
+inline AddEntityResult add_camera_zone(EditorState* editor, AxisAlignedBox2 active_region, f32 view_region_height, f32 rotation = 0.0f) {
     AddEntityResult result = add_entity(editor, EntityType_CameraZone);
     Entity* entity = result.ptr;
 
-    entity->p = get_center(zone);
-    entity->camera_zone = get_dim(zone);
+    entity->p = get_center(active_region);
+    entity->active_region = get_dim(active_region);
+    entity->view_region_height = view_region_height;
 
     entity->sprite = editor->camera_icon;
 
@@ -385,7 +384,7 @@ inline void create_debug_level(EditorState* editor) {
     u32 height = editor->render_context.commands->height;
 
     f32 aspect_ratio = 16.0f/9.0f;
-    add_camera_zone(editor, aab_center_dim(vec2(0.0f, 2.0f), vec2(aspect_ratio*20.0f, 20.0f)));
+    add_camera_zone(editor, aab_center_dim(vec2(0.0f, 2.0f), vec2(35.0f, 15.0f)), 15.0f);
 }
 
 internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
@@ -524,6 +523,7 @@ internal AxisAlignedBox2 editor_finish_print(EditorLayout* layout) {
 
 DECLARE_EDITABLE_TYPE_INFERENCER(u32)
 DECLARE_EDITABLE_TYPE_INFERENCER(s32)
+DECLARE_EDITABLE_TYPE_INFERENCER(f32)
 DECLARE_EDITABLE_TYPE_INFERENCER(v2)
 DECLARE_EDITABLE_TYPE_INFERENCER(AxisAlignedBox2)
 DECLARE_EDITABLE_TYPE_INFERENCER(EntityID)
@@ -587,7 +587,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
     {
         add_viewable(editables, Entity, guid);
         add_viewable(editables, Entity, soundtrack_id);
-        add_viewable(editables, Entity, soundtrack_has_been_played, Editable_IsBool);
+        // add_viewable(editables, Entity, playing);
     }
     end_editables(editor, editables);
 
@@ -595,7 +595,8 @@ internal void set_up_editable_parameters(EditorState* editor) {
     {
         add_viewable(editables, Entity, guid);
         add_viewable(editables, Entity, p);
-        add_editable(editables, Entity, camera_zone);
+        add_editable(editables, Entity, active_region);
+        add_editable(editables, Entity, view_region_height);
     }
     end_editables(editor, editables);
 
@@ -804,6 +805,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->arena = &game_state->transient_arena;
 
     editor->shown = true;
+    editor->show_statistics = true;
 
 #if 0
     editor->camera_icon = get_image_by_name(editor->assets, "camera_icon");
@@ -826,7 +828,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
 
-    editor->default_collision = aab_center_dim(vec2(0, 0), vec2(1, 1));
+    editor->default_collision = vec2(1, 1);
 
     editor->top_margin  = cast(f32) render_commands->height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
@@ -853,7 +855,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     u32 height = editor->render_context.commands->height;
 
     render_screenspace(&editor->render_context);
-    editor->top_margin  = cast(f32) editor->render_context.commands->height - get_baseline_from_top(editor->font);
+    editor->top_margin  = cast(f32) height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
 
     if (game_state->game_mode == GameMode_Editor) {
@@ -892,6 +894,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     {
+        //
+        // Console
+        //
+
         ConsoleState* console = &editor->console_state;
 
         if (was_pressed(input->tilde)) {
@@ -1053,23 +1059,26 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
+    EditorLayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
+
+    if (editor->shown || editor->show_statistics) {
+        f32 average_frame_time = 0.0f;
+        for (u32 frame_index = 0; frame_index < frame_history->valid_entry_count; frame_index++) {
+            average_frame_time += frame_history->history[(frame_history->first_valid_entry + frame_index) % ARRAY_COUNT(frame_history->history)];
+        }
+        average_frame_time /= frame_history->valid_entry_count;
+
+        f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
+        f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
+        v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
+        editor_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
+    }
+
     if (!editor->shown) {
         return;
     }
 
-    EditorLayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
-
     Level* level = editor->active_level;
-    f32 average_frame_time = 0.0f;
-    for (u32 frame_index = 0; frame_index < frame_history->valid_entry_count; frame_index++) {
-        average_frame_time += frame_history->history[(frame_history->first_valid_entry + frame_index) % ARRAY_COUNT(frame_history->history)];
-    }
-    average_frame_time /= frame_history->valid_entry_count;
-
-    f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
-    f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
-    v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
-    editor_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
 
     editor_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
     if (editor->level_saved_timer > 0.0f) {
@@ -1149,7 +1158,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             Entity* entity = game_state->entities + entity_index;
 
             if (!(entity->flags & EntityFlag_Invisible) || editor->shown) {
-                if (is_in_aab(entity->collision, world_mouse_p - entity->p)) {
+                if (is_in_region(entity->collision, world_mouse_p - entity->p)) {
                     moused_over = entity;
                 }
             }
@@ -1160,7 +1169,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
             Entity* entity = level->entities + entity_index;
 
-            if (is_in_aab(entity->collision, world_mouse_p - entity->p)) {
+            if (is_in_region(entity->collision, world_mouse_p - entity->p)) {
                 moused_over = entity;
             }
         }
@@ -1265,7 +1274,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             } break;
             case EntityType_CameraZone: {
                 f32 aspect_ratio = cast(f32) width / cast(f32) height;
-                created_entity = add_camera_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(aspect_ratio*20.0f, 20.0f))).ptr;
+                created_entity = add_camera_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(35.0f, 15.0f)), 15.0f).ptr;
             } break;
         }
 
@@ -1296,6 +1305,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             drag_camera_zone.type = Widget_DragV2;
 
             Transform2D t = transform2d(selected->p);
+#if 0
             v2 zone = selected->camera_zone;
 
             {
@@ -1368,6 +1378,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     set_active(editor, editor->hot_widget);
                 }
             }
+#endif
         }
 
         editor_print_line(&layout, COLOR_WHITE, "");
