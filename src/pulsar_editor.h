@@ -160,9 +160,14 @@ struct ConsoleState {
     b32 open;
     f32 openness_t;
 
-    u32 input_buffer_count;
+    u32  input_buffer_count;
     char input_buffer[4096];
 };
+
+inline String input_buffer_as_string(ConsoleState* console) {
+    String result = wrap_string(console->input_buffer_count, console->input_buffer);
+    return result;
+}
 
 struct EditorState {
     b32 initialized;

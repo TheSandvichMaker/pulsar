@@ -50,6 +50,7 @@ struct Entity {
     union {
         struct {
             // @Note: Player
+            b32 jumped;
             f32 off_ground_timer;
             f32 friction_of_last_touched_surface;
             Entity* support;

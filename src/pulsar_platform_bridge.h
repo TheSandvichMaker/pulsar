@@ -56,6 +56,9 @@ typedef PLATFORM_LOG_PRINT(PlatformLogPrint);
 #define PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(name) PlatformLogMessage* name()
 typedef PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(PlatformGetMostRecentLogMessage);
 
+#define PLATFORM_GET_UNREAD_LOG_MESSAGES(name) u32 name(u32* infos, u32* warnings, u32* errors)
+typedef PLATFORM_GET_UNREAD_LOG_MESSAGES(PlatformGetUnreadLogMessages);
+
 struct PlatformAPI {
     PlatformReadEntireFile* read_entire_file;
     PlatformWriteEntireFile* write_entire_file;
@@ -66,6 +69,7 @@ struct PlatformAPI {
 
     PlatformLogPrint* log_print;
     PlatformGetMostRecentLogMessage* get_most_recent_log_message;
+    PlatformGetUnreadLogMessages* get_unread_log_messages;
 
 #if PULSAR_DEBUG
     DebugPlatformPrint* debug_print;

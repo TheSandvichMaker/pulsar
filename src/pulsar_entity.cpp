@@ -41,7 +41,7 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
                         // play_synth(&game_state->audio_mixer, synth_test_impulse);
                         // play_sound(&game_state->audio_mixer, game_state->test_sound);
                         entity->ddp.y += 400.0f;
-                        entity->support = 0;
+                        entity->jumped = true;
                     }
                 }
             } break;
@@ -104,6 +104,23 @@ internal void execute_entity_logic(GameState* game_state, GameInput* input, f32 
             } break;
 
             INVALID_DEFAULT_CASE;
+        }
+    }
+}
+
+inline void kill_player(GameState* game_state) {
+    assert(game_state->player);
+    if (!game_state->player->dead) {
+        game_state->player->dead = true;
+        game_state->player->support = 0;
+        game_state->player_respawn_timer = 2.0f;
+    }
+}
+
+inline void process_collision_logic(GameState* game_state, Entity* collider, Entity* collidee) {
+    if (collider->type == EntityType_Player) {
+        if (collidee->flags & EntityFlag_Hazard) {
+            kill_player(game_state);
         }
     }
 }
@@ -174,32 +191,18 @@ inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info)
     return result;
 }
 
-struct PhysicsMoveResult {
-    f32 simulated_dt;
-    v2 p;
-    v2 dp;
-    v2 ddp;
-    Entity* colliding_entity;
-    Entity* support;
-    v2 support_normal;
-};
-
 inline v2 grazing_reflect(v2 in, v2 n) {
     v2 result = in - n*dot(in, n);
     return result;
 }
 
-inline b32 physics_move(GameState* game_state, Entity* entity, f32 dt, PhysicsMoveResult* result) {
+inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
     /*
      * @TODO: Entities shouldn't be modified in here at all, that should be deferred,
      * all the changes applied to entities should be stored in PhysicsMoveResult instead.
      */
 
     f32 t = 1.0f;
-    b32 did_collide = false;
-
-    zero_struct(*result);
-    result->simulated_dt = dt;
 
     f32 epsilon = 1.0e-3f;
 
@@ -208,170 +211,174 @@ inline b32 physics_move(GameState* game_state, Entity* entity, f32 dt, PhysicsMo
     v2 dp = entity->dp;
     v2 ddp = entity->ddp;
 
-    v2 ddp_mod = vec2(0, 0);
     if (!entity->support) {
-        ddp_mod += gravity;
+        ddp += gravity;
     } else {
         dp += entity->support->dp;
-        ddp_mod.x -= entity->support->surface_friction*dp.x;
+        ddp.x -= entity->support->surface_friction*dp.x;
         gravity = vec2(0, 0);
     }
 
-    result->p = entity->p;
-
-    v2 delta = 0.5f*(ddp + ddp_mod)*square(dt) + dp*dt;
-
-    result->support = entity->support;
-    result->support_normal = entity->support_normal;
-
-    v2 best_dp = entity->dp;
-    v2 best_ddp = entity->ddp;
-    v2 best_delta = delta;
+    v2 delta = 0.5f*ddp*square(dt) + dp*dt;
+    entity->dp += ddp*dt;
 
     if (entity->flags & EntityFlag_Collides) {
-        // @TODO: Optimized spatial indexing of sorts?
-        for (u32 test_entity_index = 0; test_entity_index < game_state->entity_count; test_entity_index++) {
-            Entity* test_entity = game_state->entities + test_entity_index;
-            if (entity != test_entity && (test_entity->flags & EntityFlag_Collides) && !(test_entity->flags & EntityFlag_Physical)) {
-                // @Note: Right now the policy is that there are no collisions between two physical entities, so test_delta is calculated using only the test_entity's dp.
-                // ddp is for physics.
-                v2 test_delta = test_entity->dp*dt;
-                test_entity->sticking_entity = 0;
+        u32 max_iterations = 8;
+        u32 iteration_count = 0;
+        while (t > epsilon && iteration_count < max_iterations) {
+            b32 did_collide = false;
+
+            // @TODO: Optimized spatial indexing of sorts?
+            for (u32 test_entity_index = 0; test_entity_index < game_state->entity_count; test_entity_index++) {
+                Entity* test_entity = game_state->entities + test_entity_index;
+                if (entity != test_entity &&
+                    (test_entity->flags & EntityFlag_Collides) &&
+                    !(test_entity->flags & EntityFlag_Physical) &&
+                    test_entity != entity->support
+                ) {
+                    // @Note: Right now the policy is that there are no collisions between two physical entities, so test_delta is calculated using only the test_entity's dp.
+                    // ddp is for physics.
+                    v2 test_delta = test_entity->dp*dt;
+                    test_entity->sticking_entity = 0;
 #if 1
-                //
-                // AABB path
-                //
+                    //
+                    // AABB path
+                    //
 
-                v2 rel_p = result->p - test_entity->p;
-                AxisAlignedBox2 test_aab = aab_sum(entity->collision, test_entity->collision);
+                    v2 rel_p = entity->p - test_entity->p;
+                    AxisAlignedBox2 test_aab = aab_sum(entity->collision, test_entity->collision);
 
-                if (is_in_aab(test_aab, rel_p)) {
-                    f32 best_distance = F32_MAX;
-                    v2 best_move = vec2(0, 0);
+                    if (is_in_aab(test_aab, rel_p)) {
+                        f32 best_distance = F32_MAX;
+                        v2 best_move = vec2(0, 0);
 
-                    f32 test_distance = result->p.x - test_aab.min.x;
-                    if (test_distance < best_distance) {
-                        best_distance = test_distance;
-                        best_move = vec2(-1, 0);
-                    }
-
-                    test_distance = test_aab.max.x - result->p.x;
-                    if (test_distance < best_distance) {
-                        best_distance = test_distance;
-                        best_move = vec2(1, 0);
-                    }
-
-                    test_distance = result->p.y - test_aab.min.y;
-                    if (test_distance < best_distance) {
-                        best_distance = test_distance;
-                        best_move = vec2(0, -1);
-                    }
-
-                    test_distance = test_aab.max.y - result->p.y;
-                    if (test_distance < best_distance) {
-                        best_distance = test_distance;
-                        best_move = vec2(0, 1);
-                    }
-
-                    t = 0.0f;
-
-                    delta = best_move*best_distance;
-
-                    best_dp = grazing_reflect(dp, best_move);
-                    best_ddp = vec2(0, 0);
-
-                    result->colliding_entity = test_entity;
-
-                    break;
-                } else {
-                    v2 rel_delta = delta - test_delta;
-
-                    TraceInfo info;
-                    if (aab_trace(rel_p, rel_p + rel_delta, test_aab, &info)) {
-                        if (info.t < t) {
-                            t = info.t;
-
-                            did_collide = true;
-                            result->colliding_entity = test_entity;
-
-                            best_delta = t*delta;
-
-                            if (t == 0.0f) {
-                                best_delta += info.hit_normal*epsilon;
-                            }
-
-                            best_dp = grazing_reflect(entity->dp, info.hit_normal);
-                            best_ddp = grazing_reflect(entity->ddp, info.hit_normal);
-
-                            if (dot(info.hit_normal, gravity) < 0) {
-                                result->support = test_entity;
-                                result->support_normal = info.hit_normal;
-                            }
+                        f32 test_distance = entity->p.x - test_aab.min.x;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance;
+                            best_move = vec2(-1, 0);
                         }
-                    }
-                }
-#else
-                //
-                // Old GJK path
-                //
 
-                v2 relative_delta = delta - test_delta;
+                        test_distance = test_aab.max.x - entity->p.x;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance;
+                            best_move = vec2(1, 0);
+                        }
 
-                Transform2D t = transform2d(entity->p, vec2(1.0f, 1.0f), relative_delta);
-                Transform2D test_t = transform2d(test_entity->p);
+                        test_distance = entity->p.y - test_aab.min.y;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance;
+                            best_move = vec2(0, -1);
+                        }
 
-                CollisionInfo collision;
-                if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
-                    did_collide = true;
-                    result->colliding_entity = test_entity;
-                    entity->friction_of_last_touched_surface = test_entity->surface_friction;
+                        test_distance = test_aab.max.y - entity->p.y;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance;
+                            best_move = vec2(0, 1);
+                        }
 
-                    f32 theta_times_length_of_delta = dot(collision.vector, relative_delta);
+                        t = 0.0f;
 
-                    collision.depth += epsilon;
+                        delta = best_move*best_distance;
 
-                    if (theta_times_length_of_delta > theta_times_length_of_delta) {
-                        f32 t_penetration = collision.depth / theta_times_length_of_delta;
-                        delta = delta*t_penetration;
-                        result->simulated_dt = dt*(1.0f-t_penetration);
+                        entity->dp = vec2(0, 0);
+
+                        process_collision_logic(game_state, entity, test_entity);
+
+                        break;
                     } else {
-                        // @TODO: Think about this case
-                        delta -= collision.depth*collision.vector;
-                    }
+                        v2 rel_delta = delta - test_delta;
 
-                    if (collision.vector.y < -0.707f) {
-                        if (!on_ground(entity)) {
-                            entity->flags |= EntityFlag_OnGround;
+                        TraceInfo info;
+                        if (aab_trace(rel_p, rel_p + rel_delta, test_aab, &info)) {
+                            // @Note: If you collided with a face that faces away from where you're going, then that's probably an epsilon problem.
+                            if (dot(rel_delta, info.hit_normal) < 0.0f) {
+                                t -= 1.0f - info.t;
+
+                                did_collide = true;
+
+                                delta *= info.t;
+
+                                if (t == 0.0f) {
+                                    delta += info.hit_normal*epsilon;
+                                }
+
+                                entity->dp = grazing_reflect(entity->dp, info.hit_normal);
+
+                                if (dot(info.hit_normal, gravity) < 0) {
+                                    entity->support = test_entity;
+                                    entity->support_normal = info.hit_normal;
+                                }
+
+                                process_collision_logic(game_state, entity, test_entity);
+                            }
                         }
-                        entity->off_ground_timer = 0.0f;
-                        entity->support = test_entity;
-                        test_entity->sticking_entity = entity;
                     }
+#else
+                    //
+                    // Old GJK path
+                    //
 
-                    result->dp -= collision.vector*dot(result->dp, collision.vector);
-                }
+                    v2 relative_delta = delta - test_delta;
+
+                    Transform2D t = transform2d(entity->p, vec2(1.0f, 1.0f), relative_delta);
+                    Transform2D test_t = transform2d(test_entity->p);
+
+                    CollisionInfo collision;
+                    if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
+                        did_collide = true;
+                        result->colliding_entity = test_entity;
+                        entity->friction_of_last_touched_surface = test_entity->surface_friction;
+
+                        f32 theta_times_length_of_delta = dot(collision.vector, relative_delta);
+
+                        collision.depth += epsilon;
+
+                        if (theta_times_length_of_delta > theta_times_length_of_delta) {
+                            f32 t_penetration = collision.depth / theta_times_length_of_delta;
+                            delta = delta*t_penetration;
+                            result->simulated_dt = dt*(1.0f-t_penetration);
+                        } else {
+                            // @TODO: Think about this case
+                            delta -= collision.depth*collision.vector;
+                        }
+
+                        if (collision.vector.y < -0.707f) {
+                            if (!on_ground(entity)) {
+                                entity->flags |= EntityFlag_OnGround;
+                            }
+                            entity->off_ground_timer = 0.0f;
+                            entity->support = test_entity;
+                            test_entity->sticking_entity = entity;
+                        }
+
+                        result->dp -= collision.vector*dot(result->dp, collision.vector);
+                    }
 #endif
+                }
             }
+
+            if (!did_collide) {
+                t = 0.0f;
+            }
+
+            entity->p += delta;
+
+            iteration_count++;
+        }
+
+        if (iteration_count >= max_iterations) {
+            assert(iteration_count == max_iterations);
+            log_print(LogLevel_Warn, "Player move exceeded %u iterations", max_iterations);
         }
     }
 
-    result->simulated_dt = t*dt;
-    result->p += best_delta;
-    result->dp = best_dp + t*dt*(best_ddp + gravity);
-    result->ddp = (1.0f - t)*best_ddp;
-
-    return did_collide;
-}
-
-inline void kill_player(GameState* game_state) {
-    assert(game_state->player);
-    if (!game_state->player->dead) {
-        game_state->player->dead = true;
-        game_state->player->support = 0;
-        game_state->player_respawn_timer = 2.0f - game_state->frame_dt_left;
+    if (entity->jumped) {
+        entity->jumped = false;
+        entity->support = 0;
     }
 }
 
+#if 0
 internal void simulate_entity(GameState* game_state, Entity* entity, PhysicsMoveResult* move, f32 dt) {
     if (!entity->dead) {
         if (entity->flags & EntityFlag_Physical) {
@@ -407,46 +414,7 @@ internal void simulate_entity(GameState* game_state, Entity* entity, PhysicsMove
         }
     }
 }
-
-internal void simulate_timestep(GameState* game_state, f32 dt) {
-    TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
-
-    PhysicsMoveResult* moves = push_array(&game_state->transient_arena, game_state->entity_count, PhysicsMoveResult, no_clear());
-
-    f32 earliest_dt = dt;
-    Entity* earliest_colliding_entity = 0;
-    PhysicsMoveResult* earliest_move = 0;
-    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
-        Entity* entity = game_state->entities + entity_index;
-        if (entity->flags & EntityFlag_Physical) {
-            PhysicsMoveResult* move = moves + entity_index;
-            if (!entity->dead && physics_move(game_state, entity, dt, move)) {
-                if (move->simulated_dt < earliest_dt) {
-                    earliest_dt = move->simulated_dt;
-                    earliest_move = move;
-                    earliest_colliding_entity = entity;
-
-                    if (earliest_dt == 0.0f) {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    game_state->frame_dt_left -= earliest_dt;
-
-    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
-        Entity* entity = game_state->entities + entity_index;
-        PhysicsMoveResult* move = moves + entity_index;
-        simulate_entity(game_state, entity, move, earliest_dt);
-        if (on_ground(entity)) {
-            entity->color = vec4(0, 0, 1, 1);
-        }
-    }
-
-    end_temporary_memory(temp);
-}
+#endif
 
 internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_dt) {
     game_state->midi_event_buffer_count = 0;
@@ -498,9 +466,12 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
     }
 
     execute_entity_logic(game_state, input, frame_dt);
+    player_move(game_state, game_state->player, frame_dt);
 
-    game_state->frame_dt_left = frame_dt;
-    while (game_state->frame_dt_left > 0.0f) {
-        simulate_timestep(game_state, game_state->frame_dt_left);
+    for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
+        Entity* entity = game_state->entities + entity_index;
+        if (!(entity->flags & EntityFlag_Physical)) {
+            entity->p += entity->dp*frame_dt;
+        }
     }
 }

@@ -53,8 +53,15 @@ struct Win32LogMemory {
 struct Win32State {
     MemoryArena platform_arena;
 
+    b32 directsound_valid;
+
     b32 log_file_valid;
     b32 log_memory_valid;
+
+    u32 unread_log_messages;
+    u32 unread_infos;
+    u32 unread_warnings;
+    u32 unread_errors;
 
     PlatformLogMessage* most_recent_log_message;
     Win32LogMemory* first_log_memory;
@@ -119,6 +126,13 @@ internal PLATFORM_LOG_PRINT(win32_log_print) {
             message->line = line;
 
             message->level = log_level;
+
+            win32_state.unread_log_messages++;
+            switch (message->level) {
+                case LogLevel_Info: { win32_state.unread_infos++; } break;
+                case LogLevel_Warn: { win32_state.unread_warnings++; } break;
+                case LogLevel_Error: { win32_state.unread_errors++; } break;
+            }
         } else {
             INVALID_CODE_PATH;
         }
@@ -129,6 +143,18 @@ internal PLATFORM_LOG_PRINT(win32_log_print) {
 
 internal PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(win32_get_most_recent_log_message) {
     PlatformLogMessage* result = win32_state.most_recent_log_message;
+    win32_state.unread_log_messages = 0;
+    win32_state.unread_infos = 0;
+    win32_state.unread_warnings = 0;
+    win32_state.unread_errors = 0;
+    return result;
+}
+
+internal PLATFORM_GET_UNREAD_LOG_MESSAGES(win32_get_unread_log_messages) {
+    u32 result = win32_state.unread_log_messages;
+    if (infos) *infos = win32_state.unread_infos;
+    if (warnings) *warnings = win32_state.unread_warnings;
+    if (errors) *errors = win32_state.unread_errors;
     return result;
 }
 
@@ -172,6 +198,10 @@ internal PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
         // TODO: Logging
     }
 
+    if (!result.size) {
+        log_print(LogLevel_Error, "Failed to read file '%s'", file_name);
+    }
+
     return result;
 }
 
@@ -186,12 +216,12 @@ internal PLATFORM_WRITE_ENTIRE_FILE(win32_write_entire_file) {
             // File written successfully
             result = (bytes_written == size);
         } else {
-            // TODO: Logging
+            log_print(LogLevel_Error, "Failed to write file '%s'", file_name);
         }
 
         CloseHandle(file_handle);
     } else {
-        // TODO: Logging
+        log_print(LogLevel_Error, "Failed to create file '%s'", file_name);
     }
 
     return result;
@@ -237,13 +267,13 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
                     if (SUCCEEDED(primary_buffer->SetFormat(&wave_format))) {
                         // @Note: Success
                     } else {
-                        // @TODO: What to do in failure cases?
+                        // @TODO: Logging
                     }
                 } else {
-                    // @TODO: What to do in failure cases?
+                    // @TODO: Logging
                 }
             } else {
-                // @TODO: What to do in failure cases?
+                // @TODO: Logging
             }
 
             DSBUFFERDESC buffer_description = { sizeof(buffer_description) };
@@ -252,13 +282,17 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
             buffer_description.lpwfxFormat = &wave_format;
 
             if (SUCCEEDED(dsound->CreateSoundBuffer(&buffer_description, &secondary_buffer, NULL))) {
-                // @Note: Success
+                win32_state.directsound_valid = true;
             }
         } else {
-            // @TODO: What to do in failure cases?
+            // @TODO: Logging
         }
     } else {
-        // @TODO: What to do in failure cases?
+        // @TODO: Logging
+    }
+
+    if (!win32_state.directsound_valid) {
+        log_print(LogLevel_Error, "Failed to initialize DirectSound");
     }
 
     return secondary_buffer;
@@ -402,7 +436,7 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
         switch (message.message) {
             case WM_CLOSE:
             case WM_QUIT: {
-                running = false;
+                input->quit_requested = true;
             } break;
 
             case WM_SYSKEYDOWN:
@@ -414,8 +448,27 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                 b32 is_down = !(message.lParam & (1 << 31));
                 b32 alt_is_down = (message.lParam & (1 << 29));
 
-                // @Note: I'm lazily special casing ~ so that you can toggle the console whether event mode is on or not.
-                if (vk_code == VK_OEM_3) { win32_process_keyboard_message(&input->tilde, is_down); }
+                switch (vk_code) {
+                    case VK_OEM_3: { win32_process_keyboard_message(&input->tilde, is_down); } break;
+
+                    case VK_F1:  { win32_process_keyboard_message(&input->debug_fkeys[1],  is_down); } break;
+                    case VK_F2:  { win32_process_keyboard_message(&input->debug_fkeys[2],  is_down); } break;
+                    case VK_F3:  { win32_process_keyboard_message(&input->debug_fkeys[3],  is_down); } break;
+                    case VK_F4:  {
+                        win32_process_keyboard_message(&input->debug_fkeys[4], is_down);
+                        if (alt_is_down) {
+                            input->quit_requested = true;
+                        }
+                    } break;
+                    case VK_F5:  { win32_process_keyboard_message(&input->debug_fkeys[5],  is_down); } break;
+                    case VK_F6:  { win32_process_keyboard_message(&input->debug_fkeys[6],  is_down); } break;
+                    case VK_F7:  { win32_process_keyboard_message(&input->debug_fkeys[7],  is_down); } break;
+                    case VK_F8:  { win32_process_keyboard_message(&input->debug_fkeys[8],  is_down); } break;
+                    case VK_F9:  { win32_process_keyboard_message(&input->debug_fkeys[9],  is_down); } break;
+                    case VK_F10: { win32_process_keyboard_message(&input->debug_fkeys[10], is_down); } break;
+                    case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
+                    case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
+                }
 
                 if (input->event_mode) {
                     if (is_down) {
@@ -434,7 +487,7 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                         input->event_buffer[input->event_count++] = packed_event;
                     }
                 } else {
-                    // @TODO: Handle key repeats?
+                    // @TODO: Handle key repeats for these?
                     if (vk_code >= 'A' && vk_code <= 'Z') {
                         win32_process_keyboard_message(&input->keys[vk_code - 'A'], is_down);
                     }
@@ -443,29 +496,8 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
 
                     switch (vk_code) {
                         case VK_ESCAPE: {
-                            // @TODO: It's not very useful to keep track of escape
-                            // usage if the game quits right away if I hit it...
-                            running = false;
                             win32_process_keyboard_message(&input->escape, is_down);
                         } break;
-
-                        case VK_F1:  { win32_process_keyboard_message(&input->debug_fkeys[1],  is_down); } break;
-                        case VK_F2:  { win32_process_keyboard_message(&input->debug_fkeys[2],  is_down); } break;
-                        case VK_F3:  { win32_process_keyboard_message(&input->debug_fkeys[3],  is_down); } break;
-                        case VK_F4:  {
-                            win32_process_keyboard_message(&input->debug_fkeys[4], is_down);
-                            if (alt_is_down) {
-                                input->quit_requested = true;
-                            }
-                        } break;
-                        case VK_F5:  { win32_process_keyboard_message(&input->debug_fkeys[5],  is_down); } break;
-                        case VK_F6:  { win32_process_keyboard_message(&input->debug_fkeys[6],  is_down); } break;
-                        case VK_F7:  { win32_process_keyboard_message(&input->debug_fkeys[7],  is_down); } break;
-                        case VK_F8:  { win32_process_keyboard_message(&input->debug_fkeys[8],  is_down); } break;
-                        case VK_F9:  { win32_process_keyboard_message(&input->debug_fkeys[9],  is_down); } break;
-                        case VK_F10: { win32_process_keyboard_message(&input->debug_fkeys[10], is_down); } break;
-                        case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
-                        case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
 
                         case 'W': { win32_process_keyboard_message(&input->controller.move_up, is_down); } break;
                         case 'A': { win32_process_keyboard_message(&input->controller.move_left, is_down); } break;
@@ -493,24 +525,6 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                     }
                 }
             } break;
-
-#if 0
-            @TODO: This seems like a lot of work when the GetKeyState version works just as well.
-            case WM_LBUTTONDOWN:
-            case WM_LBUTTONUP:
-            case WM_RBUTTONDOWN:
-            case WM_RBUTTONUP:
-            case WM_MBUTTONDOWN:
-            case WM_MBUTTONUP: {
-                u32 mk_code = (u32)message.wParam;
-
-                case MK_LBUTTON: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Left], is_down); } break;
-                case MK_RBUTTON: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Right], is_down); } break;
-                case MK_MBUTTON: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Middle], is_down); } break;
-                case MK_XBUTTON1: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Extended0], is_down); } break;
-                case MK_XBUTTON2: { win32_process_keyboard_message(&input->mouse_buttons[PlatformMouseButton_Extended1], is_down); } break;
-            } break;
-#endif
 
             default: {
                 TranslateMessage(&message);
@@ -598,8 +612,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             sound_buffer.sample_rate = sound_output.sample_rate;
             sound_buffer.samples = cast(s16*) win32_allocate_memory(sound_output.buffer_size);
 
-            win32_clear_sound_buffer(&sound_output);
-            sound_output.buffer->Play(0, 0, DSBPLAY_LOOPING);
+            if (win32_state.directsound_valid) {
+                win32_clear_sound_buffer(&sound_output);
+                sound_output.buffer->Play(0, 0, DSBPLAY_LOOPING);
+            }
 
             size_t platform_storage_size = MEGABYTES(128);
             void* platform_storage = win32_allocate_memory(platform_storage_size);
@@ -631,6 +647,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
             game_memory.platform_api.log_print = win32_log_print;
             game_memory.platform_api.get_most_recent_log_message = win32_get_most_recent_log_message;
+            game_memory.platform_api.get_unread_log_messages = win32_get_unread_log_messages;
 
 #if PULSAR_DEBUG
             game_memory.platform_api.debug_print = win32_debug_print;
@@ -754,47 +771,49 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 // Game Sound
                 //
 
-                DWORD play_cursor, write_cursor;
-                if (SUCCEEDED(sound_output.buffer->GetCurrentPosition(&play_cursor, &write_cursor))) {
-                    DWORD padded_write_cursor = (write_cursor + sound_output.safety_bytes) % sound_output.buffer_size;
+                if (win32_state.directsound_valid) {
+                    DWORD play_cursor, write_cursor;
+                    if (SUCCEEDED(sound_output.buffer->GetCurrentPosition(&play_cursor, &write_cursor))) {
+                        DWORD padded_write_cursor = (write_cursor + sound_output.safety_bytes) % sound_output.buffer_size;
 
-                    if (!sound_is_valid) {
+                        if (!sound_is_valid) {
+                            previous_padded_write_cursor = padded_write_cursor;
+                            sound_is_valid = true;
+                        }
+
+                        DWORD bytes_to_write;
+                        {
+                            DWORD unwrapped_play_cursor = play_cursor;
+                            if (unwrapped_play_cursor < padded_write_cursor) {
+                                unwrapped_play_cursor += sound_output.buffer_size;
+                            }
+
+                            // @TODO: Currently, we're always asking the game for enough samples to fill the entire buffer as much as possible, regardless of buffer size.
+                            // To reduce pressure on game_get_sound, this could be limited to something more considered.
+                            bytes_to_write = unwrapped_play_cursor - padded_write_cursor;
+                        }
+
+                        DWORD samples_committed;
+                        {
+                            DWORD unwrapped_padded_write_cursor = padded_write_cursor;
+                            if (unwrapped_padded_write_cursor < previous_padded_write_cursor) {
+                                unwrapped_padded_write_cursor += sound_output.buffer_size;
+                            }
+
+                            samples_committed = (unwrapped_padded_write_cursor - previous_padded_write_cursor) / sound_output.bytes_per_sample;
+                        }
+
+                        sound_buffer.samples_committed = samples_committed;
+                        sound_buffer.samples_to_write  = bytes_to_write / sound_output.bytes_per_sample;
+
+                        game_get_sound(&game_memory, &sound_buffer);
+
+                        DWORD byte_to_lock = padded_write_cursor;
+
+                        win32_fill_sound_buffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
+
                         previous_padded_write_cursor = padded_write_cursor;
-                        sound_is_valid = true;
                     }
-
-                    DWORD bytes_to_write;
-                    {
-                        DWORD unwrapped_play_cursor = play_cursor;
-                        if (unwrapped_play_cursor < padded_write_cursor) {
-                            unwrapped_play_cursor += sound_output.buffer_size;
-                        }
-
-                        // @TODO: Currently, we're always asking the game for enough samples to fill the entire buffer as much as possible, regardless of buffer size.
-                        // To reduce pressure on game_get_sound, this could be limited to something more considered.
-                        bytes_to_write = unwrapped_play_cursor - padded_write_cursor;
-                    }
-
-                    DWORD samples_committed;
-                    {
-                        DWORD unwrapped_padded_write_cursor = padded_write_cursor;
-                        if (unwrapped_padded_write_cursor < previous_padded_write_cursor) {
-                            unwrapped_padded_write_cursor += sound_output.buffer_size;
-                        }
-
-                        samples_committed = (unwrapped_padded_write_cursor - previous_padded_write_cursor) / sound_output.bytes_per_sample;
-                    }
-
-                    sound_buffer.samples_committed = samples_committed;
-                    sound_buffer.samples_to_write  = bytes_to_write / sound_output.bytes_per_sample;
-
-                    game_get_sound(&game_memory, &sound_buffer);
-
-                    DWORD byte_to_lock = padded_write_cursor;
-
-                    win32_fill_sound_buffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
-
-                    previous_padded_write_cursor = padded_write_cursor;
                 }
 
                 //
@@ -811,11 +830,13 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 last_frame_time_is_valid = true;
                 start_counter = end_counter;
 
-                //
-
-                GameInput* temp = new_input;
-                new_input = old_input;
-                old_input = temp;
+                if (new_input->quit_requested) {
+                    running = false;
+                } else {
+                    GameInput* temp = new_input;
+                    new_input = old_input;
+                    old_input = temp;
+                }
             }
         } else {
             // @TODO: Some kind of logging?

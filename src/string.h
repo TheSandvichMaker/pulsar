@@ -47,6 +47,22 @@ inline b32 is_alphanumeric(char c) {
     return result;
 }
 
+inline char to_lower(char c) {
+    char result = c;
+    if (c >= 'A' && c <= 'Z') {
+        result = 'a' + (c - 'A');
+    }
+    return result;
+}
+
+inline char to_upper(char c) {
+    char result = c;
+    if (c >= 'a' && c <= 'z') {
+        result = 'A' + (c - 'a');
+    }
+    return result;
+}
+
 inline s32 parse_integer(char* start, char** end) {
     s32 result = 0;
 
@@ -84,6 +100,7 @@ inline s32 parse_integer(char* start, char** end) {
     return result;
 }
 
+#define string_literal(c_string_literal) { sizeof(c_string_literal) - 1, c_string_literal }
 #define PRINTF_STRING(string) cast(int) (string).len, (string).data
 typedef struct String {
     size_t len;
@@ -326,6 +343,54 @@ inline String advance_line(String* string) {
     eat_newline(string);
 
     String result = string_from_two_pointers(start, end);
+    return result;
+}
+
+enum StringMatchFlag {
+    StringMatch_CaseInsenitive = 0x1,
+};
+
+inline String find_match(String source_string, String match, u32 flags = 0) {
+    String result = {};
+
+    if (match.len) {
+        while (source_string.len >= match.len) {
+            String test_string = source_string;
+            test_string.len = match.len;
+
+            b32 match_found = true;
+            for (u32 i = 0; i < test_string.len; i++) {
+                char a = test_string.data[i];
+                char b = match.data[i];
+
+                if (flags & StringMatch_CaseInsenitive) {
+                    a = to_lower(a);
+                    b = to_lower(b);
+                }
+
+                if (a != b) {
+                    match_found = false;
+                    break;
+                }
+            }
+
+            if (match_found) {
+                result = test_string;
+                break;
+            }
+
+            advance(&source_string);
+        }
+    }
+
+    return result;
+}
+
+inline String trim_spaces_right(String string) {
+    String result = string;
+    while (result.len > 0 && is_space(result.data[result.len - 1])) {
+        result.len--;
+    }
     return result;
 }
 

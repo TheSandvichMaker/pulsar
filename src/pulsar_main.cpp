@@ -188,7 +188,7 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
                 log_print(LogLevel_Warn, "Level Load Warning: Version mismatch: %u in file, expected %u", header->prelude.version, LEV_VERSION);
             }
 
-            assert(level_name.len <= level->name_length);
+            assert(level_name.len <= ARRAY_COUNT(level->name));
             level->name_length = cast(u32) level_name.len;
             copy(level_name.len, level_name.data, level->name);
 
@@ -224,7 +224,7 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
                             goto level_load_end;
                         }
                     } else {
-                        log_print(LogLevel_Error, "Level Load Warning: Could not find matching member '%.*s'", member_name_length, member_name);
+                        log_print(LogLevel_Warn, "Level Load Warning: Could not find matching member '%.*s'", member_name_length, member_name);
                     }
                 }
             }
@@ -242,7 +242,7 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
 
 level_load_end:
     if (level_load_error) {
-        level->entity_count = 0;
+        level->entity_count = 1;
         level->first_available_guid = 1;
     } else {
         log_print(LogLevel_Info, "Successfully loaded level '%.*s'", PRINTF_STRING(level_name));

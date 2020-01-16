@@ -348,7 +348,7 @@ inline void redo(EditorState* editor) {
     }
 }
 
-inline void load_level(EditorState* editor, Level* level) {
+inline void load_level_into_editor(EditorState* editor, Level* level) {
     // @Note: Weird paranoid assert in case I ever change the hash from a fixed size array and forget to change this...
     assert(sizeof(editor->entity_hash) == sizeof(EntityHash)*MAX_ENTITY_COUNT);
 
@@ -440,10 +440,6 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
 internal void editor_print_va(EditorLayout* layout, v4 color, char* format_string, va_list va_args) {
     EditorState* editor = layout->editor;
 
-    if (!editor->shown) {
-        return;
-    }
-
     TemporaryMemory temp = begin_temporary_memory(editor->arena);
 
     u32 text_size = stbsp_vsnprintf(0, 0, format_string, va_args) + 1; // @Note: stbsp_vsprintf doesn't include the null terminator in the returned size, so I add it in.
@@ -475,7 +471,7 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
                 Image* glyph = get_image(editor->assets, glyph_id);
                 layout->at_p = vec2(roundf(layout->at_p.x), roundf(layout->at_p.y));
                 v2 p = layout->at_p + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
-                push_image(&editor->render_context, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, 0.75f));
+                push_image(&editor->render_context, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
                 push_image(&editor->render_context, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
 
                 AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
@@ -728,21 +724,73 @@ inline v2 snap_to_grid(EditorState* editor, v2 p) {
     return result;
 }
 
-inline void execute_console_command(GameState* game_state, EditorState* editor, u32 in_count, char* in_buffer) {
-    String buffer = wrap_string(in_count, in_buffer);
-    String command = advance_word(&buffer);
-    if (strings_are_equal(command, "load_level")) {
-        String level = advance_word(&buffer); // @TODO: advance_word is really advance_to_whitespace, maybe it should be renamed
-        // @TODO: Double buffer levels so you don't get messed up on a failed level load?
-        // In fact, level loading in general needs to be cleaned up badly.
-        if (load_level_from_disk(&game_state->transient_arena, editor->active_level, level)) {
-            load_level(editor, editor->active_level);
+#define CONSOLE_COMMAND(name) void name(GameState* game_state, EditorState* editor, GameInput* input, String arguments)
+typedef CONSOLE_COMMAND(ConsoleCommandFunction);
+
+struct ConsoleCommand {
+    ConsoleCommandFunction* f;
+    String name;
+};
+
+internal CONSOLE_COMMAND(cc_load_level) {
+    String level = arguments;
+    // @TODO: Double buffer levels so you don't get messed up on a failed level load?
+    // In fact, level loading in general needs to be cleaned up badly.
+    if (load_level_from_disk(&game_state->transient_arena, editor->active_level, level)) {
+        load_level_into_editor(editor, editor->active_level);
+    }
+}
+
+internal CONSOLE_COMMAND(cc_save_level) {
+    String level_name = arguments;
+
+    Level* level = editor->active_level;
+
+    b32 write_level = true;
+    if (level_name.len > 0) {
+        if (level_name.len > 255) {
+            log_print(LogLevel_Error, "Level name is above 255 characters");
+            write_level = false;
         } else {
-            // @TODO: Log error
+            level->name_length = cast(u32) level_name.len;
+            copy(level->name_length, level_name.data, level->name);
         }
-    } else {
-        // @TODO:
-        // console_log(console, "Unknown command: %.*s", cast(int) command.len, command.data);
+    }
+
+    if (write_level) {
+        write_level_to_disk(&game_state->transient_arena, editor->active_level, wrap_string(level->name_length, level->name));
+    }
+}
+
+internal CONSOLE_COMMAND(cc_quit) {
+    input->quit_requested = true;
+}
+
+#define console_command(name) { cc_##name, string_literal(#name) }
+global ConsoleCommand console_commands[] = {
+    console_command(load_level),
+    console_command(save_level),
+    console_command(quit),
+};
+
+inline void execute_console_command(GameState* game_state, EditorState* editor, GameInput* input, String in_buffer) {
+    if (in_buffer.data[0] != '/') {
+        String command = advance_word(&in_buffer);
+        if (command.len > 0) {
+            b32 found_command = false;
+            for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
+                ConsoleCommand candidate = console_commands[command_index];
+                if (strings_are_equal(command, candidate.name)) {
+                    found_command = true;
+                    candidate.f(game_state, editor, input, trim_spaces_right(in_buffer));
+                    break;
+                }
+            }
+
+            if (!found_command) {
+                log_print(LogLevel_Error, "Unknown command: %.*s", PRINTF_STRING(command));
+            }
+        }
     }
 }
 
@@ -791,7 +839,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     set_up_editable_parameters(editor);
 
     b32 successfully_loaded_level = load_level_from_disk(&game_state->transient_arena, active_level, wrap_cstr("levels/debug_level.lev"));
-    load_level(editor, active_level);
+    load_level_into_editor(editor, active_level);
 
     if (!successfully_loaded_level) {
         create_debug_level(editor);
@@ -870,19 +918,50 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             }
         }
 
+        u32 warnings, errors;
+        platform.get_unread_log_messages(0, &warnings, &errors);
+        EditorLayout message_counter = make_layout(editor, vec2(width - 50.0f, height - console_height*console->openness_t - 2.0f*console_input_box_height*console->openness_t - get_baseline_from_top(editor->font)));
+        if (warnings) {
+            editor_print(&message_counter, vec4(1.0f, 0.5f, 0.0f, 1.0f), "%u ", warnings);
+        }
+        if (errors) {
+            editor_print(&message_counter, COLOR_RED, "%u", errors);
+        }
+        if (warnings || errors) {
+            editor_finish_print(&message_counter);
+        }
+
         if (console->openness_t > 0.0f) {
             for (u32 event_index = 0; event_index < input->event_count; event_index++) {
                 char ascii;
                 PlatformKeyCode code = decode_input_event(input->event_buffer[event_index], &ascii);
                 switch (code) {
                     case PKC_Escape: {
-                        console->open = false;
-                        input->event_mode = false;
+                        if (console->input_buffer_count > 0) {
+                            console->input_buffer_count = 0;
+                        } else {
+                            console->open = false;
+                            input->event_mode = false;
+                        }
+                    } break;
+
+                    case PKC_Tab: {
+                        for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
+                            String candidate = console_commands[candidate_index].name;
+                            if (find_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
+                                console->input_buffer_count = cast(u32) candidate.len;
+                                copy(console->input_buffer_count, candidate.data, console->input_buffer);
+                                console->input_buffer[console->input_buffer_count++] = ' ';
+                                break;
+                            }
+                        }
                     } break;
 
                     case PKC_Return: {
-                        execute_console_command(game_state, editor, console->input_buffer_count, console->input_buffer);
-                        console->input_buffer_count = 0;
+                        if (console->input_buffer_count > 0) {
+                            execute_console_command(game_state, editor, input, input_buffer_as_string(console));
+                            console->input_buffer_count = 0;
+                        }
                     } break;
 
                     case PKC_Back: {
@@ -922,11 +1001,29 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             EditorLayout log = make_layout(editor, vec2(4.0f, console_log_box_height + get_line_spacing(editor->font) + get_baseline(editor->font)), true);
             for (PlatformLogMessage* message = platform.get_most_recent_log_message(); message; message = message->next) {
                 if (log.at_p.y < height) {
+                    b32 filter_match = false;
+                    if (console->input_buffer_count > 1 && console->input_buffer[0] == '/') {
+                        String filter_string = wrap_string(console->input_buffer_count - 1, console->input_buffer + 1);
+                        String match = find_match(wrap_string(message->text_length, message->text), filter_string, StringMatch_CaseInsenitive);
+                        if (!match.len) match = find_match(wrap_cstr(message->file), filter_string, StringMatch_CaseInsenitive);
+                        if (!match.len) match = find_match(wrap_cstr(message->function), filter_string, StringMatch_CaseInsenitive);
+
+                        if (match.len > 0) {
+                            filter_match = true;
+                        } else {
+                            continue;
+                        }
+                    }
+
                     v4 color = COLOR_WHITE;
                     if (message->level == LogLevel_Error) {
                         color = COLOR_RED;
                     } else if (message->level == LogLevel_Warn) {
                         color = COLOR_YELLOW;
+                    }
+
+                    if (filter_match) {
+                        color.rgb = square_root(lerp(color.rgb*color.rgb, COLOR_GREEN.rgb, 0.2f));
                     }
                     editor_print_line(&log, color, message->text);
 
@@ -948,7 +1045,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             if (selected_message) {
                 EditorLayout log_tooltip = make_layout(editor, mouse_p + vec2(0.0f, 12.0f), true);
                 editor->render_context.sort_key_bias += 100.0f;
-                editor_print_line(&log_tooltip, COLOR_WHITE, "\"%s\":%s():%u", selected_message->file, selected_message->function, selected_message->line);
+                editor_print_line(&log_tooltip, COLOR_WHITE, "%s:%s:%u", selected_message->file, selected_message->function, selected_message->line);
                 push_shape(&editor->render_context, default_transform2d(), rectangle(log_tooltip.last_print_bounds), vec4(0.0f, 0.0f, 0.0f, 0.8f), ShapeRenderMode_Fill, -10.0f);
             }
 
@@ -973,14 +1070,16 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
     v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
     editor_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
-    editor_print_line(&layout, COLOR_WHITE, "Editing level '%.*s'%s", cast(int) level->name_length, level->name, editor->level_saved_timer > 0.0f ? " (Saved...)" : "");
+
+    editor_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
+    if (editor->level_saved_timer > 0.0f) {
+        editor_print(&layout, vec4(1.0f, 1.0f, 1.0f, clamp01(editor->level_saved_timer)), "  (Saved...)");
+    }
+    editor_finish_print(&layout);
+
     editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
     editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
     editor_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
-
-    if (was_pressed(get_key(input, 'P'))) {
-        log_print(LogLevel_Warn, "I am an independent woman");
-    }
 
     if (editor->level_saved_timer > 0.0f) {
         editor->level_saved_timer -= input->frame_dt;
@@ -992,13 +1091,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             editor->level_saved_timer = 2.0f;
         } else {
             editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
-        }
-    }
-
-    if (was_pressed(get_key(input, 'L'))) {
-        if (input->ctrl.is_down) {
-            assert(load_level_from_disk(&game_state->transient_arena, editor->active_level, wrap_string(editor->active_level->name_length, editor->active_level->name)));
-            load_level(editor, editor->active_level);
         }
     }
 
@@ -1024,7 +1116,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         if (footer) {
             void* data = get_undo_data(footer);
 
-            v4 color = vec4(0.85f, 0.85f, 0.85f, 1.0f - (cast(f32) undo_log_count / 5.0f));
+            v4 color = vec4(0.85f, 0.85f, 0.85f, 1.0f - (cast(f32) undo_log_count / 4.5f));
 
             editor_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name_safe(UndoType, footer->type));
             switch (footer->type) {
