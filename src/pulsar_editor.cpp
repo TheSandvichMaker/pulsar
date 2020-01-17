@@ -1,3 +1,18 @@
+// @TODO:
+// @WidgetEntityData: Clean this horrible mess up regarding entity data in widgets
+
+template <typename T>
+inline T* get_data(EditorState* editor, EntityData<T> data) {
+    T* result = 0;
+    Entity* entity = get_entity_from_guid(editor, data.guid);
+    if (entity) {
+        result = cast(T*) (cast(u8*) entity + data.offset);
+    } else {
+        log_print(LogLevel_Error, "Could not retrieve entity data from Entity { %u }", data.guid.value);
+    }
+    return result;
+}
+
 inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
     EntityHash* result = 0;
 
@@ -152,8 +167,8 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
         assert(hash_slot->index < ARRAY_COUNT(level->entities));
         Entity* entity = level->entities + hash_slot->index;
 
-        if (editor->selected_entity && editor->selected_entity->guid.value == guid.value) {
-            editor->selected_entity = 0;
+        if (editor->selected_entity.value && editor->selected_entity.value == guid.value) {
+            editor->selected_entity = { 0 };
         }
 
         if (with_undo_history) {
@@ -259,25 +274,27 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
     copy(footer->data_size, footer->data_ptr, get_undo_data(footer));
 }
 
-#define add_entity_data_undo_history(editor, entity, member) add_entity_data_undo_history_(editor, (entity)->guid, cast(u32) (cast(u8*) &((entity)->member) - cast(u8*) entity), sizeof((entity)->member), #member)
-inline void add_entity_data_undo_history_(EditorState* editor, EntityID entity_guid, u32 data_offset, u32 data_size, char* description = 0) {
+inline void add_entity_data_undo_history_(EditorState* editor, EntityID guid, u32 data_size, u32 data_offset, char* description = 0) {
     assert(data_size + sizeof(UndoFooter) <= sizeof(editor->undo_buffer));
 
-    Entity* entity = get_entity_from_guid(editor, entity_guid);
-    if (entity) {
-        UndoFooter* footer = add_undo_footer(editor, data_size);
+    UndoFooter* footer = add_undo_footer(editor, data_size);
 
+    Entity* entity = get_entity_from_guid(editor, guid);
+    if (entity) {
         footer->type = Undo_SetEntityData;
         footer->description = description;
         footer->data_size = data_size;
 
-        footer->entity_guid = entity_guid;
+        footer->entity_guid = guid;
         footer->entity_data_offset = data_offset;
 
         copy(footer->data_size, cast(u8*) entity + footer->entity_data_offset, get_undo_data(footer));
-    } else {
-        log_print(LogLevel_Error, "Failed to fetch EntityID { %u } to create entity undo history", entity_guid.value);
     }
+}
+
+template <typename T>
+inline void add_entity_data_undo_history(EditorState* editor, EntityData<T> entity_data, char* description = 0) {
+    add_entity_data_undo_history_(editor, entity_data.guid, get_data_size(entity_data), entity_data.offset);
 }
 
 // @TODO: Think about deduplicating the symmetric undo/redo cases
@@ -329,7 +346,6 @@ inline void undo(EditorState* editor) {
 inline void redo(EditorState* editor) {
     u32 footer_index = 0;
     if (!editor->undo_most_recent) {
-        log_print(LogLevel_Info, "No most recent undo, using editor->undo_oldest: %u", editor->undo_oldest);
         footer_index = editor->undo_oldest;
     } else {
         UndoFooter* prev_footer = get_undo_footer(editor, editor->undo_most_recent);
@@ -852,14 +868,16 @@ inline void execute_console_command(GameState* game_state, EditorState* editor, 
     }
 }
 
-inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, void* guid, Transform2D t, v2* target) {
+inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, Transform2D t, EntityData<v2> target) {
     EditorWidget widget;
     widget.type = Widget_DragV2;
-    widget.guid = guid;
+    widget.guid = &widget;
 
     EditorWidgetDragV2* drag_v2 = &widget.drag_v2;
-    v2 zone = *target;
+
+    v2 zone = *get_data(editor, target);
     drag_v2->original = zone;
+
     drag_v2->target = target;
 
     v4 corner_color = is_hot(editor, widget) ? COLOR_RED : COLOR_YELLOW;
@@ -1295,13 +1313,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     EditorWidget manipulate_entity = {};
     manipulate_entity.guid = &manipulate_entity;
     manipulate_entity.type = Widget_ManipulateEntity;
-    manipulate_entity.manipulate.entity = moused_over;
 
     if (moused_over) {
+        manipulate_entity.manipulate.guid = moused_over->guid;
         editor->next_hot_widget = manipulate_entity;
     } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
         if (editor->active_widget.type == Widget_None && !editor->panning) {
-            editor->selected_entity = 0;
+            editor->selected_entity = { 0 };
         }
     }
 
@@ -1311,30 +1329,31 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             case Manipulate_Default: {
                 f32 drag_distance = length(mouse_p - editor->mouse_p_on_active);
                 if (input->mouse_buttons[PlatformMouseButton_Left].is_down && drag_distance > 5.0f) {
-                    editor->selected_entity = widget->manipulate.entity;
+                    editor->selected_entity = widget->manipulate.guid;
                     widget->manipulate.type = Manipulate_DragEntity;
-                    add_entity_data_undo_history(editor, widget->manipulate.entity, p);
-                    // add_undo_history(editor, Undo_SetData, sizeof(widget->manipulate.entity->p), &widget->manipulate.entity->p, "Moved Entity");
+                    Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
+                    add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p));
                 } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    editor->selected_entity = moused_over;
+                    editor->selected_entity = moused_over->guid;
                     clear_active(editor);
                 }
             } break;
 
             case Manipulate_DragEntity: {
-                widget->manipulate.entity->p = snap_to_grid(editor, world_mouse_p - widget->manipulate.drag_offset);
+                Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
+                entity->p = snap_to_grid(editor, world_mouse_p - widget->manipulate.drag_offset);
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    editor->selected_entity = 0;
+                    editor->selected_entity = { 0 };
                     clear_active(editor);
                 } else if (was_released(input->mouse_buttons[PlatformMouseButton_Right])) {
-                    editor->selected_entity = 0;
+                    editor->selected_entity = { 0 };
                     clear_active(editor);
                     undo(editor);
                 }
             } break;
 
             case Manipulate_DeleteEntity: {
-                delete_entity(editor, widget->manipulate.entity->guid);
+                delete_entity(editor, widget->manipulate.guid);
                 clear_active(editor);
             } break;
         }
@@ -1344,7 +1363,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             widget.manipulate.type = Manipulate_DeleteEntity;
             set_active(editor, widget);
         } else if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-            widget.manipulate.drag_offset = world_mouse_p - widget.manipulate.entity->p;
+            Entity* entity = get_entity_from_guid(editor, widget.manipulate.guid); // @WidgetEntityData
+            widget.manipulate.drag_offset = world_mouse_p - entity->p;
             set_active(editor, widget);
         }
     }
@@ -1396,8 +1416,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     Entity* selected = 0;
-    if (editor->selected_entity) {
-        selected = editor->selected_entity;
+    if (editor->selected_entity.value) {
+        selected = get_entity_from_guid(editor, editor->selected_entity);
     } else {
         selected = moused_over;
     }
@@ -1410,7 +1430,9 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 #endif
 
         if (selected->type == EntityType_CameraZone) {
-            drag_v2_widget(game_state, editor, selected, transform2d(selected->p), &selected->active_region);
+            drag_v2_widget(game_state, editor, transform2d(selected->p), wrap_entity_data(selected, &selected->active_region));
+        } else if (selected->type == EntityType_Checkpoint) {
+            drag_v2_widget(game_state, editor, transform2d(selected->p), wrap_entity_data(selected, &selected->checkpoint_zone));
         }
 
         editor_print_line(&layout, COLOR_WHITE, "");
@@ -1484,7 +1506,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                         set_active(editor, editor->hot_widget);
                         if (!(editable->flags & Editable_Static)) {
                             add_entity_data_undo_history_(editor, selected->guid, editable->offset, editable->size, editable->name);
-                            // add_undo_history(editor, Undo_SetData, editable->size, editable_ptr);
                         }
                     }
                 }
@@ -1506,16 +1527,17 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
         if (was_pressed(input->del)) {
             delete_entity(editor, selected->guid);
+            selected = 0;
         }
     }
 
     if (game_state->game_mode == GameMode_Editor) {
         if (moused_over) {
-            push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), vec4(1, 0, 1, 1), ShapeRenderMode_Outline, 100.0f);
+            push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), COLOR_PINK, ShapeRenderMode_Outline, 100.0f);
         }
 
         if (selected && selected != moused_over) {
-            push_shape(&game_state->render_context, transform2d(selected->p), rectangle(selected->collision), vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
+            push_shape(&game_state->render_context, transform2d(selected->p), rectangle(selected->collision), COLOR_GREEN, ShapeRenderMode_Outline, 100.0f);
         }
     }
 
@@ -1523,11 +1545,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         switch (editor->active_widget.type) {
             case Widget_DragV2: {
                 EditorWidgetDragV2* drag_v2 = &editor->active_widget.drag_v2;
+                v2* target = get_data(editor, drag_v2->target);
                 v2 mouse_delta = snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                *drag_v2->target = drag_v2->original + mouse_delta*drag_v2->scaling;
+                *target = drag_v2->original + mouse_delta*drag_v2->scaling;
                 if (input->ctrl.is_down) {
                     f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
-                    drag_v2->target->x = aspect_ratio*drag_v2->target->y;
+                    target->x = aspect_ratio*target->y;
                 }
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     clear_active(editor);
@@ -1539,7 +1562,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             case Widget_DragV2: {
                 EditorWidgetDragV2* drag_v2 = &editor->hot_widget.drag_v2;
                 if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    add_undo_history(editor, Undo_SetData, sizeof(AxisAlignedBox2), drag_v2->target, "Drag V2");
+                    add_entity_data_undo_history(editor, drag_v2->target);
                     set_active(editor, editor->hot_widget);
                 }
             } break;

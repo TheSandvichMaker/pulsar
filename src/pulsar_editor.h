@@ -18,6 +18,32 @@ struct AddEntityResult {
     Entity* ptr;
 };
 
+introspect() enum UndoType {
+    Undo_Null,
+    Undo_SetData,
+    Undo_SetEntityData,
+    Undo_CreateEntity,
+    Undo_DeleteEntity,
+};
+
+struct UndoFooter {
+    UndoType type;
+    char* description;
+
+    u32 data_size;
+
+    union {
+        void* data_ptr;
+        struct {
+            EntityID entity_guid;
+            u32 entity_data_offset;
+        };
+    };
+
+    u32 prev;
+    u32 next;
+};
+
 enum EditableFlag {
     Editable_IsMidiNote = 0x1,
     Editable_RangeLimited = 0x2,
@@ -51,6 +77,27 @@ struct EditableParameter {
     };
 };
 
+template <typename T>
+struct EntityData {
+    EntityID guid;
+    u32 offset;
+};
+
+template <typename T>
+inline u32 get_data_size(EntityData<T> data) {
+    u32 result = safe_truncate_u64u32(sizeof(T));
+    return result;
+}
+
+template <typename T>
+inline EntityData<T> wrap_entity_data(Entity* entity, T* member_ptr) {
+    assert(cast(void*) member_ptr >= cast(void*) entity && cast(void*) (member_ptr + 1) <= cast(void*) (entity + 1));
+    EntityData<T> result;
+    result.guid = entity->guid;
+    result.offset = cast(u32) (cast(u8*) member_ptr - cast(u8*) entity);
+    return result;
+}
+
 introspect() enum EditorWidgetType {
     Widget_None = 0,
     Widget_DragEditable,
@@ -67,7 +114,7 @@ enum EntityManipulateType {
 
 struct EditorWidgetManipulateEntity {
     EntityManipulateType type;
-    Entity* entity;
+    EntityID guid;
     v2 drag_offset;
 };
 
@@ -103,7 +150,7 @@ struct EditorWidgetDragAxisAlignedBox {
 struct EditorWidgetDragV2 {
     v2 scaling;
     v2 original;
-    v2* target;
+    EntityData<v2> target;
 };
 
 struct EditorWidget {
@@ -116,32 +163,6 @@ struct EditorWidget {
         EditorWidgetDragAxisAlignedBox drag_aab;
         EditorWidgetDragV2 drag_v2;
     };
-};
-
-introspect() enum UndoType {
-    Undo_Null,
-    Undo_SetData,
-    Undo_SetEntityData,
-    Undo_CreateEntity,
-    Undo_DeleteEntity,
-};
-
-struct UndoFooter {
-    UndoType type;
-    char* description;
-
-    u32 data_size;
-
-    union {
-        void* data_ptr;
-        struct {
-            EntityID entity_guid;
-            u32 entity_data_offset;
-        };
-    };
-
-    u32 prev;
-    u32 next;
 };
 
 struct EntityHash {
@@ -214,7 +235,7 @@ struct EditorState {
     EditorWidget hot_widget;
     EditorWidget active_widget;
 
-    Entity* selected_entity;
+    EntityID selected_entity;
 
     EntityType current_editable_type;
     LinearBuffer<EditableParameter>* editable_parameter_info[EntityType_Count];

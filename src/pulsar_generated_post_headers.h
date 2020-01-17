@@ -1,17 +1,6 @@
 #ifndef PULSAR_GENERATED_POST_HEADERS_H
 #define PULSAR_GENERATED_POST_HEADERS_H
 
-char* GetEnumNameOf_EditorWidgetType(int value) {
-    switch (value) {
-        case Widget_None: return "Widget_None";
-        case Widget_DragEditable: return "Widget_DragEditable";
-        case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
-        case Widget_DragAxisAlignedBox: return "Widget_DragAxisAlignedBox";
-        case Widget_DragV2: return "Widget_DragV2";
-        default: return 0;
-    }
-}
-
 char* GetEnumNameOf_UndoType(int value) {
     switch (value) {
         case Undo_Null: return "Undo_Null";
@@ -19,6 +8,17 @@ char* GetEnumNameOf_UndoType(int value) {
         case Undo_SetEntityData: return "Undo_SetEntityData";
         case Undo_CreateEntity: return "Undo_CreateEntity";
         case Undo_DeleteEntity: return "Undo_DeleteEntity";
+        default: return 0;
+    }
+}
+
+char* GetEnumNameOf_EditorWidgetType(int value) {
+    switch (value) {
+        case Widget_None: return "Widget_None";
+        case Widget_DragEditable: return "Widget_DragEditable";
+        case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
+        case Widget_DragAxisAlignedBox: return "Widget_DragAxisAlignedBox";
+        case Widget_DragV2: return "Widget_DragV2";
         default: return 0;
     }
 }
