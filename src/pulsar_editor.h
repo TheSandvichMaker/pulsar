@@ -83,26 +83,10 @@ struct EntityData {
     u32 offset;
 };
 
-template <typename T>
-inline u32 get_data_size(EntityData<T> data) {
-    u32 result = safe_truncate_u64u32(sizeof(T));
-    return result;
-}
-
-template <typename T>
-inline EntityData<T> wrap_entity_data(Entity* entity, T* member_ptr) {
-    assert(cast(void*) member_ptr >= cast(void*) entity && cast(void*) (member_ptr + 1) <= cast(void*) (entity + 1));
-    EntityData<T> result;
-    result.guid = entity->guid;
-    result.offset = cast(u32) (cast(u8*) member_ptr - cast(u8*) entity);
-    return result;
-}
-
 introspect() enum EditorWidgetType {
     Widget_None = 0,
     Widget_DragEditable,
     Widget_ManipulateEntity,
-    Widget_DragAxisAlignedBox,
     Widget_DragV2,
 };
 
@@ -118,35 +102,6 @@ struct EditorWidgetManipulateEntity {
     v2 drag_offset;
 };
 
-/*
-  If one's dragging corner B, this is the setup:
-    D ------------ C < connected_x
-    |              |
-    |              |
-    A ------------ B
-    ^              ^
-    connected_y    corner_p
-
-  If one's dragging an edge, point_b is always counter-clockwise to point_a
-    D ------------ C
-    |              |
-    |              |
-    A ------------ B
-    ^              ^
-    point_a        point_b
-*/
-
-struct EditorWidgetDragAxisAlignedBox {
-    AxisAlignedBox2* box;
-    b32 keep_aspect_ratio;
-
-    f32 original_x;
-    f32 original_y;
-
-    f32* connected_x;
-    f32* connected_y;
-};
-
 struct EditorWidgetDragV2 {
     v2 scaling;
     v2 original;
@@ -160,7 +115,6 @@ struct EditorWidget {
     union {
         void* start_value;
         EditorWidgetManipulateEntity manipulate;
-        EditorWidgetDragAxisAlignedBox drag_aab;
         EditorWidgetDragV2 drag_v2;
     };
 };

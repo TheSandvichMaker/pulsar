@@ -95,7 +95,6 @@ enum DiagnosticSeverity {
     Diagnostic_Note,
 };
 
-#define PRINTF_STRING(str) (int)str.len, str.data
 internal void va_print_diagnostic(
     String source_file_name,
     String source_code,
@@ -492,7 +491,12 @@ internal StructMember parse_member(Tokenizer* tokenizer, Token struct_type_token
 
         switch (token.type) {
             case Token_Operator: {
-                if (token_equals(token, '*')) {
+                if (token_equals(token, '=')) {
+                    while (token.type != Token_Semicolon) {
+                        token = get_token(tokenizer);
+                    }
+                    parsing = false;
+                } else if (token_equals(token, '*')) {
                     result.is_pointer = true;
                 }
             } break;
@@ -735,6 +739,16 @@ int main(int argument_count, char** arguments) {
 
     fprintf(post_headers, "#ifndef PULSAR_GENERATED_POST_HEADERS_H\n");
     fprintf(post_headers, "#define PULSAR_GENERATED_POST_HEADERS_H\n\n");
+
+    fprintf(post_headers, "char* GetMetaTypeName(MetaType value) {\n");
+    fprintf(post_headers, "    switch (value) {\n");
+    for (size_t type_index = 0; type_index < meta_type_array.count; type_index++) {
+        Token type = meta_type_array.data[type_index].type;
+        fprintf(post_headers, "        case MetaType_%.*s: return \"%.*s\";\n", PRINTF_TOKEN(type), PRINTF_TOKEN(type));
+    }
+    fprintf(post_headers, "        default: return 0;\n");
+    fprintf(post_headers, "    }\n");
+    fprintf(post_headers, "}\n\n");
 
     for (size_t enum_index = 0; enum_index < meta_enum_array.count; enum_index++) {
         MetaEnum meta = meta_enum_array.data[enum_index];

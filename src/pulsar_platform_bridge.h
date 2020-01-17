@@ -94,10 +94,14 @@ struct PlatformDebugInfo {
 };
 #endif
 
+introspect() struct GameConfig {
+    b32 start_fullscreen = false;
+};
+
 //
 // @Note: Game Memory HAS to be initialized with ZEROED memory!
 //
-//
+
 struct GameMemory {
     b32 initialized;
 
@@ -106,6 +110,7 @@ struct GameMemory {
     size_t transient_storage_size;
     void* transient_storage;
 
+    GameConfig config;
     PlatformAPI platform_api;
 
 #if PULSAR_DEBUG
@@ -345,5 +350,23 @@ typedef GAME_GET_SOUND(GameGetSound);
 
 #define GAME_POST_RENDER(name) void name(GameMemory* memory, GameInput* input, GameRenderCommands* render_commands)
 typedef GAME_POST_RENDER(GamePostRender);
+
+// @Note: This is here because the code generator is pretty dumb and will only generate MetaTypes for introspected structs
+introspect() struct DummyIntrospectStruct {
+    b32 dummy_b32;
+
+    s8  dummy_s8;
+    s16 dummy_s16;
+    s32 dummy_s32;
+    s64 dummy_s64;
+
+    u8  dummy_u8;
+    u16 dummy_u16;
+    u32 dummy_u32;
+    u64 dummy_u64;
+
+    f32 dummy_f32;
+    f64 dummy_f64;
+};
 
 #endif /* PLATFORM_BRIDGE_H */

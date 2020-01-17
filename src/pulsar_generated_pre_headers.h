@@ -21,7 +21,16 @@ enum MetaType {
     MetaType_EditorWidgetType,
     MetaType_EntityFlag,
     MetaType_EntityType,
+    MetaType_GameConfig,
+    MetaType_b32,
     MetaType_PlatformKeyCode,
+    MetaType_DummyIntrospectStruct,
+    MetaType_s8,
+    MetaType_s16,
+    MetaType_s32,
+    MetaType_s64,
+    MetaType_u64,
+    MetaType_f64,
 };
 
 #define BodyOf_PackedImage \
@@ -62,5 +71,21 @@ enum MetaType {
     u8 type; \
     u8 note_value; \
     u8 velocity;
+
+#define BodyOf_GameConfig \
+    b32 start_fullscreen;
+
+#define BodyOf_DummyIntrospectStruct \
+    b32 dummy_b32; \
+    s8 dummy_s8; \
+    s16 dummy_s16; \
+    s32 dummy_s32; \
+    s64 dummy_s64; \
+    u8 dummy_u8; \
+    u16 dummy_u16; \
+    u32 dummy_u32; \
+    u64 dummy_u64; \
+    f32 dummy_f32; \
+    f64 dummy_f64;
 
 #endif

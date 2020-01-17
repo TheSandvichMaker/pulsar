@@ -1,6 +1,39 @@
 #ifndef PULSAR_GENERATED_POST_HEADERS_H
 #define PULSAR_GENERATED_POST_HEADERS_H
 
+char* GetMetaTypeName(MetaType value) {
+    switch (value) {
+        case MetaType_PackedImage: return "PackedImage";
+        case MetaType_PixelFormat: return "PixelFormat";
+        case MetaType_u32: return "u32";
+        case MetaType_v2: return "v2";
+        case MetaType_PackedSound: return "PackedSound";
+        case MetaType_PackedFont: return "PackedFont";
+        case MetaType_f32: return "f32";
+        case MetaType_PackedMidi: return "PackedMidi";
+        case MetaType_u16: return "u16";
+        case MetaType_PackedSoundtrack: return "PackedSoundtrack";
+        case MetaType_SoundID: return "SoundID";
+        case MetaType_MidiEvent: return "MidiEvent";
+        case MetaType_u8: return "u8";
+        case MetaType_UndoType: return "UndoType";
+        case MetaType_EditorWidgetType: return "EditorWidgetType";
+        case MetaType_EntityFlag: return "EntityFlag";
+        case MetaType_EntityType: return "EntityType";
+        case MetaType_GameConfig: return "GameConfig";
+        case MetaType_b32: return "b32";
+        case MetaType_PlatformKeyCode: return "PlatformKeyCode";
+        case MetaType_DummyIntrospectStruct: return "DummyIntrospectStruct";
+        case MetaType_s8: return "s8";
+        case MetaType_s16: return "s16";
+        case MetaType_s32: return "s32";
+        case MetaType_s64: return "s64";
+        case MetaType_u64: return "u64";
+        case MetaType_f64: return "f64";
+        default: return 0;
+    }
+}
+
 char* GetEnumNameOf_UndoType(int value) {
     switch (value) {
         case Undo_Null: return "Undo_Null";
@@ -17,7 +50,6 @@ char* GetEnumNameOf_EditorWidgetType(int value) {
         case Widget_None: return "Widget_None";
         case Widget_DragEditable: return "Widget_DragEditable";
         case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
-        case Widget_DragAxisAlignedBox: return "Widget_DragAxisAlignedBox";
         case Widget_DragV2: return "Widget_DragV2";
         default: return 0;
     }
@@ -201,6 +233,24 @@ static MemberDefinition MembersOf_MidiEvent[] = {
     { 0, MetaType_u8, 4, "type", (unsigned int)&((MidiEvent*)0)->type, sizeof(u8) },
     { 0, MetaType_u8, 10, "note_value", (unsigned int)&((MidiEvent*)0)->note_value, sizeof(u8) },
     { 0, MetaType_u8, 8, "velocity", (unsigned int)&((MidiEvent*)0)->velocity, sizeof(u8) },
+};
+
+static MemberDefinition MembersOf_GameConfig[] = {
+    { 0, MetaType_b32, 16, "start_fullscreen", (unsigned int)&((GameConfig*)0)->start_fullscreen, sizeof(b32) },
+};
+
+static MemberDefinition MembersOf_DummyIntrospectStruct[] = {
+    { 0, MetaType_b32, 9, "dummy_b32", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_b32, sizeof(b32) },
+    { 0, MetaType_s8, 8, "dummy_s8", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_s8, sizeof(s8) },
+    { 0, MetaType_s16, 9, "dummy_s16", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_s16, sizeof(s16) },
+    { 0, MetaType_s32, 9, "dummy_s32", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_s32, sizeof(s32) },
+    { 0, MetaType_s64, 9, "dummy_s64", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_s64, sizeof(s64) },
+    { 0, MetaType_u8, 8, "dummy_u8", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_u8, sizeof(u8) },
+    { 0, MetaType_u16, 9, "dummy_u16", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_u16, sizeof(u16) },
+    { 0, MetaType_u32, 9, "dummy_u32", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_u32, sizeof(u32) },
+    { 0, MetaType_u64, 9, "dummy_u64", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_u64, sizeof(u64) },
+    { 0, MetaType_f32, 9, "dummy_f32", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_f32, sizeof(f32) },
+    { 0, MetaType_f64, 9, "dummy_f64", (unsigned int)&((DummyIntrospectStruct*)0)->dummy_f64, sizeof(f64) },
 };
 
 #endif

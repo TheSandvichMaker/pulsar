@@ -101,6 +101,9 @@
 #include "pulsar_memory_arena.h"
 #include "pulsar_platform_bridge.h"
 
+global PlatformAPI platform;
+#define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
+
 #include "string.h"
 #include "math.h"
 
@@ -189,10 +192,6 @@ struct GameState {
 #if PULSAR_DEBUG
 global GameState* dbg_game_state;
 #endif
-
-global PlatformAPI platform;
-
-#define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 inline PlayingSound* play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);

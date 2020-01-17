@@ -31,9 +31,11 @@ struct MemberDefinition {
 
 #define using_struct(type, as) union { type as; struct { BodyOf_##type }; };
 
+#define meta_type(type) MetaType_##type
+#define meta_type_name(meta_type) GetMetaTypeName(meta_type)
+
 #define members_of(type) MembersOf_##type
 #define members_count(type) ARRAY_COUNT(MembersOf_##type)
-#define member_type(type) MetaType_##type
-#define member_ptr(source, member_definition) cast(void**) (cast(u8*) &(source) + (member_definition).offset)
+#define member_ptr(source, member_definition) cast(void**) (cast(u8*) (source) + (member_definition)->offset)
 
 #endif /* PULSAR_CODE_GENERATOR_H */

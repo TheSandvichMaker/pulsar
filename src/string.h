@@ -160,18 +160,18 @@ inline b32 strings_are_equal(String a, String b, u32 flags = 0) {
 
 // @Speed? Getting the cstr length with wrap_cstr first and doing the
 // comparison second is probably wasteful.
-inline b32 strings_are_equal(String a, char* b) {
-    b32 result = strings_are_equal(a, wrap_cstr(b));
+inline b32 strings_are_equal(String a, char* b, u32 flags = 0) {
+    b32 result = strings_are_equal(a, wrap_cstr(b), flags);
     return result;
 }
 
-inline b32 strings_are_equal(char* a, String b) {
-    b32 result = strings_are_equal(wrap_cstr(a), b);
+inline b32 strings_are_equal(char* a, String b, u32 flags = 0) {
+    b32 result = strings_are_equal(wrap_cstr(a), b, flags);
     return result;
 }
 
-inline b32 strings_are_equal(char* a, char* b) {
-    b32 result = strings_are_equal(wrap_cstr(a), wrap_cstr(b));
+inline b32 strings_are_equal(char* a, char* b, u32 flags = 0) {
+    b32 result = strings_are_equal(wrap_cstr(a), wrap_cstr(b), flags);
     return result;
 }
 
@@ -281,6 +281,48 @@ inline b32 advance_to_ptr(String* string, char* target) {
         result = false;
     }
     return result;
+}
+
+inline b32 parse_s64(String* string, s64* result, u32 base = 0) {
+    // Let's just use the C standard library...
+    b32 parse_success = false;
+
+    char* end = 0;
+    *result = strtol(string->data, &end, base);
+    if (end && end != string->data) {
+        parse_success = true;
+        advance_to_ptr(string, end);
+    }
+
+    return parse_success;
+}
+
+inline b32 parse_u64(String* string, u64* result, u32 base = 0) {
+    // Let's just use the C standard library...
+    b32 parse_success = false;
+
+    char* end = 0;
+    *result = strtoul(string->data, &end, base);
+    if (end && end != string->data) {
+        parse_success = true;
+        advance_to_ptr(string, end);
+    }
+
+    return parse_success;
+}
+
+inline b32 parse_f64(String* string, f64* result) {
+    // Let's just use the C standard library...
+    b32 parse_success = false;
+
+    char* end = 0;
+    *result = strtod(string->data, &end);
+    if (end && end != string->data) {
+        parse_success = true;
+        advance_to_ptr(string, end);
+    }
+
+    return parse_success;
 }
 
 inline String advance_to(String* string, char target, u32 flags = 0) {

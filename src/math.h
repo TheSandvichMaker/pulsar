@@ -44,13 +44,25 @@ inline f32 max(f32 a, f32 b) {
     return a > b ? a : b;
 }
 
+inline f64 max(f64 a, f64 b) {
+    return a > b ? a : b;
+}
+
 #undef min
 inline f32 min(f32 a, f32 b) {
     return a < b ? a : b;
 }
 
+inline f64 min(f64 a, f64 b) {
+    return a < b ? a : b;
+}
+
 #undef clamp
 inline f32 clamp(f32 n, f32 lo, f32 hi) {
+    return max(lo, min(hi, n));
+}
+
+inline f64 clamp(f64 n, f64 lo, f64 hi) {
     return max(lo, min(hi, n));
 }
 

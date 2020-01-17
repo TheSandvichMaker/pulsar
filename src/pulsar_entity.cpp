@@ -309,7 +309,7 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
                     if (was_pressed(controller->move_up)) {
                         // play_synth(&game_state->audio_mixer, synth_test_impulse);
                         // play_sound(&game_state->audio_mixer, game_state->test_sound);
-                        entity->ddp.y += 400.0f;
+                        entity->dp.y += 10.0f;
                         entity->jumped = true;
                     }
                 }

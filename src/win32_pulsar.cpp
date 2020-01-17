@@ -26,6 +26,7 @@
 #include "pulsar_opengl.h"
 #include "win32_opengl.h"
 
+#include "file_io.cpp"
 #include "pulsar_sort.cpp"
 
 #include "pulsar_shapes.h"
@@ -86,7 +87,8 @@ internal DEBUG_PLATFORM_PRINT(win32_debug_print) {
     OutputDebugStringA(text);
 }
 
-internal PLATFORM_LOG_PRINT(win32_log_print) {
+#define win32_log_print(log_level, format_string, ...) win32_log_print_internal(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
+internal PLATFORM_LOG_PRINT(win32_log_print_internal) {
     va_list va_args;
     va_start(va_args, format_string);
 
@@ -198,8 +200,8 @@ internal PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
         // TODO: Logging
     }
 
-    if (!result.size) {
-        log_print(LogLevel_Error, "Failed to read file '%s'", file_name);
+    if (file_handle == INVALID_HANDLE_VALUE || !result.size) {
+        win32_log_print(LogLevel_Error, "Failed to read file '%s'", file_name);
     }
 
     return result;
@@ -216,12 +218,12 @@ internal PLATFORM_WRITE_ENTIRE_FILE(win32_write_entire_file) {
             // File written successfully
             result = (bytes_written == size);
         } else {
-            log_print(LogLevel_Error, "Failed to write file '%s'", file_name);
+            win32_log_print(LogLevel_Error, "Failed to write file '%s'", file_name);
         }
 
         CloseHandle(file_handle);
     } else {
-        log_print(LogLevel_Error, "Failed to create file '%s'", file_name);
+        win32_log_print(LogLevel_Error, "Failed to create file '%s'", file_name);
     }
 
     return result;
@@ -292,7 +294,7 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
     }
 
     if (!win32_state.directsound_valid) {
-        log_print(LogLevel_Error, "Failed to initialize DirectSound");
+        win32_log_print(LogLevel_Error, "Failed to initialize DirectSound");
     }
 
     return secondary_buffer;
@@ -548,6 +550,117 @@ internal void win32_output_image(GameRenderCommands* commands, HDC window_dc) {
     end_temporary_memory(temp);
 }
 
+inline b32 parse_config(GameConfig* config, String in_file) {
+    b32 no_errors = true;
+
+    String file = in_file;
+    while (chars_left(&file)) {
+        String line      = advance_line(&file);
+        String key       = advance_word(&line);
+        String separator = advance_word(&line);
+        String value     = line;
+
+        if (strings_are_equal(separator, "=") || strings_are_equal(separator, ":")) {
+            b32 found_matching_member = false;
+            for (u32 member_index = 0; member_index < members_count(GameConfig) && !found_matching_member; member_index++) {
+                MemberDefinition* member = members_of(GameConfig) + member_index;
+                void** member_ptr = member_ptr(config, member);
+
+                if (strings_are_equal(member->name, key)) {
+                    found_matching_member = true;
+                    b32 successful_parse = true;
+                    switch (member->type) {
+                        case meta_type(b32): {
+                            if (strings_are_equal(value, "true", StringMatch_CaseInsenitive) || strings_are_equal(value, "1")) {
+                                *(cast(b32*) member_ptr) = true;
+                            } else if (strings_are_equal(value, "false", StringMatch_CaseInsenitive) || strings_are_equal(value, "0")) {
+                                *(cast(b32*) member_ptr) = false;
+                            } else {
+                                successful_parse = false;
+                            }
+                        } break;
+
+                        case meta_type(s8):
+                        case meta_type(s16):
+                        case meta_type(s32):
+                        case meta_type(s64): {
+                            s64 result = 0;
+                            if (parse_s64(&value, &result)) {
+                                switch (member->type) {
+                                    case meta_type(s8 ): { *(cast(s8 *) member_ptr) = cast(s8 ) CLAMP(result,  INT8_MIN,  INT8_MAX); } break;
+                                    case meta_type(s16): { *(cast(s16*) member_ptr) = cast(s16) CLAMP(result, INT16_MIN, INT16_MAX); } break;
+                                    case meta_type(s32): { *(cast(s32*) member_ptr) = cast(s32) CLAMP(result, INT32_MIN, INT32_MAX); } break;
+                                    case meta_type(s64): { *(cast(s64*) member_ptr) = result; } break;
+                                    default: { successful_parse = false; } break;
+                                }
+                            } else {
+                                successful_parse = false;
+                            }
+                        } break;
+
+                        case meta_type(u8):
+                        case meta_type(u16):
+                        case meta_type(u32):
+                        case meta_type(u64): {
+                            u64 result = 0;
+                            if (parse_u64(&value, &result)) {
+                                switch (member->type) {
+                                    case meta_type(u8 ): { *(cast(u8 *) member_ptr) = cast(u8 ) CLAMP(result, 0,  UINT8_MAX); } break;
+                                    case meta_type(u16): { *(cast(u16*) member_ptr) = cast(u16) CLAMP(result, 0, UINT16_MAX); } break;
+                                    case meta_type(u32): { *(cast(u32*) member_ptr) = cast(u32) CLAMP(result, 0, UINT32_MAX); } break;
+                                    case meta_type(u64): { *(cast(u64*) member_ptr) = result; } break;
+                                    default: { successful_parse = false; } break;
+                                }
+                            } else {
+                                successful_parse = false;
+                            }
+                        } break;
+
+                        case meta_type(f32):
+                        case meta_type(f64): {
+                            f64 result = 0;
+                            if (parse_f64(&value, &result)) {
+                                switch (member->type) {
+                                    case meta_type(f32): { *(cast(f32*) member_ptr) = cast(f32) clamp(result, cast(f64) FLT_MIN, cast(f64) FLT_MAX); } break;
+                                    case meta_type(f64): { *(cast(f64*) member_ptr) = result; } break;
+                                    default: { successful_parse = false; } break;
+                                }
+                            } else {
+                                successful_parse = false;
+                            }
+                        } break;
+                    }
+
+                    if (!successful_parse) {
+                        no_errors = false;
+                        win32_log_print(LogLevel_Error, "Could not parse value '%.*s' for key '%.*s' of type '%s'",
+                            PRINTF_STRING(value),
+                            PRINTF_STRING(key),
+                            meta_type_name(member->type)
+                        );
+                    }
+                }
+            }
+
+            if (!found_matching_member) {
+                no_errors = false;
+                win32_log_print(LogLevel_Error, "Found no matching config member for key '%.*s'", PRINTF_STRING(key));
+            }
+        } else {
+            no_errors = false;
+            win32_log_print(LogLevel_Error, "Unexpected string after %.*s: '%.*s'", PRINTF_STRING(key), PRINTF_STRING(separator));
+        }
+    }
+
+    if (no_errors) {
+        win32_log_print(LogLevel_Info, "Parsed config file successfully");
+    } else {
+        win32_log_print(LogLevel_Error, "Parsed config file with errors");
+    }
+
+    return no_errors;
+}
+
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
     {
         LARGE_INTEGER perf_count_frequency_result;
@@ -555,9 +668,21 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         perf_count_frequency = perf_count_frequency_result.QuadPart;
     }
 
+    size_t platform_storage_size = MEGABYTES(128);
+    void* platform_storage = win32_allocate_memory(platform_storage_size);
+
+    initialize_arena(&win32_state.platform_arena, platform_storage_size, platform_storage);
+
     win32_state.log_file = CreateFileA("test_log.txt", GENERIC_WRITE, NULL, NULL, CREATE_ALWAYS, NULL, NULL);
     if (win32_state.log_file != INVALID_HANDLE_VALUE) {
         win32_state.log_file_valid = true;
+    }
+
+    GameConfig config = {};
+    String config_file = read_text_file("pulsar.pulsar_config", allocator(malloc_allocator, 0));
+    if (config_file.len) {
+        parse_config(&config, config_file);
+        deallocate(allocator(malloc_allocator, 0), config_file.data);
     }
 
     WNDCLASSA window_class = {};
@@ -581,7 +706,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         );
 
         if (window) {
-            // win32_toggle_fullscreen(window);
+            if (config.start_fullscreen) {
+                win32_toggle_fullscreen(window);
+            }
 
             ShowWindow(window, show_code);
 
@@ -617,11 +744,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 sound_output.buffer->Play(0, 0, DSBPLAY_LOOPING);
             }
 
-            size_t platform_storage_size = MEGABYTES(128);
-            void* platform_storage = win32_allocate_memory(platform_storage_size);
-
-            initialize_arena(&win32_state.platform_arena, platform_storage_size, platform_storage);
-
             GameRenderCommands render_commands = {};
             render_commands.command_buffer_size = MEGABYTES(32);
             render_commands.command_buffer = cast(u8*) push_size(&win32_state.platform_arena, render_commands.command_buffer_size);
@@ -639,13 +761,15 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.transient_storage_size = transient_storage_size;
             game_memory.transient_storage = transient_storage;
 
+            game_memory.config = config;
+
             game_memory.platform_api.read_entire_file = win32_read_entire_file;
             game_memory.platform_api.write_entire_file = win32_write_entire_file;
             game_memory.platform_api.allocate = win32_allocate_memory;
             game_memory.platform_api.deallocate = win32_deallocate_memory;
             game_memory.platform_api.allocate_texture = win32_allocate_texture;
             game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
-            game_memory.platform_api.log_print = win32_log_print;
+            game_memory.platform_api.log_print = win32_log_print_internal;
             game_memory.platform_api.get_most_recent_log_message = win32_get_most_recent_log_message;
             game_memory.platform_api.get_unread_log_messages = win32_get_unread_log_messages;
 

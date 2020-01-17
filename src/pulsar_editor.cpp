@@ -1,5 +1,19 @@
-// @TODO:
-// @WidgetEntityData: Clean this horrible mess up regarding entity data in widgets
+// @TODO: Ponder the desirableness of EntityData<T>
+
+template <typename T>
+inline EntityData<T> wrap_entity_data(Entity* entity, T* member_ptr) {
+    assert(cast(void*) member_ptr >= cast(void*) entity && cast(void*) (member_ptr + 1) <= cast(void*) (entity + 1));
+    EntityData<T> result;
+    result.guid = entity->guid;
+    result.offset = cast(u32) (cast(u8*) member_ptr - cast(u8*) entity);
+    return result;
+}
+
+template <typename T>
+inline u32 get_data_size(EntityData<T> data) {
+    u32 result = safe_truncate_u64u32(sizeof(T));
+    return result;
+}
 
 template <typename T>
 inline T* get_data(EditorState* editor, EntityData<T> data) {
@@ -107,10 +121,11 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
     return result;
 }
 
-inline AddEntityResult add_soundtrack_player(EditorState* editor, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
+inline AddEntityResult add_soundtrack_player(EditorState* editor, v2 p, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
     AddEntityResult result = add_entity(editor, EntityType_SoundtrackPlayer);
     Entity* entity = result.ptr;
 
+    entity->p = p;
     entity->soundtrack_id  = soundtrack_id;
     entity->playback_flags = playback_flags;
     entity->sprite = editor->speaker_icon;
@@ -418,23 +433,22 @@ inline void create_debug_level(EditorState* editor) {
 
     add_player(editor, vec2(-8.0f, 1.5f));
 
-    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, "test_soundtrack");
-    add_soundtrack_player(editor, soundtrack_id);
+    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, string_literal("test_soundtrack"));
+    add_soundtrack_player(editor, vec2(-2.0f, 4.0f), soundtrack_id);
 
-    add_wall(editor, aab_min_max(vec2(-35.0f, -0.75f), vec2(1.25f, 0.75f)));
+    add_wall(editor, aab_min_max(vec2(-35.0f, -1.0f), vec2(2.0f, 1.0f)));
 
     for (s32 i = 0; i < 13; i++) {
-        Entity* wall = add_wall(editor, aab_center_dim(vec2(2.0f + 1.5f*i, 0.0f), vec2(1.5f, 1.5f)), i % 2 == 1).ptr;
+        Entity* wall = add_wall(editor, aab_center_dim(vec2(3.0f + 2.0f*i, 0.0f), vec2(2.0f, 2.0f)), i % 2 == 1).ptr;
         wall->midi_note = 60 + i;
     }
 
-    add_checkpoint(editor, aab_min_dim(vec2(-6.0f, 0.75f), vec2(4.0f, 8.0f)));
+    add_checkpoint(editor, aab_min_dim(vec2(-6.0f, 1.0f), vec2(4.0f, 8.0f)));
 
     u32 width = editor->render_context.commands->width;
     u32 height = editor->render_context.commands->height;
 
-    f32 aspect_ratio = 16.0f/9.0f;
-    add_camera_zone(editor, aab_center_dim(vec2(0.0f, 2.0f), vec2(35.0f, 15.0f)), 15.0f);
+    add_camera_zone(editor, aab_center_dim(vec2(0.0f, 4.0f), vec2(35.0f, 15.0f)), 15.0f);
 }
 
 internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
@@ -645,7 +659,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
     {
         add_viewable(editables, Entity, guid);
         add_viewable(editables, Entity, p);
-        add_editable(editables, Entity, active_region);
+        add_viewable(editables, Entity, active_region);
         add_editable(editables, Entity, view_region_height);
     }
     end_editables(editor, editables);
@@ -836,6 +850,24 @@ internal CONSOLE_COMMAND(cc_save_level) {
     }
 }
 
+internal CONSOLE_COMMAND(cc_set_soundtrack) {
+    Entity* entity = get_entity_from_guid(editor, editor->selected_entity);
+    if (entity) {
+        if (entity->type == EntityType_SoundtrackPlayer) {
+            SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, arguments);
+            if (soundtrack_id.value) {
+                entity->soundtrack_id = soundtrack_id;
+            } else {
+                log_print(LogLevel_Error, "Could not find soundtrack '%.*s'", PRINTF_STRING(arguments));
+            }
+        } else {
+            log_print(LogLevel_Error, "Selected entity is not EntityType_SoundtrackPlayer, but %s", enum_name(EntityType, entity->type));
+        }
+    } else {
+        log_print(LogLevel_Error, "No entity selected");
+    }
+}
+
 internal CONSOLE_COMMAND(cc_quit) {
     input->quit_requested = true;
 }
@@ -844,6 +876,7 @@ internal CONSOLE_COMMAND(cc_quit) {
 global ConsoleCommand console_commands[] = {
     console_command(load_level),
     console_command(save_level),
+    console_command(set_soundtrack),
     console_command(quit),
 };
 
@@ -868,7 +901,7 @@ inline void execute_console_command(GameState* game_state, EditorState* editor, 
     }
 }
 
-inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, Transform2D t, EntityData<v2> target) {
+inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v2 p, EntityData<v2> target) {
     EditorWidget widget;
     widget.type = Widget_DragV2;
     widget.guid = &widget;
@@ -881,6 +914,8 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, T
     drag_v2->target = target;
 
     v4 corner_color = is_hot(editor, widget) ? COLOR_RED : COLOR_YELLOW;
+
+    Transform2D t = transform2d(p);
 
     {
         v2 corner = 0.5f*vec2(-zone.x, -zone.y);
@@ -942,12 +977,12 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->shown = true;
     editor->show_statistics = true;
 
-    editor->camera_icon     = get_image_id_by_name(editor->assets, "camera_icon");
-    editor->speaker_icon    = get_image_id_by_name(editor->assets, "speaker_icon");
-    editor->checkpoint_icon = get_image_id_by_name(editor->assets, "checkpoint_icon");
+    editor->camera_icon     = get_image_id_by_name(editor->assets, string_literal("camera_icon"));
+    editor->speaker_icon    = get_image_id_by_name(editor->assets, string_literal("speaker_icon"));
+    editor->checkpoint_icon = get_image_id_by_name(editor->assets, string_literal("checkpoint_icon"));
 
-    editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
-    editor->font = get_font_by_name(editor->assets, "editor_font");
+    editor->big_font = get_font_by_name(editor->assets, string_literal("editor_font_big"));
+    editor->font = get_font_by_name(editor->assets, string_literal("editor_font"));
 
     editor->default_collision = vec2(1, 1);
 
@@ -1403,6 +1438,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 created_entity = add_player(editor, snap_to_grid(editor, world_mouse_p)).ptr;
             } break;
 
+            case EntityType_Wall: {
+
+            } break;
+
             case EntityType_CameraZone: {
                 created_entity = add_camera_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(35.0f, 15.0f)), 15.0f).ptr;
             } break;
@@ -1430,9 +1469,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 #endif
 
         if (selected->type == EntityType_CameraZone) {
-            drag_v2_widget(game_state, editor, transform2d(selected->p), wrap_entity_data(selected, &selected->active_region));
+            drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->active_region));
         } else if (selected->type == EntityType_Checkpoint) {
-            drag_v2_widget(game_state, editor, transform2d(selected->p), wrap_entity_data(selected, &selected->checkpoint_zone));
+            drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->checkpoint_zone));
+        } else if (selected->type == EntityType_Wall) {
+            drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
         }
 
         editor_print_line(&layout, COLOR_WHITE, "");
@@ -1545,9 +1586,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         switch (editor->active_widget.type) {
             case Widget_DragV2: {
                 EditorWidgetDragV2* drag_v2 = &editor->active_widget.drag_v2;
+                Entity* entity = get_entity_from_guid(editor, drag_v2->target.guid);
                 v2* target = get_data(editor, drag_v2->target);
-                v2 mouse_delta = snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                *target = drag_v2->original + mouse_delta*drag_v2->scaling;
+
+                v2 mouse_delta = world_mouse_p - editor->world_mouse_p_on_active;
+                *target = drag_v2->original + snap_to_grid(editor, mouse_delta*drag_v2->scaling);
                 if (input->ctrl.is_down) {
                     f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
                     target->x = aspect_ratio*target->y;

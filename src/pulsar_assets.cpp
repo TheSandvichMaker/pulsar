@@ -69,7 +69,7 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
     }
 }
 
-inline u32 get_asset_id_by_name(Assets* assets, char* name, AssetType asset_type = AssetType_Unknown) {
+inline u32 get_asset_id_by_name(Assets* assets, String name, AssetType asset_type = AssetType_Unknown) {
     u32 result = 0;
 
     for (u32 asset_index = 1; asset_index < assets->asset_count; asset_index++) {
@@ -84,22 +84,22 @@ inline u32 get_asset_id_by_name(Assets* assets, char* name, AssetType asset_type
     return result;
 }
 
-inline ImageID get_image_id_by_name(Assets* assets, char* name) {
+inline ImageID get_image_id_by_name(Assets* assets, String name) {
     ImageID result = { get_asset_id_by_name(assets, name, AssetType_Image) };
     return result;
 }
 
-inline SoundID get_sound_id_by_name(Assets* assets, char* name) {
+inline SoundID get_sound_id_by_name(Assets* assets, String name) {
     SoundID result = { get_asset_id_by_name(assets, name, AssetType_Sound) };
     return result;
 }
 
-inline FontID get_font_id_by_name(Assets* assets, char* name) {
+inline FontID get_font_id_by_name(Assets* assets, String name) {
     FontID result = { get_asset_id_by_name(assets, name, AssetType_Font) };
     return result;
 }
 
-inline SoundtrackID get_soundtrack_id_by_name(Assets* assets, char* name) {
+inline SoundtrackID get_soundtrack_id_by_name(Assets* assets, String name) {
     SoundtrackID result = { get_asset_id_by_name(assets, name, AssetType_Soundtrack) };
     return result;
 }
@@ -122,7 +122,7 @@ inline Sound* get_sound(Assets* assets, SoundID id) {
     return result;
 }
 
-inline Sound* get_sound_by_name(Assets* assets, char* name) {
+inline Sound* get_sound_by_name(Assets* assets, String name) {
     Sound* result = 0;
 
     u32 asset_id = get_asset_id_by_name(assets, name);
@@ -145,7 +145,7 @@ inline Image* get_image(Assets* assets, ImageID id) {
     return result;
 }
 
-inline Image* get_image_by_name(Assets* assets, char* name) {
+inline Image* get_image_by_name(Assets* assets, String name) {
     Image* result = 0;
 
     u32 asset_id = get_asset_id_by_name(assets, name);
@@ -168,7 +168,7 @@ inline Font* get_font(Assets* assets, FontID id) {
     return result;
 }
 
-inline Font* get_font_by_name(Assets* assets, char* name) {
+inline Font* get_font_by_name(Assets* assets, String name) {
     Font* result = 0;
 
     u32 asset_id = get_asset_id_by_name(assets, name);
@@ -231,7 +231,7 @@ inline MidiTrack* get_midi(Assets* assets, MidiID id) {
     return result;
 }
 
-inline MidiTrack* get_midi_by_name(Assets* assets, char* name) {
+inline MidiTrack* get_midi_by_name(Assets* assets, String name) {
     MidiTrack* result = 0;
 
     u32 asset_id = get_asset_id_by_name(assets, name);
@@ -254,7 +254,7 @@ inline Soundtrack* get_soundtrack(Assets* assets, SoundtrackID id) {
     return result;
 }
 
-inline Soundtrack* get_soundtrack_by_name(Assets* assets, char* name) {
+inline Soundtrack* get_soundtrack_by_name(Assets* assets, String name) {
     Soundtrack* result = 0;
 
     u32 asset_id = get_asset_id_by_name(assets, name);
