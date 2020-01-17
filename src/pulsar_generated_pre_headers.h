@@ -19,8 +19,6 @@ enum MetaType {
     MetaType_u8,
     MetaType_EditorWidgetType,
     MetaType_UndoType,
-    MetaType_EditorAssets,
-    MetaType_ImageID,
     MetaType_EntityFlag,
     MetaType_EntityType,
     MetaType_PlatformKeyCode,
@@ -64,10 +62,5 @@ enum MetaType {
     u8 type; \
     u8 note_value; \
     u8 velocity;
-
-#define BodyOf_EditorAssets \
-    ImageID camera_icon; \
-    ImageID speaker_icon; \
-    ImageID checkpoint_icon;
 
 #endif

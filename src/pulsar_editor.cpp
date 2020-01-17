@@ -23,9 +23,13 @@ inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
 }
 
 inline Entity* get_entity_from_guid(EditorState* editor, EntityID guid) {
+    Entity* result = 0;
     EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
-    assert(hash_slot->index < ARRAY_COUNT(editor->active_level->entities));
-    Entity* result = editor->active_level->entities + hash_slot->index;
+    if (hash_slot) {
+        if (hash_slot->index && hash_slot->index < ARRAY_COUNT(editor->active_level->entities)) {
+            result = editor->active_level->entities + hash_slot->index;
+        }
+    }
     return result;
 }
 
@@ -178,31 +182,15 @@ inline UndoFooter* get_undo_footer(EditorState* editor, u32 offset) {
     return result;
 }
 
-// @TODO: Is add_undo_history overly complex?
-// Here's how I would simplify it:
-// Have two ring buffers instead of one, one for undo and one for redo
-// RingBuffer undo_buffer[UNDO_BUFFER_SIZE];
-// RingBuffer redo_buffer[UNDO_BUFFER_SIZE];
-// Every time you read from the undo buffer, you write the respective redo data to the redo buffer,
-//  and every time you read from the redo buffer, you write the respective undo data to the undo buffer.
-// This would get you the same functionality for twice the memory profile, but it would be tremendously
-//  more simple and would be able to use a generic ring buffer implementation for both buffers.
-// The ring buffer would look like this:
-// struct RingBuffer {
-//     size_t size;
-//     u8* buffer;
-//
-//     size_t write_cursor;
-//     size_t read_cursor;
-// };
-inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
-    assert(data_size + sizeof(UndoFooter) <= sizeof(editor->undo_buffer));
-
+// @Note: This is more complicated and hard to understand than I would like
+inline UndoFooter* add_undo_footer(EditorState* editor, u32 data_size) {
     UndoFooter* prev_footer = 0;
     u32 data_index = 0;
     if (editor->undo_most_recent) {
         prev_footer = get_undo_footer(editor, editor->undo_most_recent);
         data_index = editor->undo_most_recent + sizeof(UndoFooter);
+    } else {
+        editor->undo_oldest = 0;
     }
 
     u32 footer_index = data_index + data_size;
@@ -246,14 +234,7 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
     }
 
     UndoFooter* footer = get_undo_footer(editor, footer_index);
-
     zero_struct(*footer);
-    footer->type = type;
-    footer->description = description;
-    footer->data_size = data_size;
-    footer->data_ptr = data;
-
-    copy(footer->data_size, footer->data_ptr, editor->undo_buffer + data_index);
 
     if (prev_footer) {
         prev_footer->next = footer_index;
@@ -261,11 +242,45 @@ inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, 
     footer->prev = editor->undo_most_recent;
 
     editor->undo_most_recent = footer_index;
+
+    return footer;
 }
 
-// @TODO: SetData is insufficient for operations on entities since they move around
-// in the entity array. Make an Undo_SetEntityData or something, and/or ponder the
-// way undo should work in general in regard to entities.
+inline void add_undo_history(EditorState* editor, UndoType type, u32 data_size, void* data, char* description) {
+    assert(data_size + sizeof(UndoFooter) <= sizeof(editor->undo_buffer));
+
+    UndoFooter* footer = add_undo_footer(editor, data_size);
+
+    footer->type = type;
+    footer->description = description;
+    footer->data_size = data_size;
+    footer->data_ptr = data;
+
+    copy(footer->data_size, footer->data_ptr, get_undo_data(footer));
+}
+
+#define add_entity_data_undo_history(editor, entity, member) add_entity_data_undo_history_(editor, (entity)->guid, cast(u32) (cast(u8*) &((entity)->member) - cast(u8*) entity), sizeof((entity)->member), #member)
+inline void add_entity_data_undo_history_(EditorState* editor, EntityID entity_guid, u32 data_offset, u32 data_size, char* description = 0) {
+    assert(data_size + sizeof(UndoFooter) <= sizeof(editor->undo_buffer));
+
+    Entity* entity = get_entity_from_guid(editor, entity_guid);
+    if (entity) {
+        UndoFooter* footer = add_undo_footer(editor, data_size);
+
+        footer->type = Undo_SetEntityData;
+        footer->description = description;
+        footer->data_size = data_size;
+
+        footer->entity_guid = entity_guid;
+        footer->entity_data_offset = data_offset;
+
+        copy(footer->data_size, cast(u8*) entity + footer->entity_data_offset, get_undo_data(footer));
+    } else {
+        log_print(LogLevel_Error, "Failed to fetch EntityID { %u } to create entity undo history", entity_guid.value);
+    }
+}
+
+// @TODO: Think about deduplicating the symmetric undo/redo cases
 inline void undo(EditorState* editor) {
     UndoFooter* footer = get_undo_footer(editor, editor->undo_most_recent);
     if (footer) {
@@ -273,6 +288,15 @@ inline void undo(EditorState* editor) {
 
         TemporaryMemory temp = begin_temporary_memory(editor->arena);
         switch (footer->type) {
+            case Undo_SetEntityData: {
+                void* temp_redo_buffer = push_size(editor->arena, footer->data_size, no_clear());
+                Entity* entity = get_entity_from_guid(editor, footer->entity_guid);
+                void* entity_data = cast(u8*) entity + footer->entity_data_offset;
+                copy(footer->data_size, entity_data, temp_redo_buffer);
+                copy(footer->data_size, data, entity_data);
+                copy(footer->data_size, temp_redo_buffer, data);
+            } break;
+
             case Undo_SetData: {
                 void* temp_redo_buffer = push_size(editor->arena, footer->data_size, no_clear());
                 copy(footer->data_size, footer->data_ptr, temp_redo_buffer);
@@ -305,6 +329,7 @@ inline void undo(EditorState* editor) {
 inline void redo(EditorState* editor) {
     u32 footer_index = 0;
     if (!editor->undo_most_recent) {
+        log_print(LogLevel_Info, "No most recent undo, using editor->undo_oldest: %u", editor->undo_oldest);
         footer_index = editor->undo_oldest;
     } else {
         UndoFooter* prev_footer = get_undo_footer(editor, editor->undo_most_recent);
@@ -318,6 +343,15 @@ inline void redo(EditorState* editor) {
 
         TemporaryMemory temp = begin_temporary_memory(editor->arena);
         switch (footer->type) {
+            case Undo_SetEntityData: {
+                void* temp_undo_buffer = push_size(editor->arena, footer->data_size, no_clear());
+                Entity* entity = get_entity_from_guid(editor, footer->entity_guid);
+                void* entity_data = cast(u8*) entity + footer->entity_data_offset;
+                copy(footer->data_size, entity_data, temp_undo_buffer);
+                copy(footer->data_size, data, entity_data);
+                copy(footer->data_size, temp_undo_buffer, data);
+            } break;
+
             case Undo_SetData: {
                 void* temp_undo_buffer = push_size(editor->arena, footer->data_size, no_clear());
                 copy(footer->data_size, footer->data_ptr, temp_undo_buffer);
@@ -532,7 +566,7 @@ typedef Entity* EntityPtr;
 DECLARE_EDITABLE_TYPE_INFERENCER(EntityPtr)
 
 #define add_editable(editables, struct_type, member, ...) \
-    add_editable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offset_of(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
+    add_editable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offsetof(struct_type, member), sizeof_member(struct_type, member), ##__VA_ARGS__)
 inline EditableParameter* add_editable_(LinearBuffer<EditableParameter>* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
     EditableParameter* parameter = lb_push(editables);
     parameter->type = type;
@@ -544,7 +578,7 @@ inline EditableParameter* add_editable_(LinearBuffer<EditableParameter>* editabl
 }
 
 #define add_viewable(editables, struct_type, member, ...) \
-    add_viewable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offset_of(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
+    add_viewable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offsetof(struct_type, member), sizeof_member(struct_type, member), ##__VA_ARGS__)
 inline EditableParameter* add_viewable_(LinearBuffer<EditableParameter>* editables, EditableType type, char* name, u32 offset, u32 size, u32 flags = 0) {
     return add_editable_(editables, type, name, offset, size, Editable_Static|flags);
 }
@@ -645,6 +679,11 @@ inline void print_editable(EditorLayout* layout, EditableParameter* editable, vo
             }
         } break;
 
+        case Editable_f32: {
+            f32 value = *(cast(f32*) editable_ptr);
+            editor_print(layout, color, "%f", value);
+        } break;
+
         case Editable_v2: {
             v2 value = *(cast(v2*) editable_ptr);
             editor_print(layout, color, "{ %f, %f }", value.x, value.y);
@@ -715,6 +754,24 @@ inline void set_active(EditorState* editor, EditorWidget widget) {
 
 inline void clear_active(EditorState* editor) {
     editor->active_widget = {};
+}
+
+inline f32 snap_to(f32 x, f32 step) {
+    f32 result = x;
+    if (step != 0.0f) {
+        result = roundf(x / step) * step;
+    }
+    return result;
+}
+
+inline f32 snap_to_grid_x(EditorState* editor, f32 x) {
+    f32 result = snap_to(x, editor->grid_snapping_enabled ? editor->grid_size.x : 0.0f);
+    return result;
+}
+
+inline f32 snap_to_grid_y(EditorState* editor, f32 y) {
+    f32 result = snap_to(y, editor->grid_snapping_enabled ? editor->grid_size.y : 0.0f);
+    return result;
 }
 
 inline v2 snap_to_grid(EditorState* editor, v2 p) {
@@ -795,6 +852,66 @@ inline void execute_console_command(GameState* game_state, EditorState* editor, 
     }
 }
 
+inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, void* guid, Transform2D t, v2* target) {
+    EditorWidget widget;
+    widget.type = Widget_DragV2;
+    widget.guid = guid;
+
+    EditorWidgetDragV2* drag_v2 = &widget.drag_v2;
+    v2 zone = *target;
+    drag_v2->original = zone;
+    drag_v2->target = target;
+
+    v4 corner_color = is_hot(editor, widget) ? COLOR_RED : COLOR_YELLOW;
+
+    {
+        v2 corner = 0.5f*vec2(-zone.x, -zone.y);
+        AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+        if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
+            drag_v2->scaling = vec2(-2.0f, -2.0f);
+            editor->next_hot_widget = widget;
+        }
+    }
+
+    {
+        v2 corner = 0.5f*vec2(zone.x, -zone.y);
+        AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+        if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
+            drag_v2->scaling = vec2(2.0f, -2.0f);
+            editor->next_hot_widget = widget;
+        }
+    }
+
+    {
+        v2 corner = 0.5f*vec2(zone.x, zone.y);
+        AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+        if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
+            drag_v2->scaling = vec2(2.0f, 2.0f);
+            editor->next_hot_widget = widget;
+        }
+    }
+
+    {
+        v2 corner = 0.5f*vec2(-zone.x, zone.y);
+        AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+
+        if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
+            drag_v2->scaling = vec2(-2.0f, 2.0f);
+            editor->next_hot_widget = widget;
+        }
+    }
+
+    return widget;
+}
+
+
 inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* render_commands, Level* active_level) {
     EditorState* editor = push_struct(&game_state->permanent_arena, EditorState);
 
@@ -807,23 +924,9 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->shown = true;
     editor->show_statistics = true;
 
-#if 0
-    editor->camera_icon = get_image_by_name(editor->assets, "camera_icon");
-    editor->speaker_icon = get_image_by_name(editor->assets, "speaker_icon");
-    editor->checkpoint_icon = get_image_by_name(editor->assets, "checkpoint_icon");
-#else
-    for (u32 member_index = 0; member_index < members_count(EditorAssets); member_index++) {
-        MemberDefinition member = members_of(EditorAssets)[member_index];
-        void** member_ptr = member_ptr(editor->asset_dependencies, member);
-        switch (member.type) {
-            case member_type(ImageID): {
-                *(cast(ImageID*) member_ptr) = get_image_id_by_name(editor->assets, member.name);
-            } break;
-
-            INVALID_DEFAULT_CASE;
-        }
-    }
-#endif
+    editor->camera_icon     = get_image_id_by_name(editor->assets, "camera_icon");
+    editor->speaker_icon    = get_image_id_by_name(editor->assets, "speaker_icon");
+    editor->checkpoint_icon = get_image_id_by_name(editor->assets, "checkpoint_icon");
 
     editor->big_font = get_font_by_name(editor->assets, "editor_font_big");
     editor->font = get_font_by_name(editor->assets, "editor_font");
@@ -1129,6 +1232,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             editor_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name_safe(UndoType, footer->type));
             switch (footer->type) {
+                case Undo_SetEntityData: {
+                    editor_print(&undo_log, color, "EntityID { %u } ", footer->entity_guid.value);
+                    if (footer->description) {
+                        editor_print(&undo_log, color, "-> %s", footer->description);
+                    }
+                } break;
                 case Undo_SetData: {
                     if (footer->description) {
                         editor_print(&undo_log, color, "%s", footer->description);
@@ -1204,7 +1313,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 if (input->mouse_buttons[PlatformMouseButton_Left].is_down && drag_distance > 5.0f) {
                     editor->selected_entity = widget->manipulate.entity;
                     widget->manipulate.type = Manipulate_DragEntity;
-                    add_undo_history(editor, Undo_SetData, sizeof(widget->manipulate.entity->p), &widget->manipulate.entity->p, "Moved Entity");
+                    add_entity_data_undo_history(editor, widget->manipulate.entity, p);
+                    // add_undo_history(editor, Undo_SetData, sizeof(widget->manipulate.entity->p), &widget->manipulate.entity->p, "Moved Entity");
                 } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     editor->selected_entity = moused_over;
                     clear_active(editor);
@@ -1272,8 +1382,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             case EntityType_Player: {
                 created_entity = add_player(editor, snap_to_grid(editor, world_mouse_p)).ptr;
             } break;
+
             case EntityType_CameraZone: {
-                f32 aspect_ratio = cast(f32) width / cast(f32) height;
                 created_entity = add_camera_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(35.0f, 15.0f)), 15.0f).ptr;
             } break;
         }
@@ -1300,85 +1410,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 #endif
 
         if (selected->type == EntityType_CameraZone) {
-            EditorWidget drag_camera_zone;
-            drag_camera_zone.guid = selected;
-            drag_camera_zone.type = Widget_DragV2;
-
-            Transform2D t = transform2d(selected->p);
-#if 0
-            v2 zone = selected->camera_zone;
-
-            {
-                EditorWidgetDragV2* drag_v2 = &drag_camera_zone.drag_v2;
-                drag_v2->original = selected->camera_zone;
-                drag_v2->target = &selected->camera_zone;
-
-                v4 corner_color = is_hot(editor, drag_camera_zone) ? COLOR_RED : COLOR_YELLOW;
-
-                {
-                    v2 corner = 0.5f*vec2(-zone.x, -zone.y);
-                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
-                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
-
-                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_v2->scaling = vec2(-2.0f, -2.0f);
-                        editor->next_hot_widget = drag_camera_zone;
-                    }
-                }
-
-                {
-                    v2 corner = 0.5f*vec2(zone.x, -zone.y);
-                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
-                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
-
-                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_v2->scaling = vec2(2.0f, -2.0f);
-                        editor->next_hot_widget = drag_camera_zone;
-                    }
-                }
-
-                {
-                    v2 corner = 0.5f*vec2(zone.x, zone.y);
-                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
-                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
-
-                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_v2->scaling = vec2(2.0f, 2.0f);
-                        editor->next_hot_widget = drag_camera_zone;
-                    }
-                }
-
-                {
-                    v2 corner = 0.5f*vec2(-zone.x, zone.y);
-                    AxisAlignedBox2 corner_box = aab_center_dim(corner, vec2(0.25f, 0.25f));
-                    push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
-
-                    if (is_in_aab(offset(corner_box, selected->p), world_mouse_p)) {
-                        drag_v2->scaling = vec2(-2.0f, 2.0f);
-                        editor->next_hot_widget = drag_camera_zone;
-                    }
-                }
-            }
-
-            if (is_active(editor, drag_camera_zone)) {
-                EditorWidgetDragV2* drag_v2 = &editor->active_widget.drag_v2;
-                v2 mouse_delta = snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                *drag_v2->target = drag_v2->original + mouse_delta*drag_v2->scaling;
-                if (input->ctrl.is_down) {
-                    f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
-                    drag_v2->target->x = aspect_ratio*drag_v2->target->y;
-                }
-                if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    clear_active(editor);
-                }
-            } else if (is_hot(editor, drag_camera_zone)) {
-                EditorWidgetDragV2* drag_v2 = &editor->hot_widget.drag_v2;
-                if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    add_undo_history(editor, Undo_SetData, sizeof(AxisAlignedBox2), drag_v2->target, "Change Camera Zone Size");
-                    set_active(editor, editor->hot_widget);
-                }
-            }
-#endif
+            drag_v2_widget(game_state, editor, selected, transform2d(selected->p), &selected->active_region);
         }
 
         editor_print_line(&layout, COLOR_WHITE, "");
@@ -1422,10 +1454,21 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                                     delta = -cast(s32) new_value;
                                 }
                             }
+                            new_value += delta;
                             if (editable->flags & Editable_RangeLimited) {
-                                new_value = CLAMP(new_value + delta, editable->e_u32.min_value, editable->e_u32.max_value);
+                                new_value = CLAMP(new_value, editable->e_u32.min_value, editable->e_u32.max_value);
                             }
                             *(cast(u32*) editable_ptr) = new_value;
+                        } break;
+
+                        case Editable_f32: {
+                            f32 delta = snap_to_grid_y(editor, dot(mouse_p - start_mouse_p, vec2(0, 1)) / 8.0f);
+                            f32 new_value = *(cast(f32*) &editor->active_widget.start_value);
+                            new_value += delta;
+                            if (editable->flags & Editable_RangeLimited) {
+                                new_value = clamp(new_value, editable->e_f32.min_value, editable->e_f32.max_value);
+                            }
+                            *(cast(f32*) editable_ptr) = new_value;
                         } break;
                     }
 
@@ -1440,7 +1483,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
                         set_active(editor, editor->hot_widget);
                         if (!(editable->flags & Editable_Static)) {
-                            add_undo_history(editor, Undo_SetData, editable->size, editable_ptr);
+                            add_entity_data_undo_history_(editor, selected->guid, editable->offset, editable->size, editable->name);
+                            // add_undo_history(editor, Undo_SetData, editable->size, editable_ptr);
                         }
                     }
                 }
@@ -1472,6 +1516,33 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
         if (selected && selected != moused_over) {
             push_shape(&game_state->render_context, transform2d(selected->p), rectangle(selected->collision), vec4(0, 1, 0, 1), ShapeRenderMode_Outline, 100.0f);
+        }
+    }
+
+    if (editor->active_widget.type) {
+        switch (editor->active_widget.type) {
+            case Widget_DragV2: {
+                EditorWidgetDragV2* drag_v2 = &editor->active_widget.drag_v2;
+                v2 mouse_delta = snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
+                *drag_v2->target = drag_v2->original + mouse_delta*drag_v2->scaling;
+                if (input->ctrl.is_down) {
+                    f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
+                    drag_v2->target->x = aspect_ratio*drag_v2->target->y;
+                }
+                if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    clear_active(editor);
+                }
+            } break;
+        }
+    } else if (editor->hot_widget.type) {
+        switch (editor->hot_widget.type) {
+            case Widget_DragV2: {
+                EditorWidgetDragV2* drag_v2 = &editor->hot_widget.drag_v2;
+                if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    add_undo_history(editor, Undo_SetData, sizeof(AxisAlignedBox2), drag_v2->target, "Drag V2");
+                    set_active(editor, editor->hot_widget);
+                }
+            } break;
         }
     }
 

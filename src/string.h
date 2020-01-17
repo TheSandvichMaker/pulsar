@@ -130,13 +130,25 @@ inline String string_from_two_pointers(char* ptr1, char* ptr2) {
     return result;
 }
 
-inline b32 strings_are_equal(String a, String b) {
+enum StringMatchFlag {
+    StringMatch_CaseInsenitive = 0x1,
+};
+
+inline b32 strings_are_equal(String a, String b, u32 flags = 0) {
     b32 result = false;
 
     if (a.len == b.len) {
         result = true;
         for (u32 i = 0; i < a.len; i++) {
-            if (*a.data++ != *b.data++) {
+            char c1 = a.data[i];
+            char c2 = b.data[i];
+
+            if (flags & StringMatch_CaseInsenitive) {
+                c1 = to_lower(c1);
+                c2 = to_lower(c2);
+            }
+
+            if (c1 != c2) {
                 result = false;
                 break;
             }
@@ -346,10 +358,6 @@ inline String advance_line(String* string) {
     return result;
 }
 
-enum StringMatchFlag {
-    StringMatch_CaseInsenitive = 0x1,
-};
-
 inline String find_match(String source_string, String match, u32 flags = 0) {
     String result = {};
 
@@ -358,23 +366,7 @@ inline String find_match(String source_string, String match, u32 flags = 0) {
             String test_string = source_string;
             test_string.len = match.len;
 
-            b32 match_found = true;
-            for (u32 i = 0; i < test_string.len; i++) {
-                char a = test_string.data[i];
-                char b = match.data[i];
-
-                if (flags & StringMatch_CaseInsenitive) {
-                    a = to_lower(a);
-                    b = to_lower(b);
-                }
-
-                if (a != b) {
-                    match_found = false;
-                    break;
-                }
-            }
-
-            if (match_found) {
+            if (strings_are_equal(test_string, match, flags)) {
                 result = test_string;
                 break;
             }

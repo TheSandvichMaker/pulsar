@@ -48,7 +48,7 @@ typedef int64_t s64;
 #define GIGABYTES(num) (MEGABYTES(num) * 1024)
 #define TERABYTES(num) (GIGABYTES(num) * 1024)
 
-#define offset_of(st, m) ((size_t)&(((st*)0)->m))
+#define sizeof_member(struct_type, member) sizeof((cast(struct_type*) 0)->member)
 
 #ifndef NULL
 #ifdef __cplusplus

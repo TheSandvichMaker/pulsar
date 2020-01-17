@@ -203,10 +203,4 @@ static MemberDefinition MembersOf_MidiEvent[] = {
     { 0, MetaType_u8, 8, "velocity", (unsigned int)&((MidiEvent*)0)->velocity, sizeof(u8) },
 };
 
-static MemberDefinition MembersOf_EditorAssets[] = {
-    { 0, MetaType_ImageID, 11, "camera_icon", (unsigned int)&((EditorAssets*)0)->camera_icon, sizeof(ImageID) },
-    { 0, MetaType_ImageID, 12, "speaker_icon", (unsigned int)&((EditorAssets*)0)->speaker_icon, sizeof(ImageID) },
-    { 0, MetaType_ImageID, 15, "checkpoint_icon", (unsigned int)&((EditorAssets*)0)->checkpoint_icon, sizeof(ImageID) },
-};
-
 #endif

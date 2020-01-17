@@ -1,7 +1,9 @@
 #ifndef PULSAR_EDITOR_H
 #define PULSAR_EDITOR_H
 
+#define UNDO_BUFFER_SIZE MEGABYTES(2)
 #define MAX_ENTITY_COUNT 8192
+
 struct Level {
     u32 name_length;
     char name[256];
@@ -35,16 +37,6 @@ enum EditableType {
     Editable_EntityPtr,
 };
 
-struct EditableU32 {
-    u32 min_value;
-    u32 max_value;
-};
-
-struct EditableV2 {
-    v2 min_value;
-    v2 max_value;
-};
-
 struct EditableParameter {
     EditableType type;
     char* name;
@@ -53,13 +45,14 @@ struct EditableParameter {
     u32 flags;
 
     union {
-        EditableU32 e_u32;
-        EditableV2  e_v2;
+        struct { u32 min_value; u32 max_value; } e_u32;
+        struct { f32 min_value; f32 max_value; } e_f32;
+        struct { v2  min_value; v2  max_value; } e_v2;
     };
 };
 
 introspect() enum EditorWidgetType {
-    Widget_None,
+    Widget_None = 0,
     Widget_DragEditable,
     Widget_ManipulateEntity,
     Widget_DragAxisAlignedBox,
@@ -138,7 +131,14 @@ struct UndoFooter {
     char* description;
 
     u32 data_size;
-    void* data_ptr;
+
+    union {
+        void* data_ptr;
+        struct {
+            EntityID entity_guid;
+            u32 entity_data_offset;
+        };
+    };
 
     u32 prev;
     u32 next;
@@ -147,14 +147,6 @@ struct UndoFooter {
 struct EntityHash {
     EntityID guid;
     u32 index;
-};
-
-#define UNDO_BUFFER_SIZE MEGABYTES(2)
-
-introspect() struct EditorAssets {
-    ImageID camera_icon;
-    ImageID speaker_icon;
-    ImageID checkpoint_icon;
 };
 
 struct ConsoleState {
@@ -184,13 +176,9 @@ struct EditorState {
     RenderContext render_context;
     Assets* assets;
 
-#if 0
-    Image* camera_icon;
-    Image* speaker_icon;
-    Image* checkpoint_icon;
-#else
-    using_struct(EditorAssets, asset_dependencies);
-#endif
+    ImageID camera_icon;
+    ImageID speaker_icon;
+    ImageID checkpoint_icon;
 
     Font* big_font;
     Font* font;
