@@ -10,14 +10,9 @@
 #include <assert.h>
 #include <stdarg.h>
 
-#include "common.h"
-#include "string.h"
-
-#include "pulsar_memory.h"
-#include "pulsar_memory_arena.h"
+#include "pulsar_common.h"
 #include "pulsar_template_array.h"
 
-#include "file_io.h"
 #include "file_io.cpp"
 
 global MemoryArena general_arena;

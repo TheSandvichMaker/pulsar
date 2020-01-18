@@ -202,12 +202,20 @@ inline char peek(String* string) {
     }
 }
 
+inline char peek(String string) {
+    return peek(&string);
+}
+
 inline char peek_by(String* string, u32 by) {
     if (by < string->len) {
         return string->data[by];
     } else {
         return 0;
     }
+}
+
+inline char peek_by(String string, u32 by) {
+    return peek_by(&string, by);
 }
 
 inline char advance(String* string) {
@@ -420,11 +428,24 @@ inline String find_match(String source_string, String match, u32 flags = 0) {
     return result;
 }
 
+inline String trim_spaces_left(String string) {
+    String result = string;
+    while (result.len > 0 && is_space(peek(result))) {
+        advance(&result);
+    }
+    return result;
+}
+
 inline String trim_spaces_right(String string) {
     String result = string;
     while (result.len > 0 && is_space(result.data[result.len - 1])) {
         result.len--;
     }
+    return result;
+}
+
+inline String trim_spaces(String string) {
+    String result = trim_spaces_left(trim_spaces_right(string));
     return result;
 }
 

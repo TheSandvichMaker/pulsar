@@ -58,6 +58,9 @@ global Serializable entity_serializables[] = {
     // @Note: Soundtrack Player
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
+    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, audible_zone),
+    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, horz_fade_region),
+    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, vert_fade_region),
     // @Note: Camera Zone
     SERIALIZABLE(Entity, EntityType_CameraZone, active_region),
     SERIALIZABLE(Entity, EntityType_CameraZone, view_region_height),
@@ -360,11 +363,33 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
     game_state->game_mode = game_mode;
 }
 
-global PlayingSound* test_sound;
+struct CameraView {
+    v2 camera_p;
+    v2 camera_rotation_arm;
+    f32 vfov;
+};
+
+inline CameraView get_camera_view(RenderContext* render_context, Entity* camera_zone, Entity* camera_target) {
+    CameraView result;
+
+    f32 aspect_ratio = get_aspect_ratio(render_context);
+
+    v2 rel_camera_p = camera_target->p - camera_zone->p;
+    v2 view_region = vec2(aspect_ratio*camera_zone->view_region_height, camera_zone->view_region_height);
+    v2 movement_zone = max(vec2(0, 0), camera_zone->active_region - view_region);
+    rel_camera_p = clamp(rel_camera_p, -0.5f*movement_zone, 0.5f*movement_zone);
+
+    result.camera_p = camera_zone->p + rel_camera_p;
+    result.camera_rotation_arm = camera_zone->camera_rotation_arm;
+    result.vfov = view_region.y;
+
+    return result;
+}
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
+    game_config = memory->config;
     platform = memory->platform_api;
 
     //
@@ -390,7 +415,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        game_state->active_level = allocate_level(&game_state->permanent_arena, "levels/debug_level.lev");
+        game_state->active_level = allocate_level(&game_state->permanent_arena, "no level");
+        if (game_config.startup_level.len) {
+            load_level_from_disk(&game_state->transient_arena, game_state->active_level, game_config.startup_level);
+        }
 
         game_state->foreground_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
         game_state->background_color = vec4(0.3f, 0.2f, 0.4f, 1.0f);
@@ -437,15 +465,31 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             game_state->render_context.camera_p = camera_target->p;
 
             if (camera_zone) {
-                v2 rel_camera_p = camera_target->p - camera_zone->p;
-                v2 view_region = vec2(aspect_ratio*camera_zone->view_region_height, camera_zone->view_region_height);
-                v2 movement_zone = max(vec2(0, 0), camera_zone->active_region - view_region);
-                rel_camera_p = clamp(rel_camera_p, -0.5f*movement_zone, 0.5f*movement_zone);
+                Entity* prev_camera_zone = game_state->previous_camera_zone;
+                if (prev_camera_zone && game_state->camera_transition_t < 1.0f) {
+                    game_state->mid_camera_transition = true;
 
-                render_context->camera_p = camera_zone->p + rel_camera_p;
-                render_context->camera_rotation_arm = camera_zone->camera_rotation_arm;
+                    CameraView prev_view = get_camera_view(render_context, prev_camera_zone, camera_target);
+                    CameraView view = get_camera_view(render_context, camera_zone, camera_target);
 
-                render_worldspace(render_context, view_region.y);
+                    f32 t = smoothstep(game_state->camera_transition_t);
+
+                    render_context->camera_p = lerp(prev_view.camera_p, view.camera_p, t);
+                    render_context->camera_rotation_arm = lerp(prev_view.camera_rotation_arm, view.camera_rotation_arm, t);
+
+                    render_worldspace(render_context, lerp(prev_view.vfov, view.vfov, t));
+
+                    game_state->camera_transition_t += frame_dt / game_config.camera_transition_speed;
+                } else {
+                    game_state->mid_camera_transition = false;
+
+                    CameraView view = get_camera_view(render_context, camera_zone, camera_target);
+
+                    render_context->camera_p = view.camera_p;
+                    render_context->camera_rotation_arm = view.camera_rotation_arm;
+
+                    render_worldspace(render_context, view.vfov);
+                }
             }
         }
     }
@@ -531,29 +575,36 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             switch (entity->type) {
                 case EntityType_CameraZone: {
                     transform.rotation_arm = entity->camera_rotation_arm;
-                    {
-                        Image* sprite = get_image(&game_state->assets, entity->sprite);
-                        if (sprite) {
-                            push_image(render_context, transform, sprite, entity->color);
-                        } else {
-                            INVALID_CODE_PATH;
-                        }
+                    Image* sprite = get_image(&game_state->assets, entity->sprite);
+                    if (sprite) {
+                        push_image(render_context, transform, sprite, entity->color);
+                    } else {
+                        INVALID_CODE_PATH;
                     }
                     push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
                     push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
                 } break;
 
                 case EntityType_Checkpoint: {
-                    {
-                        Image* sprite = get_image(&game_state->assets, entity->sprite);
-                        if (sprite) {
-                            push_image(render_context, transform, sprite, entity->color);
-                        } else {
-                            INVALID_CODE_PATH;
-                        }
+                    Image* sprite = get_image(&game_state->assets, entity->sprite);
+                    if (sprite) {
+                        push_image(render_context, transform, sprite, entity->color);
+                    } else {
+                        INVALID_CODE_PATH;
                     }
                     push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
                 } break;
+
+                case EntityType_SoundtrackPlayer: {
+                    Image* sprite = get_image(&game_state->assets, entity->sprite);
+                    if (sprite) {
+                        push_image(render_context, transform, sprite, entity->color);
+                    } else {
+                        INVALID_CODE_PATH;
+                    }
+                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), COLOR_GREEN, ShapeRenderMode_Outline);
+                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline);
+                }
 
                 default: {
                     if (entity->sprite.value) {

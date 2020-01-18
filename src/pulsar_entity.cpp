@@ -100,26 +100,46 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
 
     f32 epsilon = 1.0e-3f;
 
-    v2 gravity = vec2(0.0f, -9.8f);
-
-    v2 dp = entity->dp;
     v2 ddp = entity->ddp;
+
+    v2 gravity = vec2(0.0f, entity->gravity);
 
     if (!entity->support) {
         ddp += gravity;
-    } else {
-        dp += entity->support->dp;
-        ddp.x -= entity->support->surface_friction*dp.x;
-        gravity = vec2(0, 0);
     }
 
-    v2 delta = 0.5f*ddp*square(dt) + dp*dt;
+    f32 max_x_vel =  10.0f;
+    f32 min_y_vel = -40.0f;
+    f32 max_y_vel =  40.0f;
+
+    ddp.x = (clamp(ddp.x*dt + entity->dp.x, -max_x_vel, max_x_vel) - entity->dp.x) / dt;
+    ddp.y = (clamp(ddp.y*dt + entity->dp.y,  min_y_vel, max_y_vel) - entity->dp.y) / dt;
+
     entity->dp += ddp*dt;
+    // entity->dp.x = clamp(entity->dp.x, -max_x_vel, max_x_vel);
+    // entity->dp.y = clamp(entity->dp.y,  min_y_vel, max_y_vel);
+
+    // @TODO: Figure out collision properly instead of this hacky crap that idk what it even is
 
     if (entity->flags & EntityFlag_Collides) {
         u32 max_iterations = 4;
         u32 iteration_count = 0;
         while (t > epsilon && iteration_count < max_iterations) {
+            v2 mod_dp = {};
+            if (!entity->support) {
+                if (entity->was_supported) {
+                    entity->was_supported = false;
+                    entity->dp += entity->support_dp;
+                    entity->support_dp = vec2(0, 0);
+                }
+            } else {
+                entity->was_supported = true;
+                entity->support_dp = entity->support_dp;
+                mod_dp += entity->support->dp;
+            }
+
+            v2 delta = 0.5f*ddp*square(t*dt) + (entity->dp + mod_dp)*t*dt;
+
             b32 did_collide = false;
 
             // @TODO: Optimized spatial indexing of sorts?
@@ -142,39 +162,35 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
                         f32 best_distance = F32_MAX;
                         v2 best_move = vec2(0, 0);
 
-                        f32 test_distance = entity->p.x - test_aab.min.x;
+                        f32 test_distance = rel_p.x - test_aab.min.x;
                         if (test_distance < best_distance) {
-                            best_distance = test_distance;
+                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
                             best_move = vec2(-1, 0);
                         }
 
-                        test_distance = test_aab.max.x - entity->p.x;
+                        test_distance = test_aab.max.x - rel_p.x;
                         if (test_distance < best_distance) {
                             best_distance = test_distance;
                             best_move = vec2(1, 0);
                         }
 
-                        test_distance = entity->p.y - test_aab.min.y;
+                        test_distance = rel_p.y - test_aab.min.y;
                         if (test_distance < best_distance) {
-                            best_distance = test_distance;
+                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
                             best_move = vec2(0, -1);
                         }
 
-                        test_distance = test_aab.max.y - entity->p.y;
+                        test_distance = test_aab.max.y - rel_p.y;
                         if (test_distance < best_distance) {
                             best_distance = test_distance;
                             best_move = vec2(0, 1);
                         }
 
-                        t = 0.0f;
+                        log_print(LogLevel_Warn, "Player got stuck in an entity. Best move: { %g, %g }", best_move.x*best_distance, best_move.y*best_distance);
 
-                        delta = best_move*best_distance;
-
-                        entity->dp = vec2(0, 0);
+                        entity->p += best_move*best_distance;
 
                         process_collision_logic(game_state, entity, test_entity);
-
-                        break;
                     } else {
                         v2 rel_delta = delta - test_delta;
 
@@ -182,21 +198,23 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
                         if (aab_trace(rel_p, rel_p + rel_delta, test_aab, &info)) {
                             // @Note: If you collided with a face that faces away from where you're going, then that's probably an epsilon problem.
                             if (dot(rel_delta, info.hit_normal) < 0.0f) {
-                                t -= 1.0f - info.t;
+                                t -= info.t;
 
                                 did_collide = true;
-
-                                delta *= info.t;
 
                                 if (t == 0.0f) {
                                     delta += info.hit_normal*epsilon;
                                 }
 
+                                entity->p += info.t*delta;
+
+                                ddp = grazing_reflect(ddp, info.hit_normal);
                                 entity->dp = grazing_reflect(entity->dp, info.hit_normal);
 
                                 if (dot(info.hit_normal, gravity) < 0) {
                                     entity->support = test_entity;
                                     entity->support_normal = info.hit_normal;
+                                    entity->p += test_entity->dp*dt*info.t;
                                 }
 
                                 process_collision_logic(game_state, entity, test_entity);
@@ -207,23 +225,32 @@ inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
             }
 
             if (!did_collide) {
-                t = 0.0f;
+                break;
             }
-
-            entity->p += delta;
 
             iteration_count++;
         }
+
+        v2 mod_dp = {};
+        if (!entity->support) {
+            if (entity->was_supported) {
+                entity->was_supported = false;
+                entity->dp += entity->support_dp;
+                entity->support_dp = vec2(0, 0);
+            }
+        } else {
+            entity->was_supported = true;
+            entity->support_dp = entity->support_dp;
+            mod_dp += entity->support->dp;
+        }
+
+        v2 delta = 0.5f*ddp*square(t*dt) + (entity->dp + mod_dp)*t*dt;
+        entity->p += t*delta;
 
         if (iteration_count >= max_iterations) {
             assert(iteration_count == max_iterations);
             log_print(LogLevel_Warn, "Player move reached %u iterations", max_iterations);
         }
-    }
-
-    if (entity->jumped) {
-        entity->jumped = false;
-        entity->support = 0;
     }
 }
 
@@ -290,28 +317,76 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
 
         switch (entity->type) {
             case EntityType_Player: {
+                if (game_state->mid_camera_transition) {
+                    break;
+                }
+
                 if (!game_state->camera_target) {
                     game_state->camera_target = entity;
                 }
 
                 GameController* controller = &input->controller;
-                f32 move_speed = entity->support ? 50.0f : 10.0f;
+
+                f32 move_speed = game_config.movement_speed;
+
                 if (controller->move_left.is_down) {
                     entity->ddp.x -= move_speed;
                 }
+
                 if (controller->move_right.is_down) {
                     entity->ddp.x += move_speed;
                 }
 
-                if (entity->support) {
-                    // entity->ddp -= entity->support_normal*dot(entity->ddp, entity->support_normal);
+                if (!controller->move_left.is_down && !controller->move_right.is_down) {
+                    entity->ddp.x = entity->dp.x > 0.0f ? -move_speed : move_speed;
+                }
 
-                    if (was_pressed(controller->move_up)) {
-                        // play_synth(&game_state->audio_mixer, synth_test_impulse);
-                        // play_sound(&game_state->audio_mixer, game_state->test_sound);
-                        entity->dp.y += 10.0f;
-                        entity->jumped = true;
+                if (was_pressed(controller->jump)) {
+                    entity->early_jump_timer = game_config.early_jump_window;
+                }
+
+                b32 do_jump = false;
+                if (entity->support) {
+                    if (entity->early_jump_timer > 0.0f) {
+                        do_jump = true;
                     }
+
+                    entity->was_supported = true;
+                    entity->support_dp = entity->support_dp;
+                } else {
+                    if (entity->was_supported) {
+                        entity->late_jump_timer = game_config.late_jump_window;
+
+                        entity->dp += entity->support_dp;
+                        entity->support_dp = vec2(0, 0);
+
+                        entity->was_supported = false;
+                    }
+
+                    if (entity->late_jump_timer > 0.0f) {
+                        do_jump = true;
+                    }
+                }
+
+                if (do_jump) {
+                    entity->early_jump_timer = 0.0f;
+                    entity->late_jump_timer = 0.0f;
+
+                    entity->ddp.y += game_config.jump_force;
+                    entity->support = 0;
+                }
+
+                if (entity->early_jump_timer > 0.0f) entity->early_jump_timer -= frame_dt;
+                if (entity->late_jump_timer  > 0.0f) entity->late_jump_timer  -= frame_dt;
+
+                entity->gravity = game_config.gravity;
+
+                if (!controller->jump.is_down || entity->dp.y < 0.0f) {
+                    entity->gravity *= game_config.downward_gravity_multiplier;
+                }
+
+                if (entity->support) {
+                    entity->gravity = 0.0f;
                 }
             } break;
 
@@ -344,47 +419,37 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
 
             case EntityType_SoundtrackPlayer: {
                 if (!entity->playing) {
-                    Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
-                    entity->playing = play_soundtrack(game_state, soundtrack, entity->playback_flags);
+                    if (entity->soundtrack_id.value) {
+                        Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
+                        entity->playing = play_soundtrack(game_state, soundtrack, entity->playback_flags);
+                        change_volume(entity->playing, 0.0f, vec2(0, 0));
+                    }
                 } else {
                     entity->color = COLOR_GREEN;
-                }
 
-                f32 aspect_ratio = get_aspect_ratio(&game_state->render_context);
+                    v2 rel_target_p = game_state->camera_target->p - entity->p;
 
-                v2 camera_p;
-                if (game_state->active_camera_zone) {
-                    camera_p = game_state->active_camera_zone->p;
-                    camera_p /= vec2(aspect_ratio*game_state->active_camera_zone->view_region_height, game_state->active_camera_zone->view_region_height);
-                } else {
-                    camera_p = game_state->camera_target->p;
-                    camera_p /= vec2(aspect_ratio*game_state->render_context.vertical_fov, game_state->render_context.vertical_fov);
-                }
-
-                v2 volume = vec2(1.0f, 1.0f);
-
-                v2 rel_p = vec2(abs(camera_p.x), abs(camera_p.y)) - entity->p;
-
-                f32 distance = length(max(rel_p, vec2(0, 0))) + min(max(rel_p.x, rel_p.y), 0.0f);
-                if (distance > 0.0f) {
-                    if (entity->p.x > camera_p.x) {
-                        volume.e[0] = clamp01(1.0f - distance);
-                    } else {
-                        volume.e[1] = clamp01(1.0f - distance);
+                    v2 volume = {};
+                    if (is_in_region(entity->audible_zone, rel_target_p)) {
+                        volume = vec2(1, 1);
+                    } else if (is_in_region(entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region), rel_target_p)) {
+                        // f32 right_fade = clamp01((rel_target_p.x - 0.5f*entity->audible_zone.x) / (0.5f*entity->horz_fade_region));
+                        // volume = vec2(1.0f, 1.0f - right_fade);
+                        f32 fade = clamp01((abs(rel_target_p.x) - 0.5f*entity->audible_zone.x) / (0.5f*entity->horz_fade_region));
+                        volume = vec2(1.0f - fade, 1.0f - fade);
                     }
 
-                    distance += 1;
-                    volume *= clamp01(1.0f/(distance*distance));
+                    change_volume(entity->playing, 0.1f, volume);
                 }
-
-                change_volume(entity->playing, 0.1f, volume);
             } break;
 
             case EntityType_CameraZone: {
                 Entity* camera_target = game_state->camera_target;
-                if (camera_target) {
+                if (camera_target && game_state->active_camera_zone != entity) {
                     if (is_in_region(entity->active_region, camera_target->p - entity->p)) {
+                        game_state->previous_camera_zone = game_state->active_camera_zone;
                         game_state->active_camera_zone = entity;
+                        game_state->camera_transition_t = 0.0f;
                     }
                 }
             } break;
@@ -403,7 +468,9 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
         }
     }
 
-    player_move(game_state, game_state->player, frame_dt);
+    if (!game_state->mid_camera_transition) {
+        player_move(game_state, game_state->player, frame_dt);
+    }
 
     for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;

@@ -11,17 +11,8 @@
 #define STB_SPRINTF_IMPLEMENTATION 1
 #include "external/stb_sprintf.h"
 
-#include "common.h"
-
-#define PULSAR_MEMORY_MALLOC_ALLOCATOR 1
-#include "pulsar_memory.h"
-
-#include "pulsar_memory_arena.h"
+#include "pulsar_common.h"
 #include "pulsar_platform_bridge.h"
-
-#include "string.h"
-#include "math.h"
-#include "file_io.h"
 
 #include "pulsar_opengl.h"
 #include "win32_opengl.h"
@@ -40,10 +31,6 @@ global OpenGLInfo opengl_info;
 
 #include "pulsar_main.cpp"
 
-global b32 running;
-global b32 in_focus;
-global b32 focus_changed;
-
 #define WIN32_LOG_MEMORY_CHUNK_SIZE MEGABYTES(1)
 struct Win32LogMemory {
     Win32LogMemory* next;
@@ -52,7 +39,15 @@ struct Win32LogMemory {
 };
 
 struct Win32State {
+    b32 running;
+    b32 in_focus;
+    b32 focus_changed;
+
     MemoryArena platform_arena;
+
+    u64 last_config_write_time;
+    String config_file;
+    GameConfig config;
 
     b32 directsound_valid;
 
@@ -230,6 +225,12 @@ internal PLATFORM_WRITE_ENTIRE_FILE(win32_write_entire_file) {
 }
 
 global s64 perf_count_frequency;
+inline void win32_initialize_perf_counter() {
+    LARGE_INTEGER perf_count_frequency_result;
+    QueryPerformanceFrequency(&perf_count_frequency_result);
+    perf_count_frequency = perf_count_frequency_result.QuadPart;
+}
+
 inline LARGE_INTEGER win32_get_clock() {
     LARGE_INTEGER result;
     QueryPerformanceCounter(&result);
@@ -402,7 +403,7 @@ internal void win32_toggle_fullscreen(HWND window) {
 }
 
 internal void win32_process_keyboard_message(GameButtonState* new_state, b32 is_down) {
-    if (in_focus) {
+    if (win32_state.in_focus) {
         if (new_state->is_down != is_down) {
             new_state->is_down = is_down;
             new_state->half_transition_count++;
@@ -416,12 +417,12 @@ LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM w_param, LP
     switch (message) {
         case WM_CLOSE:
         case WM_QUIT: {
-            running = false;
+            win32_state.running = false;
         } break;
 
         case WM_DESTROY: {
             // @Note: I'm not sure under which circumstances this happens.
-            running = false;
+            win32_state.running = false;
         } break;
 
         default: {
@@ -496,26 +497,23 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
 
                     if (was_down == is_down) break;
 
+                    GameConfig* config = &win32_state.config;
+                    if (vk_code == config->up    || vk_code == config->alternate_up   ) win32_process_keyboard_message(&input->controller.move_up,    is_down);
+                    if (vk_code == config->left  || vk_code == config->alternate_left ) win32_process_keyboard_message(&input->controller.move_left,  is_down);
+                    if (vk_code == config->down  || vk_code == config->alternate_down ) win32_process_keyboard_message(&input->controller.move_down,  is_down);
+                    if (vk_code == config->right || vk_code == config->alternate_right) win32_process_keyboard_message(&input->controller.move_right, is_down);
+                    if (vk_code == config->jump  || vk_code == config->alternate_jump ) win32_process_keyboard_message(&input->controller.jump,       is_down);
+
                     switch (vk_code) {
                         case VK_ESCAPE: {
                             win32_process_keyboard_message(&input->escape, is_down);
                         } break;
 
-                        case 'W': { win32_process_keyboard_message(&input->controller.move_up, is_down); } break;
-                        case 'A': { win32_process_keyboard_message(&input->controller.move_left, is_down); } break;
-                        case 'S': { win32_process_keyboard_message(&input->controller.move_down, is_down); } break;
-                        case 'D': { win32_process_keyboard_message(&input->controller.move_right, is_down); } break;
-
-                        case VK_UP: { win32_process_keyboard_message(&input->controller.action_up, is_down); } break;
-                        case VK_LEFT: { win32_process_keyboard_message(&input->controller.action_left, is_down); } break;
-                        case VK_DOWN: { win32_process_keyboard_message(&input->controller.action_down, is_down); } break;
-                        case VK_RIGHT: { win32_process_keyboard_message(&input->controller.action_right, is_down); } break;
-
-                        case VK_SPACE: { win32_process_keyboard_message(&input->space, is_down); } break;
-                        case VK_MENU: { win32_process_keyboard_message(&input->alt, is_down); } break;
-                        case VK_SHIFT: { win32_process_keyboard_message(&input->shift, is_down); } break;
-                        case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl, is_down); } break;
-                        case VK_DELETE: { win32_process_keyboard_message(&input->del, is_down); } break;
+                        case VK_SPACE:   { win32_process_keyboard_message(&input->space, is_down); } break;
+                        case VK_MENU:    { win32_process_keyboard_message(&input->alt,   is_down); } break;
+                        case VK_SHIFT:   { win32_process_keyboard_message(&input->shift, is_down); } break;
+                        case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl,  is_down); } break;
+                        case VK_DELETE:  { win32_process_keyboard_message(&input->del,   is_down); } break;
 
                         case VK_RETURN: {
                             if (is_down && alt_is_down) {
@@ -555,10 +553,15 @@ inline b32 parse_config(GameConfig* config, String in_file) {
 
     String file = in_file;
     while (chars_left(&file)) {
-        String line      = advance_line(&file);
+        String line      = trim_spaces(advance_line(&file));
+
+        if (!line.len || peek(line) == '#') {
+            continue;
+        }
+
         String key       = advance_word(&line);
         String separator = advance_word(&line);
-        String value     = line;
+        String value     = trim_spaces(advance_to(&line, '#'));
 
         if (strings_are_equal(separator, "=") || strings_are_equal(separator, ":")) {
             b32 found_matching_member = false;
@@ -569,6 +572,11 @@ inline b32 parse_config(GameConfig* config, String in_file) {
                 if (strings_are_equal(member->name, key)) {
                     found_matching_member = true;
                     b32 successful_parse = true;
+
+                    if (member->flags & MetaMemberFlag_IsPointer) {
+                        assert(!"I don't support any types that are pointers!!!");
+                    }
+
                     switch (member->type) {
                         case meta_type(b32): {
                             if (strings_are_equal(value, "true", StringMatch_CaseInsenitive) || strings_are_equal(value, "1")) {
@@ -598,6 +606,7 @@ inline b32 parse_config(GameConfig* config, String in_file) {
                             }
                         } break;
 
+                        case meta_type(char):
                         case meta_type(u8):
                         case meta_type(u16):
                         case meta_type(u32):
@@ -605,12 +614,17 @@ inline b32 parse_config(GameConfig* config, String in_file) {
                             u64 result = 0;
                             if (parse_u64(&value, &result)) {
                                 switch (member->type) {
-                                    case meta_type(u8 ): { *(cast(u8 *) member_ptr) = cast(u8 ) CLAMP(result, 0,  UINT8_MAX); } break;
-                                    case meta_type(u16): { *(cast(u16*) member_ptr) = cast(u16) CLAMP(result, 0, UINT16_MAX); } break;
-                                    case meta_type(u32): { *(cast(u32*) member_ptr) = cast(u32) CLAMP(result, 0, UINT32_MAX); } break;
+                                    case meta_type(u8 ): { *(cast(u8 *) member_ptr) = cast(u8 ) MIN(result,  UINT8_MAX); } break;
+                                    case meta_type(u16): { *(cast(u16*) member_ptr) = cast(u16) MIN(result, UINT16_MAX); } break;
+                                    case meta_type(u32): { *(cast(u32*) member_ptr) = cast(u32) MIN(result, UINT32_MAX); } break;
                                     case meta_type(u64): { *(cast(u64*) member_ptr) = result; } break;
                                     default: { successful_parse = false; } break;
                                 }
+                            } else if (member->type == meta_type(u8) || member->type == meta_type(char)) {
+                                if (value.len != 1) {
+                                    log_print(LogLevel_Warn, "Found multiple characters in character value. Ignoring all but the first");
+                                }
+                                *(cast(char*) member_ptr) = peek(value);
                             } else {
                                 successful_parse = false;
                             }
@@ -621,13 +635,17 @@ inline b32 parse_config(GameConfig* config, String in_file) {
                             f64 result = 0;
                             if (parse_f64(&value, &result)) {
                                 switch (member->type) {
-                                    case meta_type(f32): { *(cast(f32*) member_ptr) = cast(f32) clamp(result, cast(f64) FLT_MIN, cast(f64) FLT_MAX); } break;
+                                    case meta_type(f32): { *(cast(f32*) member_ptr) = cast(f32) clamp(result, cast(f64) -FLT_MAX, cast(f64) FLT_MAX); } break;
                                     case meta_type(f64): { *(cast(f64*) member_ptr) = result; } break;
                                     default: { successful_parse = false; } break;
                                 }
                             } else {
                                 successful_parse = false;
                             }
+                        } break;
+
+                        case meta_type(String): {
+                            *(cast(String*) member_ptr) = value;
                         } break;
                     }
 
@@ -652,23 +670,44 @@ inline b32 parse_config(GameConfig* config, String in_file) {
         }
     }
 
-    if (no_errors) {
-        win32_log_print(LogLevel_Info, "Parsed config file successfully");
-    } else {
-        win32_log_print(LogLevel_Error, "Parsed config file with errors");
-    }
-
     return no_errors;
 }
 
-int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
-    {
-        LARGE_INTEGER perf_count_frequency_result;
-        QueryPerformanceFrequency(&perf_count_frequency_result);
-        perf_count_frequency = perf_count_frequency_result.QuadPart;
+inline void handle_config_file(char* config_file_name) {
+    b32 should_read_config = !win32_state.config_file.len;
+
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (GetFileAttributesExA(config_file_name, GetFileExInfoStandard, &data)) {
+        u64 last_write_time = ULARGE_INTEGER { data.ftLastWriteTime.dwLowDateTime, data.ftLastWriteTime.dwHighDateTime }.QuadPart;
+        if (last_write_time > win32_state.last_config_write_time) {
+            should_read_config = true;
+            win32_state.last_config_write_time = last_write_time;
+        }
     }
 
-    size_t platform_storage_size = MEGABYTES(128);
+    if (should_read_config) {
+        if (win32_state.config_file.len) {
+            deallocate(allocator(malloc_allocator, 0), win32_state.config_file.data);
+            win32_state.config_file.len = 0;
+        }
+
+        win32_state.config_file = read_text_file(config_file_name, allocator(malloc_allocator, 0));
+        if (win32_state.config_file.len) {
+            if (parse_config(&win32_state.config, win32_state.config_file)) {
+                win32_log_print(LogLevel_Info, "Config file '%s' loaded successfully", config_file_name);
+            } else {
+                win32_log_print(LogLevel_Error, "Config file '%s' loaded with errors", config_file_name);
+            }
+        } else {
+            win32_log_print(LogLevel_Error, "Could not open config file '%s'", config_file_name);
+        }
+    }
+}
+
+int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
+    win32_initialize_perf_counter();
+
+    size_t platform_storage_size = MEGABYTES(64);
     void* platform_storage = win32_allocate_memory(platform_storage_size);
 
     initialize_arena(&win32_state.platform_arena, platform_storage_size, platform_storage);
@@ -678,12 +717,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         win32_state.log_file_valid = true;
     }
 
-    GameConfig config = {};
-    String config_file = read_text_file("pulsar.pulsar_config", allocator(malloc_allocator, 0));
-    if (config_file.len) {
-        parse_config(&config, config_file);
-        deallocate(allocator(malloc_allocator, 0), config_file.data);
-    }
+    char* config_file_name = "pulsar_config";
+    handle_config_file(config_file_name);
 
     WNDCLASSA window_class = {};
     window_class.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
@@ -706,7 +741,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
         );
 
         if (window) {
-            if (config.start_fullscreen) {
+            if (win32_state.config.start_fullscreen) {
                 win32_toggle_fullscreen(window);
             }
 
@@ -761,8 +796,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.transient_storage_size = transient_storage_size;
             game_memory.transient_storage = transient_storage;
 
-            game_memory.config = config;
-
             game_memory.platform_api.read_entire_file = win32_read_entire_file;
             game_memory.platform_api.write_entire_file = win32_write_entire_file;
             game_memory.platform_api.allocate = win32_allocate_memory;
@@ -793,8 +826,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
             BYTE keyboard_state[256];
 
-            running = true;
-            while (running) {
+            win32_state.running = true;
+            while (win32_state.running) {
                 if (last_frame_time_is_valid) {
                     DebugFrameTimeHistory* frame_history = game_memory.debug_info.frame_history;
                     u32 frame_index = 0;
@@ -807,6 +840,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     frame_index %= ARRAY_COUNT(frame_history->history);
                     frame_history->history[frame_index] = last_frame_time;
                 }
+
+                handle_config_file(config_file_name);
+                game_memory.config = win32_state.config;
 
                 //
                 // Rendering setup
@@ -827,15 +863,17 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 // Input
                 //
 
-                b32 new_in_focus = (GetForegroundWindow() == window);
-                focus_changed = new_in_focus != in_focus;
-                in_focus = new_in_focus;
+                {
+                    b32 new_in_focus = (GetForegroundWindow() == window);
+                    win32_state.focus_changed = new_in_focus != win32_state.in_focus;
+                    win32_state.in_focus = new_in_focus;
+                }
 
                 new_input->event_mode = old_input->event_mode;
                 new_input->update_rate = game_update_rate;
                 new_input->frame_dt = 1.0f / new_input->update_rate;
-                new_input->in_focus = in_focus;
-                new_input->focus_changed = focus_changed;
+                new_input->in_focus = win32_state.in_focus;
+                new_input->focus_changed = win32_state.focus_changed;
 
                 GameController* old_controller = &old_input->controller;
                 GameController* new_controller = &new_input->controller;
@@ -955,7 +993,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 start_counter = end_counter;
 
                 if (new_input->quit_requested) {
-                    running = false;
+                    win32_state.running = false;
                 } else {
                     GameInput* temp = new_input;
                     new_input = old_input;

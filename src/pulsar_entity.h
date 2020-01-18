@@ -45,9 +45,11 @@ struct Entity {
     union {
         struct {
             // @Note: Player
-            b32 jumped;
-            f32 off_ground_timer;
-            f32 friction_of_last_touched_surface;
+            f32 early_jump_timer;
+            f32 late_jump_timer;
+            f32 gravity;
+            b32 was_supported;
+            v2 support_dp;
             Entity* support;
             v2 support_normal;
             v2 local_p;
@@ -67,6 +69,9 @@ struct Entity {
             // @Note: Soundtrack Player
             SoundtrackID soundtrack_id;
             u32 playback_flags;
+            v2 audible_zone;
+            f32 horz_fade_region;
+            f32 vert_fade_region;
 
             PlayingSound* playing;
         };

@@ -4,11 +4,6 @@
 #include "pulsar_code_generator.h"
 #include "pulsar_generated_pre_headers.h"
 
-#include "math.h"
-#include "file_io.h"
-#include "pulsar_memory.h"
-#include "pulsar_asset_pack_file_format.h"
-
 #define PLATFORM_READ_ENTIRE_FILE(name) EntireFile name(char* file_name, Allocator allocator)
 typedef PLATFORM_READ_ENTIRE_FILE(PlatformReadEntireFile);
 
@@ -95,7 +90,40 @@ struct PlatformDebugInfo {
 #endif
 
 introspect() struct GameConfig {
+    // Startup
     b32 start_fullscreen = false;
+    String startup_level = string_literal("levels/debug_level.lev");
+
+    // Key Binds
+    u8 up    = 'W';
+    u8 left  = 'A';
+    u8 down  = 'S';
+    u8 right = 'D';
+
+    u8 jump  = 'W';
+
+    // Alternate Binds
+    u8 alternate_up    = 0x26;
+    u8 alternate_left  = 0x25;
+    u8 alternate_down  = 0x28;
+    u8 alternate_right = 0x27;
+
+    u8 alternate_jump  = 0x20;
+
+    // Player Movement
+    f32 gravity                     = -20.0f;
+    f32 downward_gravity_multiplier = 2.0f;
+
+    f32 movement_speed              = 30.0f;
+    f32 stop_speed                  = 10.0f;
+
+    f32 jump_force                  = 500.0f;
+
+    f32 early_jump_window           = 0.075f;
+    f32 late_jump_window            = 0.1f;
+
+    //
+    f32 camera_transition_speed = 0.2f;
 };
 
 //
@@ -155,22 +183,18 @@ enum GameInputMouseButton {
 
 struct GameController {
     union {
-        GameButtonState buttons[8];
+        GameButtonState buttons[5];
         struct {
             GameButtonState move_up;
             GameButtonState move_down;
             GameButtonState move_left;
             GameButtonState move_right;
-
-            GameButtonState action_up;
-            GameButtonState action_down;
-            GameButtonState action_left;
-            GameButtonState action_right;
+            GameButtonState jump;
         };
     };
 };
 
-introspect() enum PlatformKeyCode {
+enum PlatformKeyCode {
     PKC_LButton        = 0x1,
     PKC_RButton        = 0x2,
     PKC_Cancel         = 0x3,
@@ -187,10 +211,10 @@ introspect() enum PlatformKeyCode {
     PKC_Pause          = 0x13,
     PKC_CapsLock       = 0x14,
     PKC_Kana           = 0x15,
-    // PKC_Hangul         = 0x15,
+    PKC_Hangul         = 0x15,
     PKC_Junja          = 0x17,
     PKC_Final          = 0x18,
-    // PKC_Hanja          = 0x19,
+    PKC_Hanja          = 0x19,
     PKC_Kanji          = 0x19,
     PKC_Escape         = 0x1B,
     PKC_Convert        = 0x1C,
@@ -367,6 +391,9 @@ introspect() struct DummyIntrospectStruct {
 
     f32 dummy_f32;
     f64 dummy_f64;
+
+    char dummy_char;
+    String dummy_string;
 };
 
 #endif /* PLATFORM_BRIDGE_H */

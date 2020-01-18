@@ -109,6 +109,11 @@ inline f32 neighborhood_distance(f32 a, f32 b, f32 period = TAU_32) {
     return result;
 }
 
+inline f32 smoothstep(f32 x) {
+    f32 result = x*x*(3.0f - 2.0f*x);
+    return result;
+}
+
 //
 // NOTE: Types
 //

@@ -95,17 +95,12 @@
 
 #include <stdarg.h>
 
-#include "common.h"
-
-#include "pulsar_memory.h"
-#include "pulsar_memory_arena.h"
+#include "pulsar_common.h"
 #include "pulsar_platform_bridge.h"
 
+global GameConfig game_config;
 global PlatformAPI platform;
 #define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
-
-#include "string.h"
-#include "math.h"
 
 #include "pulsar_shapes.h"
 #include "pulsar_render_commands.h"
@@ -179,6 +174,10 @@ struct GameState {
     Entity* camera_target;
 
     Entity* last_activated_checkpoint;
+
+    b32 mid_camera_transition;
+    f32 camera_transition_t;
+    Entity* previous_camera_zone;
     Entity* active_camera_zone;
 
     Level* active_level;

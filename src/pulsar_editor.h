@@ -99,12 +99,14 @@ enum EntityManipulateType {
 struct EditorWidgetManipulateEntity {
     EntityManipulateType type;
     EntityID guid;
+    v2 original_p;
     v2 drag_offset;
 };
 
 struct EditorWidgetDragV2 {
     v2 scaling;
     v2 original;
+    v2 original_p;
     EntityData<v2> target;
 };
 

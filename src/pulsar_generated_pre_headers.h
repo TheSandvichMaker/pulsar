@@ -23,7 +23,7 @@ enum MetaType {
     MetaType_EntityType,
     MetaType_GameConfig,
     MetaType_b32,
-    MetaType_PlatformKeyCode,
+    MetaType_String,
     MetaType_DummyIntrospectStruct,
     MetaType_s8,
     MetaType_s16,
@@ -31,6 +31,7 @@ enum MetaType {
     MetaType_s64,
     MetaType_u64,
     MetaType_f64,
+    MetaType_char,
 };
 
 #define BodyOf_PackedImage \
@@ -73,7 +74,26 @@ enum MetaType {
     u8 velocity;
 
 #define BodyOf_GameConfig \
-    b32 start_fullscreen;
+    b32 start_fullscreen; \
+    String startup_level; \
+    u8 up; \
+    u8 left; \
+    u8 down; \
+    u8 right; \
+    u8 jump; \
+    u8 alternate_up; \
+    u8 alternate_left; \
+    u8 alternate_down; \
+    u8 alternate_right; \
+    u8 alternate_jump; \
+    f32 gravity; \
+    f32 downward_gravity_multiplier; \
+    f32 movement_speed; \
+    f32 stop_speed; \
+    f32 jump_force; \
+    f32 early_jump_window; \
+    f32 late_jump_window; \
+    f32 camera_transition_speed;
 
 #define BodyOf_DummyIntrospectStruct \
     b32 dummy_b32; \
@@ -86,6 +106,8 @@ enum MetaType {
     u32 dummy_u32; \
     u64 dummy_u64; \
     f32 dummy_f32; \
-    f64 dummy_f64;
+    f64 dummy_f64; \
+    char dummy_char; \
+    String dummy_string;
 
 #endif

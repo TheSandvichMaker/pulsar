@@ -121,11 +121,12 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 de
     return result;
 }
 
-inline AddEntityResult add_soundtrack_player(EditorState* editor, v2 p, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
+inline AddEntityResult add_soundtrack_player(EditorState* editor, AxisAlignedBox2 inner_zone, SoundtrackID soundtrack_id, u32 playback_flags = Playback_Looping) {
     AddEntityResult result = add_entity(editor, EntityType_SoundtrackPlayer);
     Entity* entity = result.ptr;
 
-    entity->p = p;
+    entity->p = get_center(inner_zone);
+    entity->audible_zone = get_dim(inner_zone);
     entity->soundtrack_id  = soundtrack_id;
     entity->playback_flags = playback_flags;
     entity->sprite = editor->speaker_icon;
@@ -434,7 +435,7 @@ inline void create_debug_level(EditorState* editor) {
     add_player(editor, vec2(-8.0f, 1.5f));
 
     SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, string_literal("test_soundtrack"));
-    add_soundtrack_player(editor, vec2(-2.0f, 4.0f), soundtrack_id);
+    add_soundtrack_player(editor, aab_center_dim(vec2(-2.0f, 4.0f), vec2(20.0f, 10.0f)), soundtrack_id);
 
     add_wall(editor, aab_min_max(vec2(-35.0f, -1.0f), vec2(2.0f, 1.0f)));
 
@@ -640,6 +641,9 @@ internal void set_up_editable_parameters(EditorState* editor) {
         add_viewable(editables, Entity, p);
         add_viewable(editables, Entity, dp);
         add_viewable(editables, Entity, ddp);
+        add_viewable(editables, Entity, gravity);
+        add_viewable(editables, Entity, early_jump_timer);
+        add_viewable(editables, Entity, late_jump_timer);
         add_viewable(editables, Entity, dead, Editable_IsBool);
         add_viewable(editables, Entity, support);
         editable = add_viewable(editables, Entity, flags);
@@ -651,7 +655,13 @@ internal void set_up_editable_parameters(EditorState* editor) {
     {
         add_viewable(editables, Entity, guid);
         add_viewable(editables, Entity, soundtrack_id);
-        // add_viewable(editables, Entity, playing);
+        add_viewable(editables, Entity, audible_zone);
+        editable = add_editable(editables, Entity, horz_fade_region, Editable_RangeLimited);
+        editable->e_f32.min_value = 0.0f;
+        editable->e_f32.max_value = FLT_MAX;
+        editable = add_editable(editables, Entity, vert_fade_region, Editable_RangeLimited);
+        editable->e_f32.min_value = 0.0f;
+        editable->e_f32.max_value = FLT_MAX;
     }
     end_editables(editor, editables);
 
@@ -908,12 +918,15 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
 
     EditorWidgetDragV2* drag_v2 = &widget.drag_v2;
 
+    Entity* entity = get_entity_from_guid(editor, target.guid);
+
     v2 zone = *get_data(editor, target);
     drag_v2->original = zone;
+    drag_v2->original_p = entity->p;
 
     drag_v2->target = target;
 
-    v4 corner_color = is_hot(editor, widget) ? COLOR_RED : COLOR_YELLOW;
+    v4 corner_color = is_hot(editor, widget) || is_active(editor, widget) ? COLOR_RED : COLOR_YELLOW;
 
     Transform2D t = transform2d(p);
 
@@ -923,7 +936,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(-2.0f, -2.0f);
+            drag_v2->scaling = vec2(-1.0f, -1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -934,7 +947,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(2.0f, -2.0f);
+            drag_v2->scaling = vec2(1.0f, -1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -945,7 +958,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(2.0f, 2.0f);
+            drag_v2->scaling = vec2(1.0f, 1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -956,14 +969,13 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(-2.0f, 2.0f);
+            drag_v2->scaling = vec2(-1.0f, 1.0f);
             editor->next_hot_widget = widget;
         }
     }
 
     return widget;
 }
-
 
 inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* render_commands, Level* active_level) {
     EditorState* editor = push_struct(&game_state->permanent_arena, EditorState);
@@ -996,10 +1008,9 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     set_up_editable_parameters(editor);
 
-    b32 successfully_loaded_level = load_level_from_disk(&game_state->transient_arena, active_level, wrap_cstr("levels/debug_level.lev"));
     load_level_into_editor(editor, active_level);
 
-    if (!successfully_loaded_level) {
+    if (active_level->entity_count <= 1) {
         create_debug_level(editor);
     }
 
@@ -1367,16 +1378,19 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     editor->selected_entity = widget->manipulate.guid;
                     widget->manipulate.type = Manipulate_DragEntity;
                     Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
+                    widget->manipulate.original_p = entity->p;
                     add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p));
                 } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    editor->selected_entity = moused_over->guid;
+                    if (moused_over) {
+                        editor->selected_entity = moused_over->guid;
+                    }
                     clear_active(editor);
                 }
             } break;
 
             case Manipulate_DragEntity: {
                 Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
-                entity->p = snap_to_grid(editor, world_mouse_p - widget->manipulate.drag_offset);
+                entity->p = widget->manipulate.original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     editor->selected_entity = { 0 };
                     clear_active(editor);
@@ -1439,11 +1453,19 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             } break;
 
             case EntityType_Wall: {
-
+                created_entity = add_wall(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(2, 2))).ptr;
             } break;
 
             case EntityType_CameraZone: {
                 created_entity = add_camera_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(35.0f, 15.0f)), 15.0f).ptr;
+            } break;
+
+            case EntityType_Checkpoint: {
+                created_entity = add_checkpoint(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(4.0f, 6.0f))).ptr;
+            } break;
+
+            case EntityType_SoundtrackPlayer: {
+                created_entity = add_soundtrack_player(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(20.0f, 10.0f)), SoundtrackID { 0 }).ptr;
             } break;
         }
 
@@ -1468,12 +1490,16 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
 #endif
 
-        if (selected->type == EntityType_CameraZone) {
-            drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->active_region));
-        } else if (selected->type == EntityType_Checkpoint) {
-            drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->checkpoint_zone));
-        } else if (selected->type == EntityType_Wall) {
-            drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
+        if (game_state->game_mode == GameMode_Editor) {
+            if (selected->type == EntityType_CameraZone) {
+                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->active_region));
+            } else if (selected->type == EntityType_Checkpoint) {
+                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->checkpoint_zone));
+            } else if (selected->type == EntityType_Wall) {
+                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
+            } else if (selected->type == EntityType_SoundtrackPlayer) {
+                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->audible_zone));
+            }
         }
 
         editor_print_line(&layout, COLOR_WHITE, "");
@@ -1590,11 +1616,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 v2* target = get_data(editor, drag_v2->target);
 
                 v2 mouse_delta = world_mouse_p - editor->world_mouse_p_on_active;
-                *target = drag_v2->original + snap_to_grid(editor, mouse_delta*drag_v2->scaling);
+                *target = drag_v2->original + snap_to_grid(editor, drag_v2->scaling*mouse_delta);
                 if (input->ctrl.is_down) {
                     f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
                     target->x = aspect_ratio*target->y;
                 }
+                entity->p = drag_v2->original_p + 0.5f*snap_to_grid(editor, mouse_delta);
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     clear_active(editor);
                 }
