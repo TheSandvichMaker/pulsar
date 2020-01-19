@@ -19,7 +19,8 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
             PackedAsset* source_asset = source_catalog + asset_index;
             Asset* dest_asset = assets->asset_catalog + asset_index;
 
-            dest_asset->name = name_store + source_asset->name_offset;
+            dest_asset->name.data = name_store + source_asset->name_offset;
+            dest_asset->name.len  = cstr_length(dest_asset->name.data);
             // @Note: Not actually necessary, but nice for type safety I guess
             // @TODO: Make asset type checking compile out in release?
             dest_asset->type = source_asset->type;
@@ -69,14 +70,14 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
     }
 }
 
-inline u32 get_asset_id_by_name(Assets* assets, String name, AssetType asset_type = AssetType_Unknown) {
-    u32 result = 0;
+inline AssetID get_asset_id_by_name(Assets* assets, String name, AssetType asset_type = AssetType_Unknown) {
+    AssetID result = { 0 };
 
     for (u32 asset_index = 1; asset_index < assets->asset_count; asset_index++) {
         Asset* asset = assets->asset_catalog + asset_index;
-        if (asset->name && strings_are_equal(asset->name, name)) {
+        if (asset->name.len && strings_are_equal(asset->name, name)) {
             if (asset_type == AssetType_Unknown || asset->type == asset_type) {
-                result = asset_index;
+                result = { asset_index };
             }
         }
     }
@@ -85,33 +86,33 @@ inline u32 get_asset_id_by_name(Assets* assets, String name, AssetType asset_typ
 }
 
 inline ImageID get_image_id_by_name(Assets* assets, String name) {
-    ImageID result = { get_asset_id_by_name(assets, name, AssetType_Image) };
+    ImageID result = { get_asset_id_by_name(assets, name, AssetType_Image).value };
     return result;
 }
 
 inline SoundID get_sound_id_by_name(Assets* assets, String name) {
-    SoundID result = { get_asset_id_by_name(assets, name, AssetType_Sound) };
+    SoundID result = { get_asset_id_by_name(assets, name, AssetType_Sound).value };
     return result;
 }
 
 inline FontID get_font_id_by_name(Assets* assets, String name) {
-    FontID result = { get_asset_id_by_name(assets, name, AssetType_Font) };
+    FontID result = { get_asset_id_by_name(assets, name, AssetType_Font).value };
     return result;
 }
 
 inline SoundtrackID get_soundtrack_id_by_name(Assets* assets, String name) {
-    SoundtrackID result = { get_asset_id_by_name(assets, name, AssetType_Soundtrack) };
+    SoundtrackID result = { get_asset_id_by_name(assets, name, AssetType_Soundtrack).value };
     return result;
 }
 
-inline Asset* get_asset(Assets* assets, u32 asset_id) {
-    assert(asset_id < assets->asset_count);
-    Asset* result = assets->asset_catalog + asset_id;
+inline Asset* get_asset(Assets* assets, AssetID asset_id) {
+    assert(asset_id.value < assets->asset_count);
+    Asset* result = assets->asset_catalog + asset_id.value;
     return result;
 }
 
 inline Sound* get_sound(Assets* assets, SoundID id) {
-    Asset* asset = get_asset(assets, id.value);
+    Asset* asset = get_asset(assets, { id.value });
     Sound* result = 0;
     if (asset->type == AssetType_Sound) {
         result = &asset->sound;
@@ -125,16 +126,16 @@ inline Sound* get_sound(Assets* assets, SoundID id) {
 inline Sound* get_sound_by_name(Assets* assets, String name) {
     Sound* result = 0;
 
-    u32 asset_id = get_asset_id_by_name(assets, name);
-    if (asset_id) {
-        result = get_sound(assets, { asset_id });
+    AssetID asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id.value) {
+        result = get_sound(assets, { asset_id.value });
     }
 
     return result;
 }
 
 inline Image* get_image(Assets* assets, ImageID id) {
-    Asset* asset = get_asset(assets, id.value);
+    Asset* asset = get_asset(assets, { id.value });
     Image* result = 0;
     if (asset->type == AssetType_Image) {
         result = &asset->image;
@@ -148,16 +149,16 @@ inline Image* get_image(Assets* assets, ImageID id) {
 inline Image* get_image_by_name(Assets* assets, String name) {
     Image* result = 0;
 
-    u32 asset_id = get_asset_id_by_name(assets, name);
-    if (asset_id) {
-        result = get_image(assets, { asset_id });
+    AssetID asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id.value) {
+        result = get_image(assets, { asset_id.value });
     }
 
     return result;
 }
 
 inline Font* get_font(Assets* assets, FontID id) {
-    Asset* asset = get_asset(assets, id.value);
+    Asset* asset = get_asset(assets, { id.value });
     Font* result = 0;
     if (asset->type == AssetType_Font) {
         result = &asset->font;
@@ -171,9 +172,9 @@ inline Font* get_font(Assets* assets, FontID id) {
 inline Font* get_font_by_name(Assets* assets, String name) {
     Font* result = 0;
 
-    u32 asset_id = get_asset_id_by_name(assets, name);
-    if (asset_id) {
-        result = get_font(assets, { asset_id });
+    AssetID asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id.value) {
+        result = get_font(assets, { asset_id.value });
     }
 
     return result;
@@ -220,7 +221,7 @@ inline f32 get_line_spacing(Font* font) {
 }
 
 inline MidiTrack* get_midi(Assets* assets, MidiID id) {
-    Asset* asset = get_asset(assets, id.value);
+    Asset* asset = get_asset(assets, { id.value });
     MidiTrack* result = 0;
     if (asset->type == AssetType_Midi) {
         result = &asset->midi_track;
@@ -234,16 +235,16 @@ inline MidiTrack* get_midi(Assets* assets, MidiID id) {
 inline MidiTrack* get_midi_by_name(Assets* assets, String name) {
     MidiTrack* result = 0;
 
-    u32 asset_id = get_asset_id_by_name(assets, name);
-    if (asset_id) {
-        result = get_midi(assets, { asset_id });
+    AssetID asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id.value) {
+        result = get_midi(assets, { asset_id.value });
     }
 
     return result;
 }
 
 inline Soundtrack* get_soundtrack(Assets* assets, SoundtrackID id) {
-    Asset* asset = get_asset(assets, id.value);
+    Asset* asset = get_asset(assets, { id.value });
     Soundtrack* result = 0;
     if (asset->type == AssetType_Soundtrack) {
         result = &asset->soundtrack;
@@ -257,9 +258,9 @@ inline Soundtrack* get_soundtrack(Assets* assets, SoundtrackID id) {
 inline Soundtrack* get_soundtrack_by_name(Assets* assets, String name) {
     Soundtrack* result = 0;
 
-    u32 asset_id = get_asset_id_by_name(assets, name);
-    if (asset_id) {
-        result = get_soundtrack(assets, { asset_id });
+    AssetID asset_id = get_asset_id_by_name(assets, name);
+    if (asset_id.value) {
+        result = get_soundtrack(assets, { asset_id.value });
     }
 
     return result;

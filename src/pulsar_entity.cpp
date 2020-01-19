@@ -427,7 +427,7 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
                 } else {
                     entity->color = COLOR_GREEN;
 
-                    v2 rel_target_p = game_state->camera_target->p - entity->p;
+                    v2 rel_target_p = game_state->render_context.camera_p - entity->p;
 
                     v2 volume = {};
                     if (is_in_region(entity->audible_zone, rel_target_p)) {

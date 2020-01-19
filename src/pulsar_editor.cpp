@@ -834,7 +834,7 @@ internal CONSOLE_COMMAND(cc_load_level) {
     String level = arguments;
     // @TODO: Double buffer levels so you don't get messed up on a failed level load?
     // In fact, level loading in general needs to be cleaned up badly.
-    if (load_level_from_disk(&game_state->transient_arena, editor->active_level, level)) {
+    if (load_level_from_disk(game_state, editor->active_level, level)) {
         load_level_into_editor(editor, editor->active_level);
     }
 }
@@ -856,7 +856,7 @@ internal CONSOLE_COMMAND(cc_save_level) {
     }
 
     if (write_level) {
-        write_level_to_disk(&game_state->transient_arena, editor->active_level, wrap_string(level->name_length, level->name));
+        write_level_to_disk(game_state, editor->active_level, wrap_string(level->name_length, level->name));
     }
 }
 
@@ -1263,7 +1263,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (was_pressed(get_key(input, 'S'))) {
         if (input->ctrl.is_down) {
-            write_level_to_disk(&game_state->transient_arena, editor->active_level, wrap_string(editor->active_level->name_length, editor->active_level->name));
+            write_level_to_disk(game_state, editor->active_level, wrap_string(editor->active_level->name_length, editor->active_level->name));
             editor->level_saved_timer = 2.0f;
         } else {
             editor->grid_snapping_enabled = !editor->grid_snapping_enabled;

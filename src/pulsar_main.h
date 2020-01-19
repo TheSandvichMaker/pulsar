@@ -175,10 +175,11 @@ struct GameState {
 
     Entity* last_activated_checkpoint;
 
-    b32 mid_camera_transition;
-    f32 camera_transition_t;
     Entity* previous_camera_zone;
     Entity* active_camera_zone;
+
+    b32 mid_camera_transition;
+    f32 camera_transition_t;
 
     Level* active_level;
 
@@ -195,6 +196,9 @@ global GameState* dbg_game_state;
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 inline PlayingSound* play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);
 inline void dbg_draw_arrow(v2 start, v2 end, v4 color);
+
+internal void write_level_to_disk(GameState* game_state, Level* level, String level_name);
+internal b32 load_level_from_disk(GameState* game_state, Level* level, String level_name);
 
 #define DEFINE_COLORS(MIDDLE_FIX, VALUE, COUNTER_VALUE) \
 static const v4 COLOR_##MIDDLE_FIX##RED    = { VALUE         , COUNTER_VALUE , COUNTER_VALUE , 1 }; \

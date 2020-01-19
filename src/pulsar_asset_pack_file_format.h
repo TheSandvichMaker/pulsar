@@ -1,6 +1,7 @@
 #ifndef PULSAR_ASSET_PACK_FORMAT_H
 #define PULSAR_ASSET_PACK_FORMAT_H
 
+struct AssetID      { u32 value; };
 struct SoundID      { u32 value; };
 struct ImageID      { u32 value; };
 struct FontID       { u32 value; };

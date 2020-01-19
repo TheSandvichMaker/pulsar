@@ -1,6 +1,13 @@
 #include "pulsar_main.h"
 #include "pulsar_generated_post_headers.h"
 
+#include "pulsar_assets.cpp"
+#include "pulsar_audio_mixer.cpp"
+#include "pulsar_render_commands.cpp"
+#include "pulsar_gjk.cpp"
+#include "pulsar_entity.cpp"
+#include "pulsar_editor.cpp"
+
 inline void dbg_text(char* format_string, ...) {
     va_list va_args;
     va_start(va_args, format_string);
@@ -28,7 +35,21 @@ inline Level* allocate_level(MemoryArena* arena, char* name) {
     return result;
 }
 
+struct SerializeResult {
+    union {
+        u64    data_value;
+        void*  data_ptr;
+    };
+    b32 data_is_ptr;
+    u32 size;
+};
+
+#define SERIALIZE_CALLBACK(name) SerializeResult name(GameState* game_state, u32 data_size, void* data_ptr, b32 deserialize)
+typedef SERIALIZE_CALLBACK(SerializeCallback);
+
 struct Serializable {
+    SerializeCallback* callback;
+
     char* name;
     u32 name_length;
     s32 type; // @Note: Why does the compiler want EntityType to be signed?
@@ -36,8 +57,39 @@ struct Serializable {
     u32 size;
 };
 
-#define SERIALIZABLE(struct_type, identifying_type, member) \
-    { #member, sizeof(#member) - 1, identifying_type, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member }
+inline Serializable create_serializable(u32 name_length, char* name, s32 type, u32 offset, u32 size, SerializeCallback* callback = 0) {
+    Serializable result;
+    result.callback = callback;
+    result.name = name;
+    result.name_length = name_length;
+    result.type = type;
+    result.offset = offset;
+    result.size = size;
+    return result;
+}
+
+#define SERIALIZABLE(struct_type, identifying_type, member, ...) \
+    create_serializable(sizeof(#member) - 1, #member, identifying_type, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
+
+internal SERIALIZE_CALLBACK(serialize_AssetID) {
+    SerializeResult result;
+
+    if (deserialize) {
+        String asset_name = wrap_string(data_size, cast(char*) data_ptr);
+        result.data_value = get_asset_id_by_name(&game_state->assets, asset_name).value;
+        result.data_is_ptr = false;
+        result.size = sizeof(AssetID);
+    } else {
+        AssetID id = *(cast(AssetID*) data_ptr);
+        Asset* asset = get_asset(&game_state->assets, id);
+
+        result.data_ptr = asset->name.data;
+        result.data_is_ptr = true;
+        result.size = cast(u32) asset->name.len;
+    }
+
+    return result;
+}
 
 global Serializable entity_serializables[] = {
     // @Note: All entities (I'm using EntityType_Count to indicate all entity types)
@@ -47,7 +99,7 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_Count, dead),
     SERIALIZABLE(Entity, EntityType_Count, p),
     SERIALIZABLE(Entity, EntityType_Count, collision),
-    SERIALIZABLE(Entity, EntityType_Count, sprite),
+    SERIALIZABLE(Entity, EntityType_Count, sprite, serialize_AssetID),
     SERIALIZABLE(Entity, EntityType_Count, color),
     // @Note: Player
     // ...
@@ -56,7 +108,7 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_Wall, midi_note),
     SERIALIZABLE(Entity, EntityType_Wall, midi_test_target),
     // @Note: Soundtrack Player
-    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id),
+    SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id, serialize_AssetID),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, audible_zone),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, horz_fade_region),
@@ -85,7 +137,9 @@ struct LevFileHeader {
 };
 #pragma pack(pop)
 
-internal void write_level_to_disk(MemoryArena* arena, Level* level, String level_name) {
+internal void write_level_to_disk(GameState* game_state, Level* level, String level_name) {
+    MemoryArena* arena = &game_state->transient_arena;
+
     TemporaryMemory temp = begin_temporary_memory(arena);
 
     LinearBuffer<u8>* stream = begin_linear_buffer<u8>(arena);
@@ -121,10 +175,21 @@ internal void write_level_to_disk(MemoryArena* arena, Level* level, String level
 
                 void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
 
+                void* data = data_ptr;
+                u32   size = ser->size;
+
+                if (ser->callback) {
+                    SerializeResult ser_data = ser->callback(game_state, 0, data_ptr, false);
+                    data = ser_data.data_ptr;
+                    size = ser_data.size;
+                    assert(ser_data.data_is_ptr); // @TODO: Handle data_value results
+                }
+
                 write_stream(sizeof(u32), &ser->name_length);
                 write_stream(ser->name_length, ser->name);
-                write_stream(sizeof(u32), &ser->size);
-                write_stream(ser->size, data_ptr);
+
+                write_stream(sizeof(u32), &size);
+                write_stream(size, data);
             }
         }
 
@@ -157,8 +222,10 @@ inline Serializable* find_serializable_by_name(u32 serializable_count, Serializa
     return result;
 }
 
-internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level_name) {
+internal b32 load_level_from_disk(GameState* game_state, Level* level, String level_name) {
     assert(level);
+
+    MemoryArena* arena = &game_state->transient_arena;
 
     b32 level_load_error = false;
 
@@ -205,11 +272,27 @@ internal b32 load_level_from_disk(MemoryArena* arena, Level* level, String level
 
                     Serializable* ser = find_serializable_by_name(ARRAY_COUNT(entity_serializables), entity_serializables, member_name_length, member_name);
                     if (ser) {
-                        void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
+                        void** data_dest = cast(void**) (cast(u8*) entity + ser->offset);
                         u32 data_size = *(cast(u32*) read_stream(sizeof(u32)));
 
-                        if (data_size && ser->size == data_size) {
-                            copy(data_size, read_stream(data_size), data_ptr);
+                        void* data_source = read_stream(data_size);
+
+                        SerializeResult ser_data;
+                        if (ser->callback) {
+                            ser_data = ser->callback(game_state, data_size, data_source, true);
+                        } else {
+                            ser_data.data_ptr = data_source;
+                            ser_data.data_is_ptr = true;
+                            ser_data.size = data_size;
+                        }
+
+                        if (ser_data.size && ser->size == ser_data.size) {
+                            if (ser_data.data_is_ptr) {
+                                copy(ser_data.size, ser_data.data_ptr, data_dest);
+                            } else {
+                                assert(ser_data.size <= sizeof(ser_data.data_value));
+                                copy(ser_data.size, &ser_data.data_value, data_dest);
+                            }
 
                             if (strings_are_equal(ser->name, "guid")) {
                                 if (entity->guid.value > level->first_available_guid) {
@@ -250,13 +333,6 @@ level_load_end:
 
     return !level_load_error;
 }
-
-#include "pulsar_assets.cpp"
-#include "pulsar_audio_mixer.cpp"
-#include "pulsar_render_commands.cpp"
-#include "pulsar_gjk.cpp"
-#include "pulsar_entity.cpp"
-#include "pulsar_editor.cpp"
 
 global v2 arrow_verts[] = { { 0, -0.05f }, { 0.8f, -0.05f }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f }, { 0.8f, 0.05f }, { 0, 0.05f } };
 global Shape2D arrow = polygon(ARRAY_COUNT(arrow_verts), arrow_verts);
@@ -417,7 +493,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         game_state->active_level = allocate_level(&game_state->permanent_arena, "no level");
         if (game_config.startup_level.len) {
-            load_level_from_disk(&game_state->transient_arena, game_state->active_level, game_config.startup_level);
+            load_level_from_disk(game_state, game_state->active_level, game_config.startup_level);
         }
 
         game_state->foreground_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -472,7 +548,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     CameraView prev_view = get_camera_view(render_context, prev_camera_zone, camera_target);
                     CameraView view = get_camera_view(render_context, camera_zone, camera_target);
 
-                    f32 t = smoothstep(game_state->camera_transition_t);
+                    f32 t = smootherstep(game_state->camera_transition_t);
 
                     render_context->camera_p = lerp(prev_view.camera_p, view.camera_p, t);
                     render_context->camera_rotation_arm = lerp(prev_view.camera_rotation_arm, view.camera_rotation_arm, t);

@@ -26,7 +26,7 @@ struct Soundtrack {
 };
 
 struct Asset {
-    char* name;
+    String name;
     AssetType type;
     union {
         Sound sound;

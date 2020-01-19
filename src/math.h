@@ -114,6 +114,10 @@ inline f32 smoothstep(f32 x) {
     return result;
 }
 
+inline f32 smootherstep(f32 x) {
+    f32 result = x*x*x*(x*(x*6.0f - 15.0f) + 10.0f);
+    return result;
+}
 //
 // NOTE: Types
 //
