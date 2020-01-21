@@ -139,7 +139,10 @@ struct ConsoleState {
     RenderContext rc;
 
     b32 open;
+    b32 wide_open;
     f32 openness_t;
+
+    b32 in_focus;
 
     u32  input_buffer_count;
     char input_buffer[4096];

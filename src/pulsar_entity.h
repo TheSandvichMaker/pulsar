@@ -47,6 +47,7 @@ struct Entity {
     v2 p;
     v2 dp;
     v2 ddp;
+    v2 ballistic_dp;
 
     v2 collision;
 
@@ -58,11 +59,16 @@ struct Entity {
             // @Note: Player
             f32 early_jump_timer;
             f32 late_jump_timer;
+
             f32 gravity;
+
             b32 was_supported;
             Entity* support;
             v2 support_dp;
+            v2  retained_support_dp;
+            f32 retained_support_dp_timer;
             v2 support_normal;
+
             Entity* contact;
             v2 contact_move;
         };

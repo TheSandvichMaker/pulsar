@@ -104,8 +104,12 @@ introspect() struct GameConfig {
     u8 alternate_jump  = 0x20;
 
     // Player Movement
+    u32 max_collision_iterations    = 8;
+
     f32 gravity                     = -20.0f;
     f32 downward_gravity_multiplier = 2.0f;
+    f32 death_by_crushing_threshold = 0.5f;
+    f32 support_dp_retention_time   = 0.15f;
 
     f32 movement_speed              = 30.0f;
     f32 max_x_vel                   = 10.0f;

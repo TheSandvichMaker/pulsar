@@ -1023,11 +1023,6 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
 
-    if (was_pressed(input->tilde)) {
-        console->open = !console->open;
-        input->event_mode = console->open;
-    }
-
     render_screenspace(rc);
 
     UILayoutContext layout_context;
@@ -1040,16 +1035,31 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
     f32 width = dim.x;
     f32 height = dim.y;
 
+    if (was_pressed(input->tilde)) {
+        if (console->open && !console->wide_open) {
+            console->wide_open = true;
+        } else {
+            console->wide_open = false;
+            console->open = !console->open;
+            console->in_focus = console->open;
+            input->event_mode = console->open;
+        }
+    }
+
+    input->event_mode = console->open && console->in_focus;
+
     f32 console_input_box_height = cast(f32) game_state->console_font->size;
     f32 console_open_speed = 0.1f;
     f32 console_close_speed = 0.04f;
-    f32 console_height = dim.y / 4.0f;
+    f32 console_height = 0.66f*dim.y;
+
+    f32 openness_target = console->wide_open ? 1.0f : 0.33f;
 
     if (console->open) {
-        if (console->openness_t < 1.0f) {
+        if (console->openness_t < openness_target) {
             console->openness_t += input->frame_dt / console_open_speed;
         } else {
-            console->openness_t = 1.0f;
+            console->openness_t = openness_target;
         }
     } else {
         if (console->openness_t > 0.0f) {
@@ -1073,59 +1083,61 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
     }
 
     if (console->openness_t > 0.0f) {
-        for (u32 event_index = 0; event_index < input->event_count; event_index++) {
-            char ascii;
-            PlatformKeyCode code = decode_input_event(input->event_buffer[event_index], &ascii);
-            switch (code) {
-                case PKC_Escape: {
-                    if (console->input_buffer_count > 0) {
-                        console->input_buffer_count = 0;
-                    } else {
-                        console->open = false;
-                        input->event_mode = false;
-                    }
-                } break;
-
-                case PKC_Tab: {
-                    for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
-                        String candidate = console_commands[candidate_index].name;
-                        if (find_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
-                            console->input_buffer_count = cast(u32) candidate.len;
-                            copy(console->input_buffer_count, candidate.data, console->input_buffer);
-                            console->input_buffer[console->input_buffer_count++] = ' ';
-                            break;
+        if (console->in_focus) {
+            for (u32 event_index = 0; event_index < input->event_count; event_index++) {
+                char ascii;
+                PlatformKeyCode code = decode_input_event(input->event_buffer[event_index], &ascii);
+                switch (code) {
+                    case PKC_Escape: {
+                        if (console->input_buffer_count > 0) {
+                            console->input_buffer_count = 0;
+                        } else {
+                            console->open = false;
+                            input->event_mode = false;
                         }
-                    }
-                } break;
+                    } break;
 
-                case PKC_Return: {
-                    if (console->input_buffer_count > 0) {
-                        execute_console_command(game_state, input, input_buffer_as_string(console));
-                        console->input_buffer_count = 0;
-                    }
-                } break;
-
-                case PKC_Back: {
-                    if (console->input_buffer_count > 0) {
-                        console->input_buffer_count--;
-                    }
-                } break;
-
-                case PKC_Oem3: {
-                    /* Just eat this one silently to avoid leaving a ` or ~ in the console when closing */
-                } break;
-
-                case PKC_Delete: {
-                    console->input_buffer_count = 0;
-                } break;
-
-                default: {
-                    if (ascii) {
-                        if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
-                            console->input_buffer[console->input_buffer_count++] = ascii;
+                    case PKC_Tab: {
+                        for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
+                            String candidate = console_commands[candidate_index].name;
+                            if (find_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
+                                console->input_buffer_count = cast(u32) candidate.len;
+                                copy(console->input_buffer_count, candidate.data, console->input_buffer);
+                                console->input_buffer[console->input_buffer_count++] = ' ';
+                                break;
+                            }
                         }
-                    }
-                } break;
+                    } break;
+
+                    case PKC_Return: {
+                        if (console->input_buffer_count > 0) {
+                            execute_console_command(game_state, input, input_buffer_as_string(console));
+                            console->input_buffer_count = 0;
+                        }
+                    } break;
+
+                    case PKC_Back: {
+                        if (console->input_buffer_count > 0) {
+                            console->input_buffer_count--;
+                        }
+                    } break;
+
+                    case PKC_Oem3: {
+                        /* Just eat this one silently to avoid leaving a ` or ~ in the console when closing */
+                    } break;
+
+                    case PKC_Delete: {
+                        console->input_buffer_count = 0;
+                    } break;
+
+                    default: {
+                        if (ascii) {
+                            if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
+                                console->input_buffer[console->input_buffer_count++] = ascii;
+                            }
+                        }
+                    } break;
+                }
             }
         }
 
@@ -1133,9 +1145,11 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
         f32 old_sort_bias = rc->sort_key_bias;
         rc->sort_key_bias += 50000.0f;
 
+        f32 console_alpha = console->in_focus ? 1.0f : 0.5f;
+
         f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*console->openness_t;
         AxisAlignedBox2 console_log_box = aab_min_max(vec2(0.0f, console_log_box_height), vec2(width, height));
-        push_shape(rc, default_transform2d(), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, 0.65f));
+        push_shape(rc, default_transform2d(), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, console_alpha*0.65f));
 
         PlatformLogMessage* selected_message = 0;
 
@@ -1166,6 +1180,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                 if (filter_match) {
                     color.rgb = square_root(lerp(color.rgb*color.rgb, COLOR_GREEN.rgb, 0.2f));
                 }
+
                 layout_print_line(&log, color, message->text);
 
                 if (is_in_aab(log.last_print_bounds, mouse_p)) {
@@ -1178,7 +1193,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
 
         v2 input_box_min = vec2(0.0f, console_log_box_height - console_input_box_height);
         AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
-        push_shape(rc, default_transform2d(), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, 0.8f));
+        push_shape(rc, default_transform2d(), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, console_alpha*0.8f));
 
         UILayout input_box = make_layout(layout_context, input_box_min + vec2(4.0f, get_line_spacing(game_state->console_font) + get_baseline(game_state->console_font)));
         layout_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
@@ -1187,7 +1202,16 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
             UILayout log_tooltip = make_layout(layout_context, mouse_p + vec2(0.0f, 12.0f), true);
             rc->sort_key_bias += 100.0f;
             layout_print_line(&log_tooltip, COLOR_WHITE, "%s:%s:%u", selected_message->file, selected_message->function, selected_message->line);
-            push_shape(rc, default_transform2d(), rectangle(log_tooltip.last_print_bounds), vec4(0.0f, 0.0f, 0.0f, 0.8f), ShapeRenderMode_Fill, -10.0f);
+            push_shape(rc, default_transform2d(), rectangle(log_tooltip.last_print_bounds), vec4(0.0f, 0.0f, 0.0f, console_alpha*0.8f), ShapeRenderMode_Fill, -10.0f);
+        }
+
+        AxisAlignedBox2 total_console_area = aab_union(console_log_box, console_input_box);
+        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            if (is_in_aab(total_console_area, mouse_p)) {
+                console->in_focus = true;
+            } else {
+                console->in_focus = false;
+            }
         }
 
         rc->sort_key_bias = old_sort_bias;

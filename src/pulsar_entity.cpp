@@ -37,60 +37,10 @@ inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info)
 
     v2 delta_p = end_p - start_p;
 
-#if 1
     result |= line_trace(aab.min.x, vec2(aab.min.y, aab.max.y), vec2(-1,  0), vec2(start_p.x, start_p.y), vec2(delta_p.x, delta_p.y), info, t_epsilon);
     result |= line_trace(aab.max.x, vec2(aab.min.y, aab.max.y), vec2( 1,  0), vec2(start_p.x, start_p.y), vec2(delta_p.x, delta_p.y), info, t_epsilon);
     result |= line_trace(aab.min.y, vec2(aab.min.x, aab.max.x), vec2( 0, -1), vec2(start_p.y, start_p.x), vec2(delta_p.y, delta_p.x), info, t_epsilon);
     result |= line_trace(aab.max.y, vec2(aab.min.x, aab.max.x), vec2( 0,  1), vec2(start_p.y, start_p.x), vec2(delta_p.y, delta_p.x), info, t_epsilon);
-#else
-    {
-        f32 t_result = (aab.min.x - start_p.x) / delta_p.x;
-        if (t_result >= 0.0f && t_result < info->t_min) {
-            f32 y = start_p.y + t_result*delta_p.y;
-            if (y >= aab.min.y && y < aab.max.y) {
-                info->t_min = max(0.0f, t_result - t_epsilon);
-                result = true;
-                info->hit_normal = vec2(-1, 0);
-            }
-        }
-    }
-
-    {
-        f32 t_result = (aab.max.x - start_p.x) / delta_p.x;
-        if (t_result >= 0.0f && t_result < info->t_min) {
-            f32 y = start_p.y + t_result*delta_p.y;
-            if (y >= aab.min.y && y < aab.max.y) {
-                info->t_min = max(0.0f, t_result - t_epsilon);
-                result = true;
-                info->hit_normal = vec2(1, 0);
-            }
-        }
-    }
-
-    {
-        f32 t_result = (aab.min.y - start_p.y) / delta_p.y;
-        if (t_result >= 0.0f && t_result < info->t_min) {
-            f32 x = start_p.x + t_result*delta_p.x;
-            if (x >= aab.min.x && x < aab.max.x) {
-                info->t_min = max(0.0f, t_result - t_epsilon);
-                result = true;
-                info->hit_normal = vec2(0, -1);
-            }
-        }
-    }
-
-    {
-        f32 t_result = (aab.max.y - start_p.y) / delta_p.y;
-        if (t_result >= 0.0f && t_result < info->t_min) {
-            f32 x = start_p.x + t_result*delta_p.x;
-            if (x >= aab.min.x && x < aab.max.x) {
-                info->t_min = max(0.0f, t_result - t_epsilon);
-                result = true;
-                info->hit_normal = vec2(0, 1);
-            }
-        }
-    }
-#endif
 
     return result;
 }
@@ -348,11 +298,13 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
     Entity* player = game_state->player;
 
-
     if (player && !player->dead && !game_state->mid_camera_transition) {
+        v2 start_player_p = player->p;
+        f32 force_applied_to_player = 0.0f;
+
         f32 t = 1.0f;
 
-        u32 max_iterations = 4;
+        u32 max_iterations = game_config.max_collision_iterations;
         u32 iteration_count = 0;
 
         f32 epsilon = 1.0e-3f;
@@ -381,15 +333,39 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             v2 external_dp = {};
 
             if (player->support) {
+                if (!player->was_supported) {
+                    player->dp += grazing_reflect(player->ballistic_dp, player->support_normal);
+                    player->ballistic_dp = vec2(0, 0);
+                }
                 player->was_supported = true;
                 player->support_dp = player->support->dp;
+                if (length_sq(player->support_dp) > length_sq(player->retained_support_dp)) {
+                    player->retained_support_dp = player->support_dp;
+                    player->retained_support_dp_timer = game_config.support_dp_retention_time;
+                }
                 external_dp += player->support->dp;
-            } else if (player->was_supported) {
-                player->was_supported = false;
-                // @TODO: Clamp maximum dp you can gain from a support
-                player->dp += player->support_dp;
-                log_print(LogLevel_Info, "Added { %f, %f } support_dp to player->dp", player->support_dp.x, player->support_dp.y);
-                player->support_dp = vec2(0, 0);
+            } else {
+                if (player->was_supported) {
+                    player->was_supported = false;
+                    // @TODO: Clamp maximum dp you can gain from a support
+                    if (length_sq(player->retained_support_dp) > length_sq(player->support_dp)) {
+                        player->support_dp = player->retained_support_dp;
+                        player->retained_support_dp = vec2(0, 0);
+                    }
+                    player->ballistic_dp.x += player->support_dp.x;
+                    player->dp.y += player->support_dp.y;
+                    log_print(LogLevel_Info, "Added { %f, %f } support_dp to player->dp", player->support_dp.x, player->support_dp.y);
+                    player->support_dp = vec2(0, 0);
+                }
+
+                external_dp += player->ballistic_dp;
+            }
+
+            if (player->retained_support_dp_timer > 0.0f) {
+                player->retained_support_dp_timer -= dt;
+                if (player->retained_support_dp_timer <= 0.0f) {
+                    player->retained_support_dp = vec2(0, 0);
+                }
             }
 
             external_dp += player->contact_move;
@@ -481,16 +457,25 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                 delta *= collision.t_min;
 
-                if (t == 0.0f) {
-                    delta += collision.hit_normal*epsilon;
-                }
+                // @Note: I assume this is redundant given the unstuckerizer above
+                // if (t == 0.0f) {
+                //     delta += collision.hit_normal*epsilon;
+                // }
 
                 player->ddp = grazing_reflect(player->ddp, collision.hit_normal);
                 player->dp = grazing_reflect(player->dp, collision.hit_normal);
 
                 if (dot(collision.hit_normal, gravity) < 0) {
-                    player->support = collision_entity;
-                    player->support_normal = collision.hit_normal;
+                    // if (dot(delta, gravity) >= 0.0f) {
+                        player->support = collision_entity;
+                        player->support_normal = collision.hit_normal;
+                    // } else {
+                    //     // @Hack: This tricks the support velocity ordeal up above into letting you get smacked around from below if you've got upward speed (it doesn't work btw)
+                    //     player->was_supported = true;
+                    //     player->support = 0;
+                    //     player->support_normal = collision.hit_normal;
+                    //     player->support_dp = collision_entity->dp;
+                    // }
                 } else {
                     // Shitty @Hack: Not accounting for penetration vector or relative motion or basically anything because my brain is fried
                     // @TODO: Unfry brain, un-shitty hack collision handling
@@ -503,6 +488,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 process_collision_logic(game_state, player, collision_entity);
             }
 
+            force_applied_to_player += length_sq(delta);
             player->p += delta;
 
             Entity* support = player->support;
@@ -526,6 +512,15 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
         if (iteration_count >= max_iterations) {
             assert(iteration_count == max_iterations);
             log_print(LogLevel_Warn, "Player move reached %u iterations", max_iterations);
+        }
+
+        force_applied_to_player = square_root(force_applied_to_player);
+        f32 length_of_player_move = length(player->p - start_player_p);
+
+        f32 unused_force = force_applied_to_player - length_of_player_move;
+        if (unused_force > game_config.death_by_crushing_threshold) {
+            log_print(LogLevel_Info, "Death by crushing.");
+            kill_player(game_state);
         }
     }
 

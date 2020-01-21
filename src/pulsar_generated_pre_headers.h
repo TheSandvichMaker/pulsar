@@ -90,8 +90,11 @@ enum MetaType {
     u8 alternate_down; \
     u8 alternate_right; \
     u8 alternate_jump; \
+    u32 max_collision_iterations; \
     f32 gravity; \
     f32 downward_gravity_multiplier; \
+    f32 death_by_crushing_threshold; \
+    f32 support_dp_retention_time; \
     f32 movement_speed; \
     f32 max_x_vel; \
     f32 min_y_vel; \
