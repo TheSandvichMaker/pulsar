@@ -22,9 +22,6 @@ typedef PLATFORM_ALLOCATE_TEXTURE(PlatformAllocateTexture);
 #define PLATFORM_DEALLOCATE_TEXTURE(name) void name(void* handle)
 typedef PLATFORM_DEALLOCATE_TEXTURE(PlatformDeallocateTexture);
 
-#define DEBUG_PLATFORM_PRINT(name) void name(char* text)
-typedef DEBUG_PLATFORM_PRINT(DebugPlatformPrint);
-
 enum PlatformLogLevel {
     LogLevel_Info  = 2,
     LogLevel_Warn  = 8,
@@ -65,10 +62,6 @@ struct PlatformAPI {
     PlatformLogPrint* log_print;
     PlatformGetMostRecentLogMessage* get_most_recent_log_message;
     PlatformGetUnreadLogMessages* get_unread_log_messages;
-
-#if PULSAR_DEBUG
-    DebugPlatformPrint* debug_print;
-#endif
 };
 
 #if PULSAR_DEBUG
@@ -115,14 +108,16 @@ introspect() struct GameConfig {
     f32 downward_gravity_multiplier = 2.0f;
 
     f32 movement_speed              = 30.0f;
-    f32 stop_speed                  = 10.0f;
+    f32 max_x_vel                   = 10.0f;
+    f32 min_y_vel                   = -40.0f;
+    f32 max_y_vel                   = 40.0f;
 
     f32 jump_force                  = 500.0f;
 
     f32 early_jump_window           = 0.075f;
-    f32 late_jump_window            = 0.1f;
+    f32 late_jump_window            = 0.15f;
 
-    //
+    // Camera
     f32 camera_transition_speed = 0.2f;
 };
 

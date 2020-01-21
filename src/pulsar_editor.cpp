@@ -55,15 +55,15 @@ inline Entity* get_entity_from_guid(EditorState* editor, EntityID guid) {
     Entity* result = 0;
     EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
     if (hash_slot) {
-        if (hash_slot->index && hash_slot->index < ARRAY_COUNT(editor->active_level->entities)) {
-            result = editor->active_level->entities + hash_slot->index;
+        if (hash_slot->index && hash_slot->index < ARRAY_COUNT(editor->game_state->active_level->entities)) {
+            result = editor->game_state->active_level->entities + hash_slot->index;
         }
     }
     return result;
 }
 
 inline AddEntityResult add_entity(EditorState* editor, EntityType type, EntityID guid = { 0 }) {
-    Level* level = editor->active_level;
+    Level* level = editor->game_state->active_level;
 
     assert(level->entity_count < ARRAY_COUNT(level->entities));
 
@@ -102,19 +102,19 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     return result;
 }
 
-inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, b32 deadly_wall = false) {
+inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, SoundtrackID listening_to = { 0 }) {
     AddEntityResult result = add_entity(editor, EntityType_Wall);
     Entity* entity = result.ptr;
 
     entity->p = get_center(aab);
     entity->color = vec4(1, 1, 1, 1);
-    entity->surface_friction = 1.5f;
-    entity->midi_test_target = entity->p;
+    entity->start_p = entity->p;
+    entity->end_p = entity->p + vec2(0, 5);
+    entity->movement_speed_ms = 200.0f;
+    entity->movement_t = 1.0f;
+    entity->listening_to = listening_to;
 
     entity->flags |= EntityFlag_Collides;
-    if (deadly_wall) {
-        entity->flags |= EntityFlag_Hazard;
-    }
 
     entity->collision = get_dim(aab);
 
@@ -178,7 +178,7 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
     EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
 
     if (hash_slot) {
-        Level* level = editor->active_level;
+        Level* level = editor->game_state->active_level;
 
         assert(hash_slot->index < ARRAY_COUNT(level->entities));
         Entity* entity = level->entities + hash_slot->index;
@@ -419,9 +419,8 @@ inline void load_level_into_editor(EditorState* editor, Level* level) {
 
     zero_size(sizeof(editor->entity_hash), editor->entity_hash);
 
-    editor->active_level = level;
     for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
-        Entity* entity = editor->active_level->entities + entity_index;
+        Entity* entity = level->entities + entity_index;
         EntityHash* hash = get_entity_hash_slot(editor, entity->guid);
         hash->guid = entity->guid;
         hash->index = { entity_index };
@@ -429,8 +428,8 @@ inline void load_level_into_editor(EditorState* editor, Level* level) {
 }
 
 inline void create_debug_level(EditorState* editor) {
-    editor->active_level->entity_count = 1;
-    editor->active_level->first_available_guid = 1;
+    editor->game_state->active_level->entity_count = 1;
+    editor->game_state->active_level->first_available_guid = 1;
 
     add_player(editor, vec2(-8.0f, 1.5f));
 
@@ -440,8 +439,13 @@ inline void create_debug_level(EditorState* editor) {
     add_wall(editor, aab_min_max(vec2(-35.0f, -1.0f), vec2(2.0f, 1.0f)));
 
     for (s32 i = 0; i < 13; i++) {
-        Entity* wall = add_wall(editor, aab_center_dim(vec2(3.0f + 2.0f*i, 0.0f), vec2(2.0f, 2.0f)), i % 2 == 1).ptr;
+        Entity* wall = add_wall(editor, aab_center_dim(vec2(3.0f + 2.0f*i, 0.0f), vec2(2.0f, 2.0f))).ptr;
+        wall->behaviour = WallBehaviour_Move;
         wall->midi_note = 60 + i;
+        wall->end_p = wall->start_p + vec2(0, 1 + i);
+        if (i % 2 == 1) {
+            wall->flags |= EntityFlag_Hazard;
+        }
     }
 
     add_checkpoint(editor, aab_min_dim(vec2(-6.0f, 1.0f), vec2(4.0f, 8.0f)));
@@ -501,17 +505,15 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     return num_bytes;
 }
 
-internal void editor_print_va(EditorLayout* layout, v4 color, char* format_string, va_list va_args) {
-    EditorState* editor = layout->editor;
-
-    TemporaryMemory temp = begin_temporary_memory(editor->arena);
+internal void layout_print_va(UILayout* layout, v4 color, char* format_string, va_list va_args) {
+    TemporaryMemory temp = begin_temporary_memory(layout->context.temp_arena);
 
     u32 text_size = stbsp_vsnprintf(0, 0, format_string, va_args) + 1; // @Note: stbsp_vsprintf doesn't include the null terminator in the returned size, so I add it in.
 
-    char* text = cast(char*) push_size(editor->arena, text_size, align_no_clear(1));
+    char* text = cast(char*) push_size(layout->context.temp_arena, text_size, align_no_clear(1));
     stbsp_vsnprintf(text, text_size, format_string, va_args);
 
-    Font* font = layout->active_font;
+    Font* font = layout->context.font;
 
     if (!layout->print_initialized) {
         layout->last_print_bounds = inverted_infinity_aab2();
@@ -532,11 +534,11 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
         } else {
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             if (glyph_id.value) {
-                Image* glyph = get_image(editor->assets, glyph_id);
+                Image* glyph = get_image(layout->context.assets, glyph_id);
                 layout->at_p = vec2(roundf(layout->at_p.x), roundf(layout->at_p.y));
                 v2 p = layout->at_p + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
-                push_image(&editor->render_context, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
-                push_image(&editor->render_context, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
+                push_image(layout->context.rc, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
+                push_image(layout->context.rc, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
 
                 AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
                 layout->last_print_bounds = aab_union(layout->last_print_bounds, glyph_aab);
@@ -553,14 +555,14 @@ internal void editor_print_va(EditorLayout* layout, v4 color, char* format_strin
     end_temporary_memory(temp);
 }
 
-inline void editor_print(EditorLayout* layout, v4 color, char* format_string, ...) {
+inline void layout_print(UILayout* layout, v4 color, char* format_string, ...) {
     va_list va_args;
     va_start(va_args, format_string);
-    editor_print_va(layout, color, format_string, va_args);
+    layout_print_va(layout, color, format_string, va_args);
     va_end(va_args);
 }
 
-internal AxisAlignedBox2 editor_finish_print(EditorLayout* layout) {
+internal AxisAlignedBox2 layout_finish_print(UILayout* layout) {
     assert(layout->print_initialized);
 
     AxisAlignedBox2 result = layout->last_print_bounds;
@@ -573,11 +575,11 @@ internal AxisAlignedBox2 editor_finish_print(EditorLayout* layout) {
     return result;
 }
 
-#define editor_print_line(layout, color, format_string, ...)       \
+#define layout_print_line(layout, color, format_string, ...)       \
     (                                                              \
         assert(!(layout)->print_initialized),                      \
-        editor_print(layout, color, format_string, ##__VA_ARGS__), \
-        editor_finish_print(layout)                                \
+        layout_print(layout, color, format_string, ##__VA_ARGS__), \
+        layout_finish_print(layout)                                \
     )
 
 #define DECLARE_EDITABLE_TYPE_INFERENCER(Type)            \
@@ -595,6 +597,7 @@ DECLARE_EDITABLE_TYPE_INFERENCER(EntityID)
 DECLARE_EDITABLE_TYPE_INFERENCER(SoundtrackID)
 typedef Entity* EntityPtr;
 DECLARE_EDITABLE_TYPE_INFERENCER(EntityPtr)
+DECLARE_EDITABLE_TYPE_INFERENCER(WallBehaviour)
 
 #define add_editable(editables, struct_type, member, ...) \
     add_editable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offsetof(struct_type, member), sizeof_member(struct_type, member), ##__VA_ARGS__)
@@ -638,6 +641,8 @@ internal void set_up_editable_parameters(EditorState* editor) {
     editables = begin_editables(editor, EntityType_Player);
     {
         add_viewable(editables, Entity, guid);
+        editable = add_viewable(editables, Entity, flags);
+        editable->type = Editable_EntityFlag;
         add_viewable(editables, Entity, p);
         add_viewable(editables, Entity, dp);
         add_viewable(editables, Entity, ddp);
@@ -646,14 +651,31 @@ internal void set_up_editable_parameters(EditorState* editor) {
         add_viewable(editables, Entity, late_jump_timer);
         add_viewable(editables, Entity, dead, Editable_IsBool);
         add_viewable(editables, Entity, support);
+    }
+    end_editables(editor, editables);
+
+    editables = begin_editables(editor, EntityType_Wall);
+    {
+        add_viewable(editables, Entity, guid);
         editable = add_viewable(editables, Entity, flags);
         editable->type = Editable_EntityFlag;
+        add_viewable(editables, Entity, p);
+        add_editable(editables, Entity, behaviour);
+        add_viewable(editables, Entity, listening_to);
+        editable = add_editable(editables, Entity, movement_speed_ms, Editable_RangeLimited);
+        editable->e_f32.min_value = 10.0f;
+        editable->e_f32.max_value = FLT_MAX;
+        editable = add_editable(editables, Entity, midi_note, Editable_IsMidiNote|Editable_RangeLimited);
+        editable->e_u32.min_value = 0;
+        editable->e_u32.max_value = 127;
     }
     end_editables(editor, editables);
 
     editables = begin_editables(editor, EntityType_SoundtrackPlayer);
     {
         add_viewable(editables, Entity, guid);
+        editable = add_viewable(editables, Entity, flags);
+        editable->type = Editable_EntityFlag;
         add_viewable(editables, Entity, soundtrack_id);
         add_viewable(editables, Entity, audible_zone);
         editable = add_editable(editables, Entity, horz_fade_region, Editable_RangeLimited);
@@ -668,6 +690,8 @@ internal void set_up_editable_parameters(EditorState* editor) {
     editables = begin_editables(editor, EntityType_CameraZone);
     {
         add_viewable(editables, Entity, guid);
+        editable = add_viewable(editables, Entity, flags);
+        editable->type = Editable_EntityFlag;
         add_viewable(editables, Entity, p);
         add_viewable(editables, Entity, active_region);
         add_editable(editables, Entity, view_region_height);
@@ -677,71 +701,72 @@ internal void set_up_editable_parameters(EditorState* editor) {
     editables = begin_editables(editor, EntityType_Checkpoint);
     {
         add_viewable(editables, Entity, guid);
+        editable = add_viewable(editables, Entity, flags);
+        editable->type = Editable_EntityFlag;
         add_viewable(editables, Entity, p);
         add_viewable(editables, Entity, checkpoint_zone);
         add_viewable(editables, Entity, most_recent_player_position);
     }
     end_editables(editor, editables);
 
-    editables = begin_editables(editor, EntityType_Wall);
-    {
-        add_viewable(editables, Entity, guid);
-        add_viewable(editables, Entity, p);
+    //
+    // Prefabs (@TODO: Clean this up)
+    //
 
-        editable = add_editable(editables, Entity, midi_note, Editable_IsMidiNote|Editable_RangeLimited);
-        editable->e_u32.min_value = 0;
-        editable->e_u32.max_value = 127;
-    }
-    end_editables(editor, editables);
+    editor->entity_prefabs[EntityType_Wall] = begin_linear_buffer<EntityPrefab>(editor->arena);
+    LinearBuffer<EntityPrefab>* prefabs = editor->entity_prefabs[EntityType_Wall];
+    lb_add(prefabs, EntityPrefab_Hazard);
+    lb_add(prefabs, EntityPrefab_InvisibleHazard);
+    end_linear_buffer(prefabs);
 }
 
 char* midi_note_names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
-inline void print_editable(EditorLayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
+inline void print_editable(UILayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
     switch (editable->type) {
         case Editable_u32: {
             u32 value = *(cast(u32*) editable_ptr);
             if (editable->flags & Editable_IsMidiNote) {
                 char* midi_note_name = midi_note_names[value % 12];
                 s32 midi_note_octave = (cast(s32) value / 12) - 2;
-                editor_print(layout, color, "%s %d", midi_note_name, midi_note_octave);
+                layout_print(layout, color, "%s %d", midi_note_name, midi_note_octave);
             } else {
-                editor_print(layout, color, "%u", value);
+                layout_print(layout, color, "%u", value);
             }
         } break;
 
         case Editable_s32: {
             s32 value = *(cast(s32*) editable_ptr);
             if (editable->flags & Editable_IsBool) {
-                editor_print(layout, color, "%s", value ? "true" : "false");
+                layout_print(layout, color, "%s", value ? "true" : "false");
             } else {
-                editor_print(layout, color, "%d", value);
+                layout_print(layout, color, "%d", value);
             }
         } break;
 
         case Editable_f32: {
             f32 value = *(cast(f32*) editable_ptr);
-            editor_print(layout, color, "%f", value);
+            layout_print(layout, color, "%f", value);
         } break;
 
         case Editable_v2: {
             v2 value = *(cast(v2*) editable_ptr);
-            editor_print(layout, color, "{ %f, %f }", value.x, value.y);
+            layout_print(layout, color, "{ %f, %f }", value.x, value.y);
         } break;
 
         case Editable_AxisAlignedBox2: {
             AxisAlignedBox2 value = *(cast(AxisAlignedBox2*) editable_ptr);
-            editor_print(layout, color, "{ min: { %f, %f }, max{ %f, %f } }", value.min.x, value.min.y, value.max.x, value.max.y);
+            layout_print(layout, color, "{ min: { %f, %f }, max{ %f, %f } }", value.min.x, value.min.y, value.max.x, value.max.y);
         } break;
 
         case Editable_EntityID: {
             EntityID id = *(cast(EntityID*) editable_ptr);
-            editor_print(layout, color, "EntityID { %u }", id.value);
+            layout_print(layout, color, "EntityID { %u }", id.value);
         } break;
 
         case Editable_SoundtrackID: {
             SoundtrackID id = *(cast(SoundtrackID*) editable_ptr);
-            editor_print(layout, color, "SoundtrackID { %u }", id.value);
+            layout_print(layout, color, "SoundtrackID { %u }", id.value);
         } break;
 
         case Editable_EntityFlag: {
@@ -749,7 +774,7 @@ inline void print_editable(EditorLayout* layout, EditableParameter* editable, vo
             char* prev_name = 0;
             char* name;
             while (enum_flag_name(EntityFlag, &flags, &name)) {
-                editor_print(layout, color, "%s%s", prev_name ? " | " : "", name);
+                layout_print(layout, color, "%s%s", prev_name ? " | " : "", name);
                 prev_name = name;
             }
         } break;
@@ -757,14 +782,19 @@ inline void print_editable(EditorLayout* layout, EditableParameter* editable, vo
         case Editable_EntityPtr: {
             Entity* entity = *(cast(Entity**) editable_ptr);
             if (entity) {
-                editor_print(layout, color, "Entity* -> EntityID { %u }", entity->guid.value);
+                layout_print(layout, color, "Entity* -> EntityID { %u }", entity->guid.value);
             } else {
-                editor_print(layout, color, "Entity* -> null");
+                layout_print(layout, color, "Entity* -> null");
             }
+        } break;
+
+        case Editable_WallBehaviour: {
+            WallBehaviour value = *(cast(WallBehaviour*) editable_ptr);
+            layout_print(layout, color, enum_name(WallBehaviour, value));
         } break;
     }
 
-    editor_print(layout, color, " ");
+    layout_print(layout, color, " ");
 }
 
 inline char* widget_name(EditorWidget widget) {
@@ -832,17 +862,13 @@ struct ConsoleCommand {
 
 internal CONSOLE_COMMAND(cc_load_level) {
     String level = arguments;
-    // @TODO: Double buffer levels so you don't get messed up on a failed level load?
-    // In fact, level loading in general needs to be cleaned up badly.
-    if (load_level_from_disk(game_state, editor->active_level, level)) {
-        load_level_into_editor(editor, editor->active_level);
-    }
+    load_level(game_state, level);
 }
 
 internal CONSOLE_COMMAND(cc_save_level) {
     String level_name = arguments;
 
-    Level* level = editor->active_level;
+    Level* level = game_state->active_level;
 
     b32 write_level = true;
     if (level_name.len > 0) {
@@ -856,25 +882,39 @@ internal CONSOLE_COMMAND(cc_save_level) {
     }
 
     if (write_level) {
-        write_level_to_disk(game_state, editor->active_level, wrap_string(level->name_length, level->name));
+        write_level_to_disk(game_state, level, wrap_string(level->name_length, level->name));
     }
 }
 
 internal CONSOLE_COMMAND(cc_set_soundtrack) {
     Entity* entity = get_entity_from_guid(editor, editor->selected_entity);
     if (entity) {
-        if (entity->type == EntityType_SoundtrackPlayer) {
-            SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, arguments);
-            if (soundtrack_id.value) {
-                entity->soundtrack_id = soundtrack_id;
-            } else {
-                log_print(LogLevel_Error, "Could not find soundtrack '%.*s'", PRINTF_STRING(arguments));
+        SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, arguments);
+        if (soundtrack_id.value) {
+            switch (entity->type) {
+                case EntityType_SoundtrackPlayer: { entity->soundtrack_id = soundtrack_id; } break;
+                case EntityType_Wall: { entity->listening_to = soundtrack_id; } break;
+                default: { log_print(LogLevel_Error, "Selected entity of type %s does not have any set_soundtrack behaviour", enum_name(EntityType, entity->type)); } break;
             }
         } else {
-            log_print(LogLevel_Error, "Selected entity is not EntityType_SoundtrackPlayer, but %s", enum_name(EntityType, entity->type));
+            log_print(LogLevel_Error, "Could not find soundtrack '%.*s'", PRINTF_STRING(arguments));
         }
     } else {
         log_print(LogLevel_Error, "No entity selected");
+    }
+}
+
+internal CONSOLE_COMMAND(cc_switch_gamemode) {
+    for (u32 mode_index = 0; mode_index < GameMode_Count; mode_index++) {
+        GameMode mode = cast(GameMode) mode_index;
+        char* mode_name = enum_name(GameMode, mode);
+
+        if (mode_name &&
+            (strings_are_equal(arguments, mode_name, StringMatch_CaseInsenitive) ||
+             strings_are_equal(arguments, mode_name + sizeof("GameMode_") - 1, StringMatch_CaseInsenitive))
+        ) {
+            switch_gamemode(game_state, cast(GameMode) mode_index);
+        }
     }
 }
 
@@ -887,10 +927,11 @@ global ConsoleCommand console_commands[] = {
     console_command(load_level),
     console_command(save_level),
     console_command(set_soundtrack),
+    console_command(switch_gamemode),
     console_command(quit),
 };
 
-inline void execute_console_command(GameState* game_state, EditorState* editor, GameInput* input, String in_buffer) {
+inline void execute_console_command(GameState* game_state, GameInput* input, String in_buffer) {
     if (in_buffer.data[0] != '/') {
         String command = advance_word(&in_buffer);
         if (command.len > 0) {
@@ -899,7 +940,7 @@ inline void execute_console_command(GameState* game_state, EditorState* editor, 
                 ConsoleCommand candidate = console_commands[command_index];
                 if (strings_are_equal(command, candidate.name)) {
                     found_command = true;
-                    candidate.f(game_state, editor, input, trim_spaces_right(in_buffer));
+                    candidate.f(game_state, game_state->editor_state, input, trim_spaces_right(in_buffer));
                     break;
                 }
             }
@@ -911,20 +952,20 @@ inline void execute_console_command(GameState* game_state, EditorState* editor, 
     }
 }
 
-inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v2 p, EntityData<v2> target) {
+inline EditorWidget drag_region_widget(GameState* game_state, EditorState* editor, v2 p, EntityData<v2> target) {
     EditorWidget widget;
-    widget.type = Widget_DragV2;
+    widget.type = Widget_DragRegion;
     widget.guid = &widget;
 
-    EditorWidgetDragV2* drag_v2 = &widget.drag_v2;
+    EditorWidgetDragRegion* drag_region = &widget.drag_region;
 
     Entity* entity = get_entity_from_guid(editor, target.guid);
 
     v2 zone = *get_data(editor, target);
-    drag_v2->original = zone;
-    drag_v2->original_p = entity->p;
+    drag_region->original = zone;
+    drag_region->original_p = entity->p;
 
-    drag_v2->target = target;
+    drag_region->target = target;
 
     v4 corner_color = is_hot(editor, widget) || is_active(editor, widget) ? COLOR_RED : COLOR_YELLOW;
 
@@ -936,7 +977,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(-1.0f, -1.0f);
+            drag_region->scaling = vec2(-1.0f, -1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -947,7 +988,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(1.0f, -1.0f);
+            drag_region->scaling = vec2(1.0f, -1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -958,7 +999,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(1.0f, 1.0f);
+            drag_region->scaling = vec2(1.0f, 1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -969,7 +1010,7 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_v2->scaling = vec2(-1.0f, 1.0f);
+            drag_region->scaling = vec2(-1.0f, 1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -977,8 +1018,186 @@ inline EditorWidget drag_v2_widget(GameState* game_state, EditorState* editor, v
     return widget;
 }
 
-inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* render_commands, Level* active_level) {
+internal void execute_console(GameState* game_state, ConsoleState* console, GameInput* input) {
+    RenderContext* rc = &console->rc;
+
+    v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
+
+    if (was_pressed(input->tilde)) {
+        console->open = !console->open;
+        input->event_mode = console->open;
+    }
+
+    render_screenspace(rc);
+
+    UILayoutContext layout_context;
+    layout_context.rc         = rc;
+    layout_context.assets     = &game_state->assets;
+    layout_context.temp_arena = &game_state->transient_arena;
+    layout_context.font       = game_state->console_font;
+
+    v2 dim = get_screen_dim(rc);
+    f32 width = dim.x;
+    f32 height = dim.y;
+
+    f32 console_input_box_height = cast(f32) game_state->console_font->size;
+    f32 console_open_speed = 0.1f;
+    f32 console_close_speed = 0.04f;
+    f32 console_height = dim.y / 4.0f;
+
+    if (console->open) {
+        if (console->openness_t < 1.0f) {
+            console->openness_t += input->frame_dt / console_open_speed;
+        } else {
+            console->openness_t = 1.0f;
+        }
+    } else {
+        if (console->openness_t > 0.0f) {
+            console->openness_t -= input->frame_dt / console_close_speed;
+        } else {
+            console->openness_t = 0.0f;
+        }
+    }
+
+    u32 warnings, errors;
+    platform.get_unread_log_messages(0, &warnings, &errors);
+    UILayout message_counter = make_layout(layout_context, vec2(width - 50.0f, height - console_height*console->openness_t - 2.0f*console_input_box_height*console->openness_t - get_baseline_from_top(game_state->console_font)));
+    if (warnings) {
+        layout_print(&message_counter, vec4(1.0f, 0.5f, 0.0f, 1.0f), "%u ", warnings);
+    }
+    if (errors) {
+        layout_print(&message_counter, COLOR_RED, "%u", errors);
+    }
+    if (warnings || errors) {
+        layout_finish_print(&message_counter);
+    }
+
+    if (console->openness_t > 0.0f) {
+        for (u32 event_index = 0; event_index < input->event_count; event_index++) {
+            char ascii;
+            PlatformKeyCode code = decode_input_event(input->event_buffer[event_index], &ascii);
+            switch (code) {
+                case PKC_Escape: {
+                    if (console->input_buffer_count > 0) {
+                        console->input_buffer_count = 0;
+                    } else {
+                        console->open = false;
+                        input->event_mode = false;
+                    }
+                } break;
+
+                case PKC_Tab: {
+                    for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
+                        String candidate = console_commands[candidate_index].name;
+                        if (find_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
+                            console->input_buffer_count = cast(u32) candidate.len;
+                            copy(console->input_buffer_count, candidate.data, console->input_buffer);
+                            console->input_buffer[console->input_buffer_count++] = ' ';
+                            break;
+                        }
+                    }
+                } break;
+
+                case PKC_Return: {
+                    if (console->input_buffer_count > 0) {
+                        execute_console_command(game_state, input, input_buffer_as_string(console));
+                        console->input_buffer_count = 0;
+                    }
+                } break;
+
+                case PKC_Back: {
+                    if (console->input_buffer_count > 0) {
+                        console->input_buffer_count--;
+                    }
+                } break;
+
+                case PKC_Oem3: {
+                    /* Just eat this one silently to avoid leaving a ` or ~ in the console when closing */
+                } break;
+
+                case PKC_Delete: {
+                    console->input_buffer_count = 0;
+                } break;
+
+                default: {
+                    if (ascii) {
+                        if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
+                            console->input_buffer[console->input_buffer_count++] = ascii;
+                        }
+                    }
+                } break;
+            }
+        }
+
+        // @TODO: Should have some kind of nicer way of handling sorting
+        f32 old_sort_bias = rc->sort_key_bias;
+        rc->sort_key_bias += 50000.0f;
+
+        f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*console->openness_t;
+        AxisAlignedBox2 console_log_box = aab_min_max(vec2(0.0f, console_log_box_height), vec2(width, height));
+        push_shape(rc, default_transform2d(), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, 0.65f));
+
+        PlatformLogMessage* selected_message = 0;
+
+        UILayout log = make_layout(layout_context, vec2(4.0f, console_log_box_height + get_line_spacing(game_state->console_font) + get_baseline(game_state->console_font)), true);
+        for (PlatformLogMessage* message = platform.get_most_recent_log_message(); message; message = message->next) {
+            if (log.at_p.y < height) {
+                b32 filter_match = false;
+                if (console->input_buffer_count > 1 && console->input_buffer[0] == '/') {
+                    String filter_string = wrap_string(console->input_buffer_count - 1, console->input_buffer + 1);
+                    String match = find_match(wrap_string(message->text_length, message->text), filter_string, StringMatch_CaseInsenitive);
+                    if (!match.len) match = find_match(wrap_cstr(message->file), filter_string, StringMatch_CaseInsenitive);
+                    if (!match.len) match = find_match(wrap_cstr(message->function), filter_string, StringMatch_CaseInsenitive);
+
+                    if (match.len > 0) {
+                        filter_match = true;
+                    } else {
+                        continue;
+                    }
+                }
+
+                v4 color = COLOR_WHITE;
+                if (message->level == LogLevel_Error) {
+                    color = COLOR_RED;
+                } else if (message->level == LogLevel_Warn) {
+                    color = COLOR_YELLOW;
+                }
+
+                if (filter_match) {
+                    color.rgb = square_root(lerp(color.rgb*color.rgb, COLOR_GREEN.rgb, 0.2f));
+                }
+                layout_print_line(&log, color, message->text);
+
+                if (is_in_aab(log.last_print_bounds, mouse_p)) {
+                    selected_message = message;
+                }
+            } else {
+                break;
+            }
+        }
+
+        v2 input_box_min = vec2(0.0f, console_log_box_height - console_input_box_height);
+        AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
+        push_shape(rc, default_transform2d(), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, 0.8f));
+
+        UILayout input_box = make_layout(layout_context, input_box_min + vec2(4.0f, get_line_spacing(game_state->console_font) + get_baseline(game_state->console_font)));
+        layout_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
+
+        if (selected_message) {
+            UILayout log_tooltip = make_layout(layout_context, mouse_p + vec2(0.0f, 12.0f), true);
+            rc->sort_key_bias += 100.0f;
+            layout_print_line(&log_tooltip, COLOR_WHITE, "%s:%s:%u", selected_message->file, selected_message->function, selected_message->line);
+            push_shape(rc, default_transform2d(), rectangle(log_tooltip.last_print_bounds), vec4(0.0f, 0.0f, 0.0f, 0.8f), ShapeRenderMode_Fill, -10.0f);
+        }
+
+        rc->sort_key_bias = old_sort_bias;
+    }
+}
+
+
+inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* render_commands) {
     EditorState* editor = push_struct(&game_state->permanent_arena, EditorState);
+    editor->game_state = game_state;
 
     initialize_render_context(&editor->render_context, render_commands, 0.0f);
     editor->render_context.sort_key_bias = 32000.0f;
@@ -986,8 +1205,8 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->assets = &game_state->assets;
     editor->arena = &game_state->transient_arena;
 
-    editor->shown = true;
-    editor->show_statistics = true;
+    editor->shown = false;
+    editor->show_statistics = false;
 
     editor->camera_icon     = get_image_id_by_name(editor->assets, string_literal("camera_icon"));
     editor->speaker_icon    = get_image_id_by_name(editor->assets, string_literal("speaker_icon"));
@@ -1008,9 +1227,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     set_up_editable_parameters(editor);
 
-    load_level_into_editor(editor, active_level);
-
-    if (active_level->entity_count <= 1) {
+    if (game_state->active_level->entity_count <= 1) {
         create_debug_level(editor);
     }
 
@@ -1060,173 +1277,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    {
-        //
-        // Console
-        //
-
-        ConsoleState* console = &editor->console_state;
-
-        if (was_pressed(input->tilde)) {
-            console->open = !console->open;
-            input->event_mode = console->open;
-        }
-
-        f32 console_input_box_height = cast(f32) editor->font->size;
-        f32 console_open_speed = 0.1f;
-        f32 console_close_speed = 0.04f;
-        f32 console_height = cast(f32) height / 4.0f;
-
-        if (console->open) {
-            if (console->openness_t < 1.0f) {
-                console->openness_t += input->frame_dt / console_open_speed;
-            } else {
-                console->openness_t = 1.0f;
-            }
-        } else {
-            if (console->openness_t > 0.0f) {
-                console->openness_t -= input->frame_dt / console_close_speed;
-            } else {
-                console->openness_t = 0.0f;
-            }
-        }
-
-        u32 warnings, errors;
-        platform.get_unread_log_messages(0, &warnings, &errors);
-        EditorLayout message_counter = make_layout(editor, vec2(width - 50.0f, height - console_height*console->openness_t - 2.0f*console_input_box_height*console->openness_t - get_baseline_from_top(editor->font)));
-        if (warnings) {
-            editor_print(&message_counter, vec4(1.0f, 0.5f, 0.0f, 1.0f), "%u ", warnings);
-        }
-        if (errors) {
-            editor_print(&message_counter, COLOR_RED, "%u", errors);
-        }
-        if (warnings || errors) {
-            editor_finish_print(&message_counter);
-        }
-
-        if (console->openness_t > 0.0f) {
-            for (u32 event_index = 0; event_index < input->event_count; event_index++) {
-                char ascii;
-                PlatformKeyCode code = decode_input_event(input->event_buffer[event_index], &ascii);
-                switch (code) {
-                    case PKC_Escape: {
-                        if (console->input_buffer_count > 0) {
-                            console->input_buffer_count = 0;
-                        } else {
-                            console->open = false;
-                            input->event_mode = false;
-                        }
-                    } break;
-
-                    case PKC_Tab: {
-                        for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
-                            String candidate = console_commands[candidate_index].name;
-                            if (find_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
-                                console->input_buffer_count = cast(u32) candidate.len;
-                                copy(console->input_buffer_count, candidate.data, console->input_buffer);
-                                console->input_buffer[console->input_buffer_count++] = ' ';
-                                break;
-                            }
-                        }
-                    } break;
-
-                    case PKC_Return: {
-                        if (console->input_buffer_count > 0) {
-                            execute_console_command(game_state, editor, input, input_buffer_as_string(console));
-                            console->input_buffer_count = 0;
-                        }
-                    } break;
-
-                    case PKC_Back: {
-                        if (console->input_buffer_count > 0) {
-                            console->input_buffer_count--;
-                        }
-                    } break;
-
-                    case PKC_Oem3: {
-                        /* Just eat this one silently to avoid leaving a ` or ~ in the console when closing */
-                    } break;
-
-                    case PKC_Delete: {
-                        console->input_buffer_count = 0;
-                    } break;
-
-                    default: {
-                        if (ascii) {
-                            if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
-                                console->input_buffer[console->input_buffer_count++] = ascii;
-                            }
-                        }
-                    } break;
-                }
-            }
-
-            // @TODO: Should have some kind of nicer way of handling sorting
-            f32 old_sort_bias = editor->render_context.sort_key_bias;
-            editor->render_context.sort_key_bias += 5000.0f;
-
-            f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*console->openness_t;
-            AxisAlignedBox2 console_log_box = aab_min_max(vec2(0.0f, console_log_box_height), vec2(width, height));
-            push_shape(&editor->render_context, default_transform2d(), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, 0.65f));
-
-            PlatformLogMessage* selected_message = 0;
-
-            EditorLayout log = make_layout(editor, vec2(4.0f, console_log_box_height + get_line_spacing(editor->font) + get_baseline(editor->font)), true);
-            for (PlatformLogMessage* message = platform.get_most_recent_log_message(); message; message = message->next) {
-                if (log.at_p.y < height) {
-                    b32 filter_match = false;
-                    if (console->input_buffer_count > 1 && console->input_buffer[0] == '/') {
-                        String filter_string = wrap_string(console->input_buffer_count - 1, console->input_buffer + 1);
-                        String match = find_match(wrap_string(message->text_length, message->text), filter_string, StringMatch_CaseInsenitive);
-                        if (!match.len) match = find_match(wrap_cstr(message->file), filter_string, StringMatch_CaseInsenitive);
-                        if (!match.len) match = find_match(wrap_cstr(message->function), filter_string, StringMatch_CaseInsenitive);
-
-                        if (match.len > 0) {
-                            filter_match = true;
-                        } else {
-                            continue;
-                        }
-                    }
-
-                    v4 color = COLOR_WHITE;
-                    if (message->level == LogLevel_Error) {
-                        color = COLOR_RED;
-                    } else if (message->level == LogLevel_Warn) {
-                        color = COLOR_YELLOW;
-                    }
-
-                    if (filter_match) {
-                        color.rgb = square_root(lerp(color.rgb*color.rgb, COLOR_GREEN.rgb, 0.2f));
-                    }
-                    editor_print_line(&log, color, message->text);
-
-                    if (is_in_aab(log.last_print_bounds, mouse_p)) {
-                        selected_message = message;
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            v2 input_box_min = vec2(0.0f, console_log_box_height - console_input_box_height);
-            AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
-            push_shape(&editor->render_context, default_transform2d(), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, 0.8f));
-
-            EditorLayout input_box = make_layout(editor, input_box_min + vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)));
-            editor_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
-
-            if (selected_message) {
-                EditorLayout log_tooltip = make_layout(editor, mouse_p + vec2(0.0f, 12.0f), true);
-                editor->render_context.sort_key_bias += 100.0f;
-                editor_print_line(&log_tooltip, COLOR_WHITE, "%s:%s:%u", selected_message->file, selected_message->function, selected_message->line);
-                push_shape(&editor->render_context, default_transform2d(), rectangle(log_tooltip.last_print_bounds), vec4(0.0f, 0.0f, 0.0f, 0.8f), ShapeRenderMode_Fill, -10.0f);
-            }
-
-            editor->render_context.sort_key_bias = old_sort_bias;
-        }
-    }
-
-    EditorLayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
+    UILayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
 
     if (editor->shown || editor->show_statistics) {
         f32 average_frame_time = 0.0f;
@@ -1238,24 +1289,26 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
         f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
         v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
-        editor_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
+        layout_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
     }
 
     if (!editor->shown) {
         return;
     }
 
-    Level* level = editor->active_level;
+    Level* level = editor->game_state->active_level;
 
-    editor_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
+    layout_print_line(&layout, COLOR_WHITE, "Camera Position: { %f, %f }", game_state->render_context.camera_p.x, game_state->render_context.camera_p.y);
+
+    layout_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
     if (editor->level_saved_timer > 0.0f) {
-        editor_print(&layout, vec4(1.0f, 1.0f, 1.0f, clamp01(editor->level_saved_timer)), "  (Saved...)");
+        layout_print(&layout, vec4(1.0f, 1.0f, 1.0f, clamp01(editor->level_saved_timer)), "  (Saved...)");
     }
-    editor_finish_print(&layout);
+    layout_finish_print(&layout);
 
-    editor_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
-    editor_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
-    editor_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
+    layout_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
+    layout_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
+    layout_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
 
     if (editor->level_saved_timer > 0.0f) {
         editor->level_saved_timer -= input->frame_dt;
@@ -1263,25 +1316,25 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (was_pressed(get_key(input, 'S'))) {
         if (input->ctrl.is_down) {
-            write_level_to_disk(game_state, editor->active_level, wrap_string(editor->active_level->name_length, editor->active_level->name));
+            write_level_to_disk(game_state, editor->game_state->active_level, wrap_string(editor->game_state->active_level->name_length, editor->game_state->active_level->name));
             editor->level_saved_timer = 2.0f;
         } else {
             editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
         }
     }
 
-    EditorLayout status_bar = make_layout(editor, vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)), true);
-    editor_print_line(&status_bar, COLOR_WHITE, "Entity Count: %u/%u | Grid Snapping: %s, Grid Size: { %f, %f } | Zoom: %gx",
+    UILayout status_bar = make_layout(editor, vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)), true);
+    layout_print_line(&status_bar, COLOR_WHITE, "Entity Count: %u/%u | Grid Snapping: %s, Grid Size: { %f, %f } | Zoom: %gx",
         level->entity_count, ARRAY_COUNT(level->entities),
         editor->grid_snapping_enabled ? "true" : "false", editor->grid_size.x, editor->grid_size.y,
         editor->zoom
     );
 
-    EditorLayout undo_log = make_layout(editor, vec2(500.0f, editor->top_margin));
+    UILayout undo_log = make_layout(editor, vec2(500.0f, editor->top_margin));
 
     u32 undo_buffer_location = editor->undo_most_recent ? editor->undo_most_recent + sizeof(UndoFooter) : 0;
     u32 undo_buffer_size = ARRAY_COUNT(editor->undo_buffer);
-    editor_print_line(&undo_log, COLOR_WHITE, "Undo Buffer Location: %dKB/%dKB", undo_buffer_location / 1024, undo_buffer_size / 1024);
+    layout_print_line(&undo_log, COLOR_WHITE, "Undo Buffer Location: %dKB/%dKB", undo_buffer_location / 1024, undo_buffer_size / 1024);
 
     undo_log.depth++;
 
@@ -1294,28 +1347,28 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             v4 color = vec4(0.85f, 0.85f, 0.85f, 1.0f - (cast(f32) undo_log_count / 4.5f));
 
-            editor_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name_safe(UndoType, footer->type));
+            layout_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name_safe(UndoType, footer->type));
             switch (footer->type) {
                 case Undo_SetEntityData: {
-                    editor_print(&undo_log, color, "EntityID { %u } ", footer->entity_guid.value);
+                    layout_print(&undo_log, color, "EntityID { %u } ", footer->entity_guid.value);
                     if (footer->description) {
-                        editor_print(&undo_log, color, "-> %s", footer->description);
+                        layout_print(&undo_log, color, "-> %s", footer->description);
                     }
                 } break;
                 case Undo_SetData: {
                     if (footer->description) {
-                        editor_print(&undo_log, color, "%s", footer->description);
+                        layout_print(&undo_log, color, "%s", footer->description);
                     } else {
-                        editor_print(&undo_log, color, "0x%I64x", cast(u64) footer->data_ptr);
+                        layout_print(&undo_log, color, "0x%I64x", cast(u64) footer->data_ptr);
                     }
                 } break;
                 case Undo_CreateEntity:
                 case Undo_DeleteEntity: {
                     EntityID id = (cast(Entity*) data)->guid;
-                    editor_print(&undo_log, color, "EntityID { %d }", id.value);
+                    layout_print(&undo_log, color, "EntityID { %d }", id.value);
                 } break;
             }
-            editor_finish_print(&undo_log);
+            layout_finish_print(&undo_log);
 
             undo_log_count++;
 
@@ -1369,66 +1422,18 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (is_active(editor, manipulate_entity)) {
-        EditorWidget* widget = &editor->active_widget;
-        switch (widget->manipulate.type) {
-            case Manipulate_Default: {
-                f32 drag_distance = length(mouse_p - editor->mouse_p_on_active);
-                if (input->mouse_buttons[PlatformMouseButton_Left].is_down && drag_distance > 5.0f) {
-                    editor->selected_entity = widget->manipulate.guid;
-                    widget->manipulate.type = Manipulate_DragEntity;
-                    Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
-                    widget->manipulate.original_p = entity->p;
-                    add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p));
-                } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    if (moused_over) {
-                        editor->selected_entity = moused_over->guid;
-                    }
-                    clear_active(editor);
-                }
-            } break;
-
-            case Manipulate_DragEntity: {
-                Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
-                entity->p = widget->manipulate.original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    editor->selected_entity = { 0 };
-                    clear_active(editor);
-                } else if (was_released(input->mouse_buttons[PlatformMouseButton_Right])) {
-                    editor->selected_entity = { 0 };
-                    clear_active(editor);
-                    undo(editor);
-                }
-            } break;
-
-            case Manipulate_DeleteEntity: {
-                delete_entity(editor, widget->manipulate.guid);
-                clear_active(editor);
-            } break;
-        }
-    } else if (is_hot(editor, manipulate_entity)) {
-        EditorWidget widget = editor->hot_widget;
-        if (input->del.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-            widget.manipulate.type = Manipulate_DeleteEntity;
-            set_active(editor, widget);
-        } else if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-            Entity* entity = get_entity_from_guid(editor, widget.manipulate.guid); // @WidgetEntityData
-            widget.manipulate.drag_offset = world_mouse_p - entity->p;
-            set_active(editor, widget);
-        }
-    }
-
     if (was_pressed(input->shift)) {
         editor->spawn_menu_p = mouse_p;
     }
 
     if (input->shift.is_down) {
-        EditorLayout spawn_menu = make_layout(editor, editor->spawn_menu_p);
+        UILayout spawn_menu = make_layout(editor, editor->spawn_menu_p);
 
-        editor_print_line(&spawn_menu, COLOR_WHITE, "Spawn Entity:");
+        layout_print_line(&spawn_menu, COLOR_WHITE, "Spawn Entity:");
         spawn_menu.depth++;
 
         EntityType highlighted_type = EntityType_Null;
+        EntityPrefab highlighted_prefab = EntityPrefab_Null;
         for (u32 entity_type_id = cast(u32) EntityType_Null + 1; entity_type_id < EntityType_Count; entity_type_id++) {
             EntityType entity_type = cast(EntityType) entity_type_id;
 
@@ -1437,14 +1442,32 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             if (entity_name) {
                 entity_name += sizeof("EntityType_") - 1;
 
-                editor_print_line(&spawn_menu, color, entity_name);
+                layout_print_line(&spawn_menu, color, entity_name);
 
                 if (is_in_aab(spawn_menu.last_print_bounds, mouse_p)) {
                     highlighted_type = entity_type;
                 }
+
+                if (editor->entity_prefabs[entity_type] && editor->entity_prefabs[entity_type]->count) {
+                    spawn_menu.depth++;
+                    for (u32 prefab_index = 0; prefab_index < editor->entity_prefabs[entity_type]->count; prefab_index++) {
+                        EntityPrefab prefab = editor->entity_prefabs[entity_type]->data[prefab_index];
+                        char* prefab_name = enum_name(EntityPrefab, prefab) + sizeof("EntityPrefab_") - 1;
+
+                        color = (editor->prefab_to_spawn == prefab) ? vec4(1, 0, 1, 1) : vec4(1, 1, 1, 1);
+                        layout_print_line(&spawn_menu, color, prefab_name);
+
+                        if (is_in_aab(spawn_menu.last_print_bounds, mouse_p)) {
+                            highlighted_type = entity_type;
+                            highlighted_prefab = prefab;
+                        }
+                    }
+                    spawn_menu.depth--;
+                }
             }
         }
         editor->type_to_spawn = highlighted_type;
+        editor->prefab_to_spawn = highlighted_prefab;
     } else if (was_released(input->shift)) {
         Entity* created_entity = 0;
         switch (editor->type_to_spawn) {
@@ -1454,6 +1477,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             case EntityType_Wall: {
                 created_entity = add_wall(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(2, 2))).ptr;
+                if (editor->prefab_to_spawn == EntityPrefab_Hazard || editor->prefab_to_spawn == EntityPrefab_InvisibleHazard) {
+                    created_entity->flags |= EntityFlag_Hazard;
+                    created_entity->color = COLOR_RED;
+                }
+                if (editor->prefab_to_spawn == EntityPrefab_InvisibleHazard) {
+                    created_entity->flags |= EntityFlag_Invisible;
+                    created_entity->color = vec4(COLOR_RED.rgb, 0.25f);
+                }
             } break;
 
             case EntityType_CameraZone: {
@@ -1492,18 +1523,54 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
         if (game_state->game_mode == GameMode_Editor) {
             if (selected->type == EntityType_CameraZone) {
-                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->active_region));
+                drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->active_region));
             } else if (selected->type == EntityType_Checkpoint) {
-                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->checkpoint_zone));
+                drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->checkpoint_zone));
             } else if (selected->type == EntityType_Wall) {
-                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
+                drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
+
+                if (selected->behaviour == WallBehaviour_Move) {
+                    EditorWidget widget;
+                    widget.guid = &widget;
+                    widget.type = Widget_DragP;
+                    widget.drag_p.original_p = selected->end_p;
+                    widget.drag_p.drag_offset = world_mouse_p - selected->end_p;
+                    widget.drag_p.target = wrap_entity_data(selected, &selected->end_p);
+
+                    if (is_active(editor, widget)) {
+                        v2* target = get_data(editor, editor->active_widget.drag_p.target);
+                        v2 original_p = editor->active_widget.drag_p.original_p;
+                        v2 drag_offset = editor->active_widget.drag_p.drag_offset;
+                        *target = original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
+                        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                            clear_active(editor);
+                        }
+                    } else if (is_hot(editor, widget)) {
+                        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+                            add_entity_data_undo_history(editor, editor->hot_widget.drag_p.target);
+                            set_active(editor, editor->hot_widget);
+                        }
+                    }
+
+                    v3 fill_color = is_active(editor, widget) ? COLOR_RED.rgb : selected->color.rgb;
+                    v3 outline_color = is_active(editor, widget) || is_hot(editor, widget) ? COLOR_RED.rgb : selected->color.rgb;
+
+                    push_shape(&game_state->render_context, transform2d(selected->end_p), rectangle(aab_center_dim(vec2(0, 0), selected->collision)), vec4(fill_color, 0.25f));
+                    push_shape(&game_state->render_context, transform2d(selected->end_p), rectangle(aab_center_dim(vec2(0, 0), selected->collision)), vec4(outline_color, 0.85f), ShapeRenderMode_Outline);
+
+                    if (selected->guid.value == editor->selected_entity.value) {
+                        if (is_in_region(selected->collision, world_mouse_p - selected->end_p)) {
+                            editor->next_hot_widget = widget;
+                        }
+                    }
+                }
             } else if (selected->type == EntityType_SoundtrackPlayer) {
-                drag_v2_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->audible_zone));
+                drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->audible_zone));
             }
         }
 
-        editor_print_line(&layout, COLOR_WHITE, "");
-        editor_print_line(&layout, COLOR_WHITE, "Entity (%d, %s)", selected->guid.value, enum_name_safe(EntityType, selected->type));
+        layout_print_line(&layout, COLOR_WHITE, "");
+        layout_print_line(&layout, COLOR_WHITE, "Entity (%d, %s)", selected->guid.value, enum_name_safe(EntityType, selected->type));
 
         layout.depth++;
 
@@ -1527,7 +1594,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     }
                 }
 
-                editor_print(&layout, color, "%s: ", editable->name);
+                layout_print(&layout, color, "%s: ", editable->name);
                 print_editable(&layout, editable, editable_ptr, color, &widget);
 
                 if (is_active(editor, widget)) {
@@ -1562,6 +1629,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     }
 
                     if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                        if (editable->type == Editable_WallBehaviour) {
+                            WallBehaviour value = *(cast(WallBehaviour*) editable_ptr);
+                            value = cast(WallBehaviour) (cast(u32) value + 1);
+                            if (value >= WallBehaviour_Count) {
+                                value = WallBehaviour_None;
+                            }
+                            *(cast(WallBehaviour*) editable_ptr) = value;
+                        }
                         clear_active(editor);
                     }
                     if (was_released(input->mouse_buttons[PlatformMouseButton_Right])) {
@@ -1588,7 +1663,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 }
 #endif
 
-                editor_finish_print(&layout);
+                layout_finish_print(&layout);
             }
         }
 
@@ -1610,18 +1685,57 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (editor->active_widget.type) {
         switch (editor->active_widget.type) {
-            case Widget_DragV2: {
-                EditorWidgetDragV2* drag_v2 = &editor->active_widget.drag_v2;
-                Entity* entity = get_entity_from_guid(editor, drag_v2->target.guid);
-                v2* target = get_data(editor, drag_v2->target);
+            case Widget_ManipulateEntity: {
+                EditorWidget* widget = &editor->active_widget;
+                switch (widget->manipulate.type) {
+                    case Manipulate_Default: {
+                        f32 drag_distance = length(mouse_p - editor->mouse_p_on_active);
+                        if (input->mouse_buttons[PlatformMouseButton_Left].is_down && drag_distance > 5.0f) {
+                            editor->selected_entity = widget->manipulate.guid;
+                            widget->manipulate.type = Manipulate_DragEntity;
+                            Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
+                            widget->manipulate.original_p = entity->p;
+                            add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p));
+                        } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                            if (moused_over) {
+                                editor->selected_entity = moused_over->guid;
+                            }
+                            clear_active(editor);
+                        }
+                    } break;
+
+                    case Manipulate_DragEntity: {
+                        Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
+                        entity->p = widget->manipulate.original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
+                        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                            editor->selected_entity = { 0 };
+                            clear_active(editor);
+                        } else if (was_released(input->mouse_buttons[PlatformMouseButton_Right])) {
+                            editor->selected_entity = { 0 };
+                            clear_active(editor);
+                            undo(editor);
+                        }
+                    } break;
+
+                    case Manipulate_DeleteEntity: {
+                        delete_entity(editor, widget->manipulate.guid);
+                        clear_active(editor);
+                    } break;
+                }
+            } break;
+
+            case Widget_DragRegion: {
+                EditorWidgetDragRegion* drag_region = &editor->active_widget.drag_region;
+                Entity* entity = get_entity_from_guid(editor, drag_region->target.guid);
+                v2* target = get_data(editor, drag_region->target);
 
                 v2 mouse_delta = world_mouse_p - editor->world_mouse_p_on_active;
-                *target = drag_v2->original + snap_to_grid(editor, drag_v2->scaling*mouse_delta);
+                *target = drag_region->original + snap_to_grid(editor, drag_region->scaling*mouse_delta);
                 if (input->ctrl.is_down) {
-                    f32 aspect_ratio = drag_v2->original.x / drag_v2->original.y;
+                    f32 aspect_ratio = drag_region->original.x / drag_region->original.y;
                     target->x = aspect_ratio*target->y;
                 }
-                entity->p = drag_v2->original_p + 0.5f*snap_to_grid(editor, mouse_delta);
+                entity->p = drag_region->original_p + 0.5f*snap_to_grid(editor, mouse_delta);
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     clear_active(editor);
                 }
@@ -1629,10 +1743,22 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     } else if (editor->hot_widget.type) {
         switch (editor->hot_widget.type) {
-            case Widget_DragV2: {
-                EditorWidgetDragV2* drag_v2 = &editor->hot_widget.drag_v2;
+            case Widget_ManipulateEntity: {
+                EditorWidget widget = editor->hot_widget;
+                if (input->del.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
+                    widget.manipulate.type = Manipulate_DeleteEntity;
+                    set_active(editor, widget);
+                } else if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    Entity* entity = get_entity_from_guid(editor, widget.manipulate.guid); // @WidgetEntityData
+                    widget.manipulate.drag_offset = world_mouse_p - entity->p;
+                    set_active(editor, widget);
+                }
+            } break;
+
+            case Widget_DragRegion: {
+                EditorWidgetDragRegion* drag_region = &editor->hot_widget.drag_region;
                 if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    add_entity_data_undo_history(editor, drag_v2->target);
+                    add_entity_data_undo_history(editor, drag_region->target);
                     set_active(editor, editor->hot_widget);
                 }
             } break;

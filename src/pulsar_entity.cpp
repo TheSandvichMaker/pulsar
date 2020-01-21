@@ -3,24 +3,52 @@
 //
 
 struct TraceInfo {
-    f32 t;
-    v2 hit_normal;
+    f32 t_min = 1.0f;
+    f32 t_max = 0.0f;
+    v2 hit_normal = vec2(0.0f, 0.0f);
 };
+
+inline b32 line_trace(f32 wall_x, v2 wall_bounds, v2 wall_normal, v2 start_p, v2 delta_p, TraceInfo* info, f32 t_epsilon) {
+    b32 result = false;
+    f32 t_result = (wall_x - start_p.x) / delta_p.x;
+    if (t_result >= 0.0f) {
+        f32 y = start_p.y + t_result*delta_p.y;
+        if (y >= wall_bounds.e[0] && y < wall_bounds.e[1]) {
+            if (t_result < info->t_min) {
+                result = true;
+                info->t_min = max(0.0f, t_result - t_epsilon);
+                info->hit_normal = wall_normal;
+            }
+            if (t_result <= 1.0f && t_result > info->t_max) {
+                info->t_max = t_result; // @TODO: Think about whether this also needs an epsilon - or whether the epsilons can be nuked
+            }
+        }
+    }
+    return result;
+}
 
 inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info) {
     b32 result = false;
 
-    f32 t_min = 1.0f;
+    info->t_min = 1.0f;
+    info->t_max = 0.0f;
+
     f32 t_epsilon = 1.0e-3f;
 
     v2 delta_p = end_p - start_p;
 
+#if 1
+    result |= line_trace(aab.min.x, vec2(aab.min.y, aab.max.y), vec2(-1,  0), vec2(start_p.x, start_p.y), vec2(delta_p.x, delta_p.y), info, t_epsilon);
+    result |= line_trace(aab.max.x, vec2(aab.min.y, aab.max.y), vec2( 1,  0), vec2(start_p.x, start_p.y), vec2(delta_p.x, delta_p.y), info, t_epsilon);
+    result |= line_trace(aab.min.y, vec2(aab.min.x, aab.max.x), vec2( 0, -1), vec2(start_p.y, start_p.x), vec2(delta_p.y, delta_p.x), info, t_epsilon);
+    result |= line_trace(aab.max.y, vec2(aab.min.x, aab.max.x), vec2( 0,  1), vec2(start_p.y, start_p.x), vec2(delta_p.y, delta_p.x), info, t_epsilon);
+#else
     {
         f32 t_result = (aab.min.x - start_p.x) / delta_p.x;
-        if (t_result >= 0.0f && t_result < t_min) {
+        if (t_result >= 0.0f && t_result < info->t_min) {
             f32 y = start_p.y + t_result*delta_p.y;
             if (y >= aab.min.y && y < aab.max.y) {
-                t_min = max(0.0f, t_result - t_epsilon);
+                info->t_min = max(0.0f, t_result - t_epsilon);
                 result = true;
                 info->hit_normal = vec2(-1, 0);
             }
@@ -29,10 +57,10 @@ inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info)
 
     {
         f32 t_result = (aab.max.x - start_p.x) / delta_p.x;
-        if (t_result >= 0.0f && t_result < t_min) {
+        if (t_result >= 0.0f && t_result < info->t_min) {
             f32 y = start_p.y + t_result*delta_p.y;
             if (y >= aab.min.y && y < aab.max.y) {
-                t_min = max(0.0f, t_result - t_epsilon);
+                info->t_min = max(0.0f, t_result - t_epsilon);
                 result = true;
                 info->hit_normal = vec2(1, 0);
             }
@@ -41,10 +69,10 @@ inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info)
 
     {
         f32 t_result = (aab.min.y - start_p.y) / delta_p.y;
-        if (t_result >= 0.0f && t_result < t_min) {
+        if (t_result >= 0.0f && t_result < info->t_min) {
             f32 x = start_p.x + t_result*delta_p.x;
             if (x >= aab.min.x && x < aab.max.x) {
-                t_min = max(0.0f, t_result - t_epsilon);
+                info->t_min = max(0.0f, t_result - t_epsilon);
                 result = true;
                 info->hit_normal = vec2(0, -1);
             }
@@ -53,17 +81,16 @@ inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info)
 
     {
         f32 t_result = (aab.max.y - start_p.y) / delta_p.y;
-        if (t_result >= 0.0f && t_result < t_min) {
+        if (t_result >= 0.0f && t_result < info->t_min) {
             f32 x = start_p.x + t_result*delta_p.x;
             if (x >= aab.min.x && x < aab.max.x) {
-                t_min = max(0.0f, t_result - t_epsilon);
+                info->t_min = max(0.0f, t_result - t_epsilon);
                 result = true;
                 info->hit_normal = vec2(0, 1);
             }
         }
     }
-
-    info->t = t_min;
+#endif
 
     return result;
 }
@@ -81,8 +108,7 @@ inline b32 on_ground(Entity* entity) {
 inline void kill_player(GameState* game_state) {
     assert(game_state->player);
     if (!game_state->player->dead) {
-        game_state->player->dead = true;
-        game_state->player->support = 0;
+        game_state->player->killed_this_frame = true;
         game_state->player_respawn_timer = 2.0f;
     }
 }
@@ -95,166 +121,13 @@ inline void process_collision_logic(GameState* game_state, Entity* collider, Ent
     }
 }
 
-inline void player_move(GameState* game_state, Entity* entity, f32 dt) {
-    f32 t = 1.0f;
-
-    f32 epsilon = 1.0e-3f;
-
-    v2 ddp = entity->ddp;
-
-    v2 gravity = vec2(0.0f, entity->gravity);
-
-    if (!entity->support) {
-        ddp += gravity;
-    }
-
-    f32 max_x_vel =  10.0f;
-    f32 min_y_vel = -40.0f;
-    f32 max_y_vel =  40.0f;
-
-    ddp.x = (clamp(ddp.x*dt + entity->dp.x, -max_x_vel, max_x_vel) - entity->dp.x) / dt;
-    ddp.y = (clamp(ddp.y*dt + entity->dp.y,  min_y_vel, max_y_vel) - entity->dp.y) / dt;
-
-    entity->dp += ddp*dt;
-    // entity->dp.x = clamp(entity->dp.x, -max_x_vel, max_x_vel);
-    // entity->dp.y = clamp(entity->dp.y,  min_y_vel, max_y_vel);
-
-    // @TODO: Figure out collision properly instead of this hacky crap that idk what it even is
-
-    if (entity->flags & EntityFlag_Collides) {
-        u32 max_iterations = 4;
-        u32 iteration_count = 0;
-        while (t > epsilon && iteration_count < max_iterations) {
-            v2 mod_dp = {};
-            if (!entity->support) {
-                if (entity->was_supported) {
-                    entity->was_supported = false;
-                    entity->dp += entity->support_dp;
-                    entity->support_dp = vec2(0, 0);
-                }
-            } else {
-                entity->was_supported = true;
-                entity->support_dp = entity->support_dp;
-                mod_dp += entity->support->dp;
-            }
-
-            v2 delta = 0.5f*ddp*square(t*dt) + (entity->dp + mod_dp)*t*dt;
-
-            b32 did_collide = false;
-
-            // @TODO: Optimized spatial indexing of sorts?
-            for (u32 test_entity_index = 0; test_entity_index < game_state->entity_count; test_entity_index++) {
-                Entity* test_entity = game_state->entities + test_entity_index;
-                if (entity != test_entity &&
-                    (test_entity->flags & EntityFlag_Collides) &&
-                    !(test_entity->flags & EntityFlag_Physical) &&
-                    test_entity != entity->support
-                ) {
-                    // @Note: Right now the policy is that there are no collisions between two physical entities, so test_delta is calculated using only the test_entity's dp.
-                    // ddp is for physics.
-                    v2 test_delta = test_entity->dp*dt;
-
-                    v2 rel_p = entity->p - test_entity->p;
-                    v2 test_region = entity->collision + test_entity->collision;
-                    AxisAlignedBox2 test_aab = aab_center_dim(vec2(0, 0), test_region);
-
-                    if (is_in_aab(test_aab, rel_p)) {
-                        f32 best_distance = F32_MAX;
-                        v2 best_move = vec2(0, 0);
-
-                        f32 test_distance = rel_p.x - test_aab.min.x;
-                        if (test_distance < best_distance) {
-                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
-                            best_move = vec2(-1, 0);
-                        }
-
-                        test_distance = test_aab.max.x - rel_p.x;
-                        if (test_distance < best_distance) {
-                            best_distance = test_distance;
-                            best_move = vec2(1, 0);
-                        }
-
-                        test_distance = rel_p.y - test_aab.min.y;
-                        if (test_distance < best_distance) {
-                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
-                            best_move = vec2(0, -1);
-                        }
-
-                        test_distance = test_aab.max.y - rel_p.y;
-                        if (test_distance < best_distance) {
-                            best_distance = test_distance;
-                            best_move = vec2(0, 1);
-                        }
-
-                        log_print(LogLevel_Warn, "Player got stuck in an entity. Best move: { %g, %g }", best_move.x*best_distance, best_move.y*best_distance);
-
-                        entity->p += best_move*best_distance;
-
-                        process_collision_logic(game_state, entity, test_entity);
-                    } else {
-                        v2 rel_delta = delta - test_delta;
-
-                        TraceInfo info;
-                        if (aab_trace(rel_p, rel_p + rel_delta, test_aab, &info)) {
-                            // @Note: If you collided with a face that faces away from where you're going, then that's probably an epsilon problem.
-                            if (dot(rel_delta, info.hit_normal) < 0.0f) {
-                                t -= info.t;
-
-                                did_collide = true;
-
-                                if (t == 0.0f) {
-                                    delta += info.hit_normal*epsilon;
-                                }
-
-                                entity->p += info.t*delta;
-
-                                ddp = grazing_reflect(ddp, info.hit_normal);
-                                entity->dp = grazing_reflect(entity->dp, info.hit_normal);
-
-                                if (dot(info.hit_normal, gravity) < 0) {
-                                    entity->support = test_entity;
-                                    entity->support_normal = info.hit_normal;
-                                    entity->p += test_entity->dp*dt*info.t;
-                                }
-
-                                process_collision_logic(game_state, entity, test_entity);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (!did_collide) {
-                break;
-            }
-
-            iteration_count++;
-        }
-
-        v2 mod_dp = {};
-        if (!entity->support) {
-            if (entity->was_supported) {
-                entity->was_supported = false;
-                entity->dp += entity->support_dp;
-                entity->support_dp = vec2(0, 0);
-            }
-        } else {
-            entity->was_supported = true;
-            entity->support_dp = entity->support_dp;
-            mod_dp += entity->support->dp;
-        }
-
-        v2 delta = 0.5f*ddp*square(t*dt) + (entity->dp + mod_dp)*t*dt;
-        entity->p += t*delta;
-
-        if (iteration_count >= max_iterations) {
-            assert(iteration_count == max_iterations);
-            log_print(LogLevel_Warn, "Player move reached %u iterations", max_iterations);
-        }
-    }
+inline v2 accel_towards(v2 min_ddp, v2 max_ddp, v2 cur_dp, v2 tar_dp, f32 dt) {
+    v2 dv = tar_dp - cur_dp;
+    v2 result = clamp(dv / dt, min_ddp, max_ddp);
+    return result;
 }
 
-internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_dt) {
+internal void simulate_entities(GameState* game_state, GameInput* input, f32 frame_dt) {
     game_state->midi_event_buffer_count = 0;
     for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
         PlayingMidi* playing_midi = *playing_midi_ptr;
@@ -277,6 +150,7 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
                 playing_midi->event_index++;
 
                 ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
+                active_event->source_soundtrack = playing_midi->source_soundtrack;
                 active_event->midi_event = event;
                 f32 timing_into_frame = cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame;
                 active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
@@ -328,18 +202,21 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
                 GameController* controller = &input->controller;
 
                 f32 move_speed = game_config.movement_speed;
+                v2 target_dp = entity->dp;
 
                 if (controller->move_left.is_down) {
-                    entity->ddp.x -= move_speed;
+                    target_dp.x -= move_speed;
                 }
 
                 if (controller->move_right.is_down) {
-                    entity->ddp.x += move_speed;
+                    target_dp.x += move_speed;
                 }
 
                 if (!controller->move_left.is_down && !controller->move_right.is_down) {
-                    entity->ddp.x = entity->dp.x > 0.0f ? -move_speed : move_speed;
+                    target_dp.x = 0.0f;
                 }
+
+                entity->ddp = accel_towards(vec2(-move_speed, 0.0f), vec2(move_speed, 0.0f), entity->dp, target_dp, frame_dt);
 
                 if (was_pressed(controller->jump)) {
                     entity->early_jump_timer = game_config.early_jump_window;
@@ -350,20 +227,12 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
                     if (entity->early_jump_timer > 0.0f) {
                         do_jump = true;
                     }
-
-                    entity->was_supported = true;
-                    entity->support_dp = entity->support_dp;
                 } else {
                     if (entity->was_supported) {
                         entity->late_jump_timer = game_config.late_jump_window;
-
-                        entity->dp += entity->support_dp;
-                        entity->support_dp = vec2(0, 0);
-
-                        entity->was_supported = false;
                     }
 
-                    if (entity->late_jump_timer > 0.0f) {
+                    if (was_pressed(controller->jump) && entity->late_jump_timer > 0.0f) {
                         do_jump = true;
                     }
                 }
@@ -384,44 +253,53 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
                 if (!controller->jump.is_down || entity->dp.y < 0.0f) {
                     entity->gravity *= game_config.downward_gravity_multiplier;
                 }
-
-                if (entity->support) {
-                    entity->gravity = 0.0f;
-                }
             } break;
 
             case EntityType_Wall: {
-                v2 movement = {};
-                for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
-                    ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
-                    if (event.note_value == entity->midi_note) {
-                        if (event.type == MidiEvent_NoteOn) {
-                            entity->midi_test_target.y += 0.5f*(event.note_value - 59);
-                        } else if (event.type == MidiEvent_NoteOff) {
-                            entity->midi_test_target.y -= 0.5f*(event.note_value - 59);
-                        } else {
-                            INVALID_CODE_PATH;
+                if (entity->behaviour == WallBehaviour_Move) {
+                    for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
+                        ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
+                        if (!entity->listening_to.value || event.source_soundtrack.value == entity->listening_to.value) {
+                            if (event.note_value == entity->midi_note) {
+                                if (event.type == MidiEvent_NoteOn) {
+                                    entity->moving_to_end = true;
+                                    entity->movement_t = 0.0f;
+                                } else if (event.type == MidiEvent_NoteOff) {
+                                    entity->moving_to_end = false;
+                                    entity->movement_t = 0.0f;
+                                } else {
+                                    INVALID_CODE_PATH;
+                                }
+                            }
                         }
                     }
+
+                    v2 start_p = entity->start_p;
+                    v2 end_p = entity->end_p;
+
+                    if (!entity->moving_to_end) {
+                        start_p = entity->end_p;
+                        end_p = entity->start_p;
+                    }
+
+                    f32 t = smootherstep(entity->movement_t);
+
+                    if (entity->movement_t < 1.0f) {
+                        v2 target = lerp(start_p, end_p, t);
+
+                        entity->dp = (target - entity->p) / frame_dt;
+                        entity->movement_t += frame_dt / (0.001f*entity->movement_speed_ms);
+                    } else {
+                        entity->dp = (end_p - entity->p) / frame_dt;
+                        entity->movement_t = 1.0f;
+                    }
                 }
-                movement = 5.0f*(entity->midi_test_target - entity->p);
-                // entity->p += entity->sim_dt*movement;
-                entity->dp = movement;
-                entity->movement_t += frame_dt;
-#if 0
-                Entity* sticking_entity = entity->sticking_entity;
-                if (sticking_entity) {
-                    sticking_entity->p += movement;
-                    sticking_entity->sticking_dp = rcp_dt*movement;
-                }
-#endif
             } break;
 
             case EntityType_SoundtrackPlayer: {
                 if (!entity->playing) {
                     if (entity->soundtrack_id.value) {
-                        Soundtrack* soundtrack = get_soundtrack(&game_state->assets, entity->soundtrack_id);
-                        entity->playing = play_soundtrack(game_state, soundtrack, entity->playback_flags);
+                        entity->playing = play_soundtrack(game_state, entity->soundtrack_id, entity->playback_flags);
                         change_volume(entity->playing, 0.0f, vec2(0, 0));
                     }
                 } else {
@@ -468,27 +346,193 @@ internal void run_simulation(GameState* game_state, GameInput* input, f32 frame_
         }
     }
 
-    if (!game_state->mid_camera_transition) {
-        player_move(game_state, game_state->player, frame_dt);
+    Entity* player = game_state->player;
+
+
+    if (player && !player->dead && !game_state->mid_camera_transition) {
+        f32 t = 1.0f;
+
+        u32 max_iterations = 4;
+        u32 iteration_count = 0;
+
+        f32 epsilon = 1.0e-3f;
+
+        v2 gravity = vec2(0.0f, player->gravity);
+
+        while (t > epsilon && iteration_count < max_iterations) {
+            f32 dt = t*frame_dt;
+
+            v2 ddp = player->ddp;
+
+            if (!player->support) {
+                ddp += gravity;
+            }
+
+            // @TODO: Figure out where this sits compared to accel_towards
+            f32 max_x_vel = game_config.max_x_vel;
+            f32 min_y_vel = game_config.min_y_vel;
+            f32 max_y_vel = game_config.max_y_vel;
+
+            ddp.x = (clamp(ddp.x*dt + player->dp.x, -max_x_vel, max_x_vel) - player->dp.x) / dt;
+            ddp.y = (clamp(ddp.y*dt + player->dp.y,  min_y_vel, max_y_vel) - player->dp.y) / dt;
+
+            player->dp += ddp*dt;
+
+            v2 external_dp = {};
+
+            if (player->support) {
+                player->was_supported = true;
+                player->support_dp = player->support->dp;
+                external_dp += player->support->dp;
+            } else if (player->was_supported) {
+                player->was_supported = false;
+                // @TODO: Clamp maximum dp you can gain from a support
+                player->dp += player->support_dp;
+                log_print(LogLevel_Info, "Added { %f, %f } support_dp to player->dp", player->support_dp.x, player->support_dp.y);
+                player->support_dp = vec2(0, 0);
+            }
+
+            external_dp += player->contact_move;
+            player->contact_move = {};
+
+            v2 delta = 0.5f*ddp*square(dt) + (external_dp + player->dp)*dt;
+
+            b32 did_an_unstuck = false;
+            b32 did_collide = false;
+            TraceInfo collision = {};
+            Entity* collision_entity = 0;
+            v2 collision_rel_delta = {};
+
+            // @TODO: Optimized spatial indexing of sorts?
+            for (u32 test_entity_index = 0; test_entity_index < game_state->entity_count; test_entity_index++) {
+                Entity* test_entity = game_state->entities + test_entity_index;
+                if (player != test_entity &&
+                    (test_entity->flags & EntityFlag_Collides) &&
+                    !(test_entity->flags & EntityFlag_Physical)
+                ) {
+                    // @TODO: Why do you sometimes get stuck inside your support?
+                    v2 test_delta = test_entity->dp*dt;
+                    v2 spent_test_delta = test_entity->dp*(1.0f - t)*frame_dt;
+
+                    v2 sub_frame_test_entity_p = test_entity->p + spent_test_delta;
+
+                    v2 rel_p = player->p - sub_frame_test_entity_p;
+                    v2 test_region = player->collision + test_entity->collision;
+                    AxisAlignedBox2 test_aab = aab_center_dim(vec2(0, 0), test_region);
+
+                    if (is_in_aab(test_aab, rel_p)) {
+                        f32 best_distance = F32_MAX;
+                        v2 best_move = vec2(0, 0);
+
+                        f32 test_distance = rel_p.x - test_aab.min.x;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
+                            best_move = vec2(-1, 0);
+                        }
+
+                        test_distance = test_aab.max.x - rel_p.x;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance;
+                            best_move = vec2(1, 0);
+                        }
+
+                        test_distance = rel_p.y - test_aab.min.y;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
+                            best_move = vec2(0, -1);
+                        }
+
+                        test_distance = test_aab.max.y - rel_p.y;
+                        if (test_distance < best_distance) {
+                            best_distance = test_distance;
+                            best_move = vec2(0, 1);
+                        }
+
+                        log_print(LogLevel_Warn, "Player got stuck in an entity. Best move: { %g, %g }", best_move.x*best_distance, best_move.y*best_distance);
+
+                        delta = best_move*best_distance;
+                        process_collision_logic(game_state, player, test_entity);
+
+                        did_an_unstuck = true;
+
+                        break; // breaks out of the for, not the while
+                    } else if (test_entity != player->support) {
+                        v2 rel_delta = delta - test_delta;
+
+                        TraceInfo info = {};
+                        if (aab_trace(rel_p, rel_p + rel_delta, test_aab, &info)) {
+                            // @Note: If you collided with a face that faces away from the relative delta, then that's probably a precision problem.
+                            if (dot(rel_delta, info.hit_normal) <= 0.0f) {
+                                if (info.t_min < collision.t_min) {
+                                    did_collide = true;
+                                    collision = info;
+                                    collision_entity = test_entity;
+                                    collision_rel_delta = rel_delta;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (did_collide) {
+                log_print(LogLevel_Info, "collision.t_min = %f, .t_max = %f", collision.t_min, collision.t_max);
+                t *= 1.0f - collision.t_min;
+
+                delta *= collision.t_min;
+
+                if (t == 0.0f) {
+                    delta += collision.hit_normal*epsilon;
+                }
+
+                player->ddp = grazing_reflect(player->ddp, collision.hit_normal);
+                player->dp = grazing_reflect(player->dp, collision.hit_normal);
+
+                if (dot(collision.hit_normal, gravity) < 0) {
+                    player->support = collision_entity;
+                    player->support_normal = collision.hit_normal;
+                } else {
+                    // Shitty @Hack: Not accounting for penetration vector or relative motion or basically anything because my brain is fried
+                    // @TODO: Unfry brain, un-shitty hack collision handling
+                    v2 what_the_fuck_is_this = collision.hit_normal*dot(collision_entity->dp, collision.hit_normal);
+                    player->contact_move = what_the_fuck_is_this;
+                    log_print(LogLevel_Warn, "the fuck: { %f, %f }", what_the_fuck_is_this.x, what_the_fuck_is_this.y);
+                    // player->contact_move = -collision_rel_delta*(collision.t_max - collision.t_min)*collision.hit_normal;
+                }
+
+                process_collision_logic(game_state, player, collision_entity);
+            }
+
+            player->p += delta;
+
+            Entity* support = player->support;
+            if (support) {
+                v2 adjusted_support_p = player->support->p + player->support->dp*dt;
+
+                v2 test_region = player->collision + support->collision;
+                v2 rel_p = player->p - adjusted_support_p;
+                if (rel_p.x < -0.5f*test_region.x || rel_p.x > 0.5f*test_region.x) {
+                    player->support = 0;
+                }
+            }
+
+            if (!did_collide && !did_an_unstuck) {
+                break;
+            }
+
+            iteration_count++;
+        }
+
+        if (iteration_count >= max_iterations) {
+            assert(iteration_count == max_iterations);
+            log_print(LogLevel_Warn, "Player move reached %u iterations", max_iterations);
+        }
     }
 
     for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
         if (!(entity->flags & EntityFlag_Physical)) {
             entity->p += entity->dp*frame_dt;
-        }
-
-        switch (entity->type) {
-            case EntityType_Player: {
-                if (entity->support) {
-                    Entity* support = entity->support;
-                    v2 test_region = entity->collision + support->collision;
-                    v2 rel_p = entity->p - support->p;
-                    if (rel_p.x < -test_region.x || rel_p.x > test_region.x) {
-                        entity->support = 0;
-                    }
-                }
-            } break;
         }
     }
 }

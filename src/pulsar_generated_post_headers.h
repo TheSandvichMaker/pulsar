@@ -3,6 +3,7 @@
 
 char* GetMetaTypeName(MetaType value) {
     switch (value) {
+        case MetaType_AssetType: return "AssetType";
         case MetaType_PackedImage: return "PackedImage";
         case MetaType_PixelFormat: return "PixelFormat";
         case MetaType_u32: return "u32";
@@ -18,8 +19,11 @@ char* GetMetaTypeName(MetaType value) {
         case MetaType_u8: return "u8";
         case MetaType_UndoType: return "UndoType";
         case MetaType_EditorWidgetType: return "EditorWidgetType";
+        case MetaType_EntityPrefab: return "EntityPrefab";
         case MetaType_EntityFlag: return "EntityFlag";
         case MetaType_EntityType: return "EntityType";
+        case MetaType_WallBehaviour: return "WallBehaviour";
+        case MetaType_GameMode: return "GameMode";
         case MetaType_GameConfig: return "GameConfig";
         case MetaType_b32: return "b32";
         case MetaType_String: return "String";
@@ -31,6 +35,18 @@ char* GetMetaTypeName(MetaType value) {
         case MetaType_u64: return "u64";
         case MetaType_f64: return "f64";
         case MetaType_char: return "char";
+        default: return 0;
+    }
+}
+
+char* GetEnumNameOf_AssetType(int value) {
+    switch (value) {
+        case AssetType_Unknown: return "AssetType_Unknown";
+        case AssetType_Image: return "AssetType_Image";
+        case AssetType_Sound: return "AssetType_Sound";
+        case AssetType_Font: return "AssetType_Font";
+        case AssetType_Midi: return "AssetType_Midi";
+        case AssetType_Soundtrack: return "AssetType_Soundtrack";
         default: return 0;
     }
 }
@@ -51,7 +67,17 @@ char* GetEnumNameOf_EditorWidgetType(int value) {
         case Widget_None: return "Widget_None";
         case Widget_DragEditable: return "Widget_DragEditable";
         case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
-        case Widget_DragV2: return "Widget_DragV2";
+        case Widget_DragRegion: return "Widget_DragRegion";
+        case Widget_DragP: return "Widget_DragP";
+        default: return 0;
+    }
+}
+
+char* GetEnumNameOf_EntityPrefab(int value) {
+    switch (value) {
+        case EntityPrefab_Null: return "EntityPrefab_Null";
+        case EntityPrefab_Hazard: return "EntityPrefab_Hazard";
+        case EntityPrefab_InvisibleHazard: return "EntityPrefab_InvisibleHazard";
         default: return 0;
     }
 }
@@ -74,6 +100,26 @@ char* GetEnumNameOf_EntityType(int value) {
         case EntityType_CameraZone: return "EntityType_CameraZone";
         case EntityType_Checkpoint: return "EntityType_Checkpoint";
         case EntityType_Count: return "EntityType_Count";
+        default: return 0;
+    }
+}
+
+char* GetEnumNameOf_WallBehaviour(int value) {
+    switch (value) {
+        case WallBehaviour_None: return "WallBehaviour_None";
+        case WallBehaviour_Move: return "WallBehaviour_Move";
+        case WallBehaviour_Toggle: return "WallBehaviour_Toggle";
+        case WallBehaviour_Count: return "WallBehaviour_Count";
+        default: return 0;
+    }
+}
+
+char* GetEnumNameOf_GameMode(int value) {
+    switch (value) {
+        case GameMode_StartScreen: return "GameMode_StartScreen";
+        case GameMode_Ingame: return "GameMode_Ingame";
+        case GameMode_Editor: return "GameMode_Editor";
+        case GameMode_Count: return "GameMode_Count";
         default: return 0;
     }
 }
@@ -139,7 +185,9 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 7, "gravity", (unsigned int)&((GameConfig*)0)->gravity, sizeof(f32) },
     { 0, MetaType_f32, 27, "downward_gravity_multiplier", (unsigned int)&((GameConfig*)0)->downward_gravity_multiplier, sizeof(f32) },
     { 0, MetaType_f32, 14, "movement_speed", (unsigned int)&((GameConfig*)0)->movement_speed, sizeof(f32) },
-    { 0, MetaType_f32, 10, "stop_speed", (unsigned int)&((GameConfig*)0)->stop_speed, sizeof(f32) },
+    { 0, MetaType_f32, 9, "max_x_vel", (unsigned int)&((GameConfig*)0)->max_x_vel, sizeof(f32) },
+    { 0, MetaType_f32, 9, "min_y_vel", (unsigned int)&((GameConfig*)0)->min_y_vel, sizeof(f32) },
+    { 0, MetaType_f32, 9, "max_y_vel", (unsigned int)&((GameConfig*)0)->max_y_vel, sizeof(f32) },
     { 0, MetaType_f32, 10, "jump_force", (unsigned int)&((GameConfig*)0)->jump_force, sizeof(f32) },
     { 0, MetaType_f32, 17, "early_jump_window", (unsigned int)&((GameConfig*)0)->early_jump_window, sizeof(f32) },
     { 0, MetaType_f32, 16, "late_jump_window", (unsigned int)&((GameConfig*)0)->late_jump_window, sizeof(f32) },

@@ -4,6 +4,7 @@
 #define PULSAR_CODE_GENERATION_SUCCEEDED 1
 
 enum MetaType {
+    MetaType_AssetType,
     MetaType_PackedImage,
     MetaType_PixelFormat,
     MetaType_u32,
@@ -19,8 +20,11 @@ enum MetaType {
     MetaType_u8,
     MetaType_UndoType,
     MetaType_EditorWidgetType,
+    MetaType_EntityPrefab,
     MetaType_EntityFlag,
     MetaType_EntityType,
+    MetaType_WallBehaviour,
+    MetaType_GameMode,
     MetaType_GameConfig,
     MetaType_b32,
     MetaType_String,
@@ -89,7 +93,9 @@ enum MetaType {
     f32 gravity; \
     f32 downward_gravity_multiplier; \
     f32 movement_speed; \
-    f32 stop_speed; \
+    f32 max_x_vel; \
+    f32 min_y_vel; \
+    f32 max_y_vel; \
     f32 jump_force; \
     f32 early_jump_window; \
     f32 late_jump_window; \

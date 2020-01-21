@@ -8,17 +8,7 @@
 #include "pulsar_entity.cpp"
 #include "pulsar_editor.cpp"
 
-inline void dbg_text(char* format_string, ...) {
-    va_list va_args;
-    va_start(va_args, format_string);
-
-    char buffer[8192];
-    stbsp_vsnprintf(buffer, sizeof(buffer), format_string, va_args);
-
-    va_end(va_args);
-
-    platform.debug_print(buffer);
-}
+// @TODO: Decouple file paths from level loading
 
 inline Level* allocate_level(MemoryArena* arena, char* name) {
     Level* result = push_struct(arena, Level);
@@ -37,8 +27,8 @@ inline Level* allocate_level(MemoryArena* arena, char* name) {
 
 struct SerializeResult {
     union {
-        u64    data_value;
-        void*  data_ptr;
+        u64   data_value;
+        void* data_ptr;
     };
     b32 data_is_ptr;
     u32 size;
@@ -52,7 +42,7 @@ struct Serializable {
 
     char* name;
     u32 name_length;
-    s32 type; // @Note: Why does the compiler want EntityType to be signed?
+    s32 type; // @Note: Why does the compiler want EntityType to be signed? @TODO: could use C++11 enum type specifiers if I made the code generator not barf on them
     u32 offset;
     u32 size;
 };
@@ -80,12 +70,17 @@ internal SERIALIZE_CALLBACK(serialize_AssetID) {
         result.data_is_ptr = false;
         result.size = sizeof(AssetID);
     } else {
-        AssetID id = *(cast(AssetID*) data_ptr);
-        Asset* asset = get_asset(&game_state->assets, id);
+        result.size = 0;
 
-        result.data_ptr = asset->name.data;
-        result.data_is_ptr = true;
-        result.size = cast(u32) asset->name.len;
+        AssetID id = *(cast(AssetID*) data_ptr);
+        if (id.value) {
+            Asset* asset = get_asset(&game_state->assets, id);
+            if (asset) {
+                result.data_ptr = asset->name.data;
+                result.data_is_ptr = true;
+                result.size = cast(u32) asset->name.len;
+            }
+        }
     }
 
     return result;
@@ -104,9 +99,10 @@ global Serializable entity_serializables[] = {
     // @Note: Player
     // ...
     // @Note: Wall
-    SERIALIZABLE(Entity, EntityType_Wall, surface_friction),
+    SERIALIZABLE(Entity, EntityType_Wall, behaviour),
     SERIALIZABLE(Entity, EntityType_Wall, midi_note),
-    SERIALIZABLE(Entity, EntityType_Wall, midi_test_target),
+    SERIALIZABLE(Entity, EntityType_Wall, end_p),
+    SERIALIZABLE(Entity, EntityType_Wall, movement_speed_ms),
     // @Note: Soundtrack Player
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id, serialize_AssetID),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
@@ -121,6 +117,17 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_Checkpoint, checkpoint_zone),
     SERIALIZABLE(Entity, EntityType_Checkpoint, most_recent_player_position),
 };
+
+/* Lev file layout:
+ * LevFileHeader header;
+ * for each entity serialized:
+ *     u32 member_count; // number of members to follow
+ *     for member_count:
+ *         u32  member_name_length;
+ *         char member_name[member_name_length];
+ *         u32  member_data_size;
+ *         u8   member_data[member_data_size];
+ */
 
 #pragma pack(push, 1)
 struct LevFileHeader {
@@ -161,35 +168,40 @@ internal void write_level_to_disk(GameState* game_state, Level* level, String le
 
     write_stream(sizeof(header), &header);
 
-    for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+    for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
         Entity* entity = level->entities + entity_index;
 
         u32* place_of_member_count = cast(u32*) lb_push_n(stream, sizeof(u32));
-
         u32 member_count = 0;
 
         for (u32 ser_index = 0; ser_index < ARRAY_COUNT(entity_serializables); ser_index++) {
             Serializable* ser = entity_serializables + ser_index;
             if (ser->type == EntityType_Count || ser->type == entity->type) {
-                member_count++;
-
                 void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
 
-                void* data = data_ptr;
-                u32   size = ser->size;
-
+                SerializeResult ser_data;
                 if (ser->callback) {
-                    SerializeResult ser_data = ser->callback(game_state, 0, data_ptr, false);
-                    data = ser_data.data_ptr;
-                    size = ser_data.size;
-                    assert(ser_data.data_is_ptr); // @TODO: Handle data_value results
+                    ser_data = ser->callback(game_state, ser->size, data_ptr, false);
+                } else {
+                    ser_data.data_ptr = data_ptr;
+                    ser_data.data_is_ptr = true;
+                    ser_data.size = ser->size;
                 }
 
-                write_stream(sizeof(u32), &ser->name_length);
-                write_stream(ser->name_length, ser->name);
+                if (ser_data.size > 0) {
+                    member_count++;
 
-                write_stream(sizeof(u32), &size);
-                write_stream(size, data);
+                    write_stream(sizeof(u32), &ser->name_length);
+                    write_stream(ser->name_length, ser->name);
+
+                    if (ser_data.data_is_ptr) {
+                        write_stream(sizeof(u32), &ser_data.size);
+                        write_stream(ser_data.size, ser_data.data_ptr);
+                    } else {
+                        write_stream(sizeof(u32), &ser_data.size);
+                        write_stream(ser_data.size, &ser_data.data_value);
+                    }
+                }
             }
         }
 
@@ -260,7 +272,7 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
             level->entity_count = header->entity_count;
             level->first_available_guid = 1;
 
-            for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+            for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
                 Entity* entity = level->entities + entity_index;
 
                 u32 member_count = *(cast(u32*) read_stream(sizeof(u32)));
@@ -334,20 +346,7 @@ level_load_end:
     return !level_load_error;
 }
 
-global v2 arrow_verts[] = { { 0, -0.05f }, { 0.8f, -0.05f }, { 0.8f, -0.2f }, { 1.0f, 0.0f }, { 0.8f, 0.2f }, { 0.8f, 0.05f }, { 0, 0.05f } };
-global Shape2D arrow = polygon(ARRAY_COUNT(arrow_verts), arrow_verts);
-
-inline void dbg_draw_arrow(v2 start, v2 end, v4 color = vec4(1, 1, 1, 1)) {
-    f32 scale = length(end - start);
-    v2 dir = normalize_or_zero(end - start);
-    Transform2D t = transform2d(start);
-    t.scale = vec2(scale, scale);
-    t.rotation_arm = dir;
-
-    push_shape(&dbg_game_state->render_context, t, arrow, color, ShapeRenderMode_Outline);
-}
-
-inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0) {
+inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0, SoundtrackID source_soundtrack = { 0 }) {
     if (!game_state->first_free_playing_midi) {
         game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
         game_state->first_free_playing_midi->next_free = 0;
@@ -362,20 +361,28 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     zero_struct(*playing_midi);
     playing_midi->track = track;
     playing_midi->flags = flags;
+    playing_midi->source_soundtrack = source_soundtrack;
     playing_midi->sync_sound = sync_sound;
     playing_midi->sync_sound->synced_midi = playing_midi;
 
     return playing_midi;
 }
 
-inline PlayingSound* play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags) {
-    Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
-    PlayingSound* playing_sound = play_sound(&game_state->audio_mixer, sound, flags);
-    for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
-        MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
-        play_midi(game_state, track, flags, playing_sound);
+inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags) {
+    PlayingSound* result = 0;
+    Soundtrack* soundtrack = get_soundtrack(&game_state->assets, soundtrack_id);
+    if (soundtrack) {
+        Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
+        if (sound) {
+            result = play_sound(&game_state->audio_mixer, sound, flags);
+            for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
+                MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
+                play_midi(game_state, track, flags, result, soundtrack_id);
+            }
+        }
     }
-    return playing_sound;
+
+    return result;
 }
 
 inline void stop_all_midi_tracks(GameState* game_state) {
@@ -392,42 +399,68 @@ inline void stop_all_midi_tracks(GameState* game_state) {
     game_state->midi_event_buffer_count = 0;
 }
 
+internal void load_level_into_game_state(GameState* game_state, Level* level) {
+    game_state->active_level = level;
+
+    for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
+        Entity* source = level->entities + entity_index;
+        Entity* dest = game_state->entities + entity_index;
+
+        *dest = *source;
+
+        if (dest->type == EntityType_Player) {
+            if (!game_state->player) {
+                game_state->player = dest;
+            } else {
+                // You can only have one player!
+                INVALID_CODE_PATH;
+            }
+        }
+    }
+
+    assert(game_state->player);
+
+    Entity* player = game_state->player;
+
+    game_state->last_activated_checkpoint = 0;
+    f32 best_checkpoint_distance_sq = FLT_MAX;
+
+    for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
+        Entity* entity = game_state->entities + entity_index;
+
+        if (entity->type == EntityType_Wall) {
+            entity->start_p = entity->p;
+        } else if (entity->type == EntityType_Checkpoint) {
+            f32 distance_sq = length_sq(entity->p - player->p);
+            if (distance_sq < best_checkpoint_distance_sq) {
+                best_checkpoint_distance_sq = distance_sq;
+                game_state->last_activated_checkpoint = entity;
+            }
+        }
+    }
+
+    game_state->entity_count = level->entity_count;
+}
+
 inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
+    if (game_state->game_mode == GameMode_Editor && game_mode != game_state->game_mode) {
+        EditorState* editor = game_state->editor_state;
+        editor->camera_p_on_exit = game_state->render_context.camera_p;
+    }
+
     switch (game_mode) {
+        case GameMode_StartScreen: {
+        } break;
+
         case GameMode_Ingame: {
-            if (game_state->game_mode == GameMode_Editor) {
-                EditorState* editor = game_state->editor_state;
-                editor->camera_p_on_exit = game_state->render_context.camera_p;
-            }
-
-            game_state->last_activated_checkpoint = 0;
-
-            Level* level = game_state->active_level;
-            for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
-                Entity* source = level->entities + entity_index;
-                Entity* dest = game_state->entities + entity_index;
-
-                *dest = *source;
-
-                // dest->guid = { entity_index };
-
-                if (dest->type == EntityType_Player) {
-                    if (!game_state->player) {
-                        game_state->player = dest;
-                    } else {
-                        // You can only have one player!
-                        INVALID_CODE_PATH;
-                    }
-                }
-            }
-            game_state->entity_count = level->entity_count;
+            load_level_into_game_state(game_state, game_state->active_level);
         } break;
 
         case GameMode_Editor: {
-            if (game_state->game_mode == GameMode_Ingame) {
-                EditorState* editor = game_state->editor_state;
-                game_state->render_context.camera_p = editor->camera_p_on_exit;
-            }
+            EditorState* editor = game_state->editor_state;
+            game_state->render_context.camera_p = editor->camera_p_on_exit;
+
+            editor->shown = true;
 
             stop_all_sounds(&game_state->audio_mixer);
             stop_all_midi_tracks(game_state);
@@ -462,6 +495,18 @@ inline CameraView get_camera_view(RenderContext* render_context, Entity* camera_
     return result;
 }
 
+internal void load_level(GameState* game_state, String level_name) {
+    if (load_level_from_disk(game_state, game_state->background_level, level_name)) {
+        Level* temp = game_state->active_level;
+        game_state->active_level = game_state->background_level;
+        game_state->background_level = temp;
+
+        if (game_state->editor_state) {
+            load_level_into_editor(game_state->editor_state, game_state->active_level);
+        }
+    }
+}
+
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
@@ -491,15 +536,21 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
+        game_state->console_font = get_font_by_name(&game_state->assets, string_literal("editor_font"));
+        game_state->console_state = push_struct(&game_state->permanent_arena, ConsoleState);
+        initialize_render_context(&game_state->console_state->rc, render_commands, 1.0f);
+
+        game_state->background_level = allocate_level(&game_state->permanent_arena, "background level");
         game_state->active_level = allocate_level(&game_state->permanent_arena, "no level");
-        if (game_config.startup_level.len) {
-            load_level_from_disk(game_state, game_state->active_level, game_config.startup_level);
-        }
 
         game_state->foreground_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
         game_state->background_color = vec4(0.3f, 0.2f, 0.4f, 1.0f);
 
-        game_state->editor_state = allocate_editor(game_state, render_commands, game_state->active_level);
+        game_state->editor_state = allocate_editor(game_state, render_commands);
+
+        if (game_config.startup_level.len) {
+            load_level(game_state, game_config.startup_level);
+        }
 
         switch_gamemode(game_state, GameMode_Editor);
 
@@ -507,8 +558,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         // PlayingSound* test_tone = play_synth(&game_state->audio_mixer, synth_test_tone);
         // change_volume(test_tone, vec2(0.25f, 0.25f));
-
-        // test_sound = play_sound(&game_state->audio_mixer, get_sound_by_name(&game_state->assets, "test_music"));
 
         memory->initialized = true;
     }
@@ -523,184 +572,198 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     RenderContext* render_context = &game_state->render_context;
 
-    render_worldspace(render_context, 30.0f);
-    game_state->render_context.camera_rotation_arm = vec2(1, 0);
+    execute_console(game_state, game_state->console_state, input);
 
-    push_clear(render_context, game_state->background_color);
-
-    if (game_state->game_mode == GameMode_Ingame) {
-        Entity* camera_target = game_state->camera_target;
-        Entity* camera_zone = game_state->active_camera_zone;
-        if (camera_target && camera_zone) {
-            if (!is_in_region(camera_zone->active_region + camera_target->collision, camera_target->p - camera_zone->p)) {
-                camera_zone = game_state->active_camera_zone = 0;
-            }
-        }
-
-        if (camera_target) {
-            game_state->render_context.camera_p = camera_target->p;
-
-            if (camera_zone) {
-                Entity* prev_camera_zone = game_state->previous_camera_zone;
-                if (prev_camera_zone && game_state->camera_transition_t < 1.0f) {
-                    game_state->mid_camera_transition = true;
-
-                    CameraView prev_view = get_camera_view(render_context, prev_camera_zone, camera_target);
-                    CameraView view = get_camera_view(render_context, camera_zone, camera_target);
-
-                    f32 t = smootherstep(game_state->camera_transition_t);
-
-                    render_context->camera_p = lerp(prev_view.camera_p, view.camera_p, t);
-                    render_context->camera_rotation_arm = lerp(prev_view.camera_rotation_arm, view.camera_rotation_arm, t);
-
-                    render_worldspace(render_context, lerp(prev_view.vfov, view.vfov, t));
-
-                    game_state->camera_transition_t += frame_dt / game_config.camera_transition_speed;
-                } else {
-                    game_state->mid_camera_transition = false;
-
-                    CameraView view = get_camera_view(render_context, camera_zone, camera_target);
-
-                    render_context->camera_p = view.camera_p;
-                    render_context->camera_rotation_arm = view.camera_rotation_arm;
-
-                    render_worldspace(render_context, view.vfov);
-                }
-            }
-        }
-    }
-
-    if (game_state->player && game_state->player->dead) {
-        if (game_state->player_respawn_timer > 0.0f) {
-            game_state->player_respawn_timer -= frame_dt;
-        } else {
-            game_state->player->dead = false;
-            if (game_state->last_activated_checkpoint) {
-                game_state->player->p = game_state->last_activated_checkpoint->most_recent_player_position;
-                game_state->player->dp = game_state->player->ddp = vec2(0, 0);
-            } else {
-                // @Note: I suspect I won't have this case, instead you just always start with the first checkpoint activated.
-                INVALID_CODE_PATH;
-            }
-        }
-    }
-
-    //
-    // Sim
-    //
-
-    if (game_state->game_mode == GameMode_Ingame) {
-        run_simulation(game_state, input, frame_dt);
-
-        if (was_pressed(input->debug_fkeys[1])) {
-            switch_gamemode(game_state, GameMode_Editor);
-        }
-    } else if (game_state->game_mode == GameMode_Editor) {
-        if (was_pressed(input->debug_fkeys[1])) {
-            switch_gamemode(game_state, GameMode_Ingame);
-        }
-    }
-
-    //
-    // Post-Sim
-    //
-
-    EditorState* editor = game_state->editor_state;
-
-    if (was_pressed(input->debug_fkeys[2])) {
-        editor->shown = !editor->shown;
-    }
-
-    if (was_pressed(input->debug_fkeys[3])) {
-        editor->show_statistics = !editor->show_statistics;
-    }
-
-    execute_editor(game_state, editor, input, memory->debug_info.frame_history);
-
-    u32 active_entity_count = 0;
-    Entity* active_entities = 0;
-    if (game_state->game_mode == GameMode_Ingame) {
-        active_entity_count = game_state->entity_count;
-        active_entities = game_state->entities;
-    } else if (game_state->game_mode == GameMode_Editor) {
-        active_entity_count = game_state->active_level->entity_count;
-        active_entities = game_state->active_level->entities;
+    if (game_state->game_mode == GameMode_StartScreen) {
+        render_screenspace(render_context);
+        push_clear(render_context, game_state->background_color);
     } else {
-        INVALID_CODE_PATH;
-    }
+        render_worldspace(render_context, 30.0f);
+        game_state->render_context.camera_rotation_arm = vec2(1, 0);
 
-    for (u32 entity_index = 1; entity_index < active_entity_count; entity_index++) {
-        Entity* entity = active_entities + entity_index;
-        assert(entity->type != EntityType_Null);
+        push_clear(render_context, game_state->background_color);
 
-        //
-        // Rendering
-        //
-
-        b32 should_draw = !entity->dead && !(entity->flags & EntityFlag_Invisible);
-
-        if (editor->shown) {
-            should_draw = !entity->dead;
-            if (game_state->game_mode == GameMode_Editor) {
-                should_draw = true;
+        if (game_state->player && game_state->player->dead) {
+            if (game_state->player_respawn_timer > 0.0f) {
+                game_state->player_respawn_timer -= frame_dt;
+            } else {
+                game_state->player->dead = false;
+                if (game_state->last_activated_checkpoint) {
+                    game_state->player->p = game_state->last_activated_checkpoint->most_recent_player_position;
+                    game_state->player->dp = game_state->player->ddp = vec2(0, 0);
+                } else {
+                    // @Note: I suspect I won't have this case, instead you just always start with the first checkpoint activated.
+                    INVALID_CODE_PATH;
+                }
             }
         }
 
-        if (should_draw) {
-            Transform2D transform = transform2d(entity->p);
-            switch (entity->type) {
-                case EntityType_CameraZone: {
-                    transform.rotation_arm = entity->camera_rotation_arm;
-                    Image* sprite = get_image(&game_state->assets, entity->sprite);
-                    if (sprite) {
-                        push_image(render_context, transform, sprite, entity->color);
-                    } else {
-                        INVALID_CODE_PATH;
-                    }
-                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
-                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
-                } break;
+        //
+        // Sim
+        //
 
-                case EntityType_Checkpoint: {
-                    Image* sprite = get_image(&game_state->assets, entity->sprite);
-                    if (sprite) {
-                        push_image(render_context, transform, sprite, entity->color);
-                    } else {
-                        INVALID_CODE_PATH;
-                    }
-                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
-                } break;
+        if (game_state->game_mode == GameMode_Ingame) {
+            simulate_entities(game_state, input, frame_dt);
 
-                case EntityType_SoundtrackPlayer: {
-                    Image* sprite = get_image(&game_state->assets, entity->sprite);
-                    if (sprite) {
-                        push_image(render_context, transform, sprite, entity->color);
-                    } else {
-                        INVALID_CODE_PATH;
-                    }
-                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), COLOR_GREEN, ShapeRenderMode_Outline);
-                    push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline);
+            if (was_pressed(input->debug_fkeys[1])) {
+                switch_gamemode(game_state, GameMode_Editor);
+            }
+        } else if (game_state->game_mode == GameMode_Editor) {
+            if (was_pressed(input->debug_fkeys[1])) {
+                switch_gamemode(game_state, GameMode_Ingame);
+            }
+        }
+
+        //
+        // Post-Sim
+        //
+
+        if (game_state->game_mode == GameMode_Ingame) {
+            Entity* camera_target = game_state->camera_target;
+            Entity* camera_zone = game_state->active_camera_zone;
+            if (camera_target && camera_zone) {
+                if (!is_in_region(camera_zone->active_region + camera_target->collision, camera_target->p - camera_zone->p)) {
+                    camera_zone = game_state->active_camera_zone = 0;
                 }
+            }
 
-                default: {
-                    if (entity->sprite.value) {
+            if (camera_target) {
+                game_state->render_context.camera_p = camera_target->p;
+
+                if (camera_zone) {
+                    Entity* prev_camera_zone = game_state->previous_camera_zone;
+                    if (prev_camera_zone && game_state->camera_transition_t < 1.0f) {
+                        game_state->mid_camera_transition = true;
+
+                        CameraView prev_view = get_camera_view(render_context, prev_camera_zone, camera_target);
+                        CameraView view = get_camera_view(render_context, camera_zone, camera_target);
+
+                        f32 t = smootherstep(game_state->camera_transition_t);
+
+                        render_context->camera_p = lerp(prev_view.camera_p, view.camera_p, t);
+                        render_context->camera_rotation_arm = lerp(prev_view.camera_rotation_arm, view.camera_rotation_arm, t); // @TODO: This is obviously not how rotation goes.
+
+                        render_worldspace(render_context, lerp(prev_view.vfov, view.vfov, t));
+
+                        game_state->camera_transition_t += frame_dt / game_config.camera_transition_speed;
+                    } else {
+                        game_state->mid_camera_transition = false;
+
+                        CameraView view = get_camera_view(render_context, camera_zone, camera_target);
+
+                        render_context->camera_p = view.camera_p;
+                        render_context->camera_rotation_arm = view.camera_rotation_arm;
+
+                        render_worldspace(render_context, view.vfov);
+                    }
+                }
+            }
+        }
+
+        EditorState* editor = game_state->editor_state;
+
+        if (was_pressed(input->debug_fkeys[2])) {
+            editor->shown = !editor->shown;
+        }
+
+        if (was_pressed(input->debug_fkeys[3])) {
+            editor->show_statistics = !editor->show_statistics;
+        }
+
+        execute_editor(game_state, editor, input, memory->debug_info.frame_history);
+
+        u32 render_entity_count = 0;
+        Entity* render_entities = 0;
+        if (game_state->game_mode == GameMode_Ingame) {
+            render_entity_count = game_state->entity_count;
+            render_entities = game_state->entities;
+        } else if (game_state->game_mode == GameMode_Editor) {
+            render_entity_count = game_state->active_level->entity_count;
+            render_entities = game_state->active_level->entities;
+        }
+
+        for (u32 entity_index = 1; entity_index < render_entity_count; entity_index++) {
+            Entity* entity = render_entities + entity_index;
+            assert(entity->type != EntityType_Null);
+
+            //
+            // Rendering
+            //
+
+            b32 should_draw = !entity->dead && !(entity->flags & EntityFlag_Invisible);
+
+            if (editor->shown) {
+                should_draw = !entity->dead;
+                if (game_state->game_mode == GameMode_Editor) {
+                    should_draw = true;
+                }
+            }
+
+            if (should_draw) {
+                Transform2D transform = transform2d(entity->p);
+                switch (entity->type) {
+                    case EntityType_CameraZone: {
+                        transform.rotation_arm = entity->camera_rotation_arm;
                         Image* sprite = get_image(&game_state->assets, entity->sprite);
                         if (sprite) {
                             push_image(render_context, transform, sprite, entity->color);
                         } else {
                             INVALID_CODE_PATH;
                         }
-                    } else {
-                        push_shape(render_context, transform, rectangle(entity->collision), entity->color);
+                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
+                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
+                    } break;
+
+                    case EntityType_Checkpoint: {
+                        Image* sprite = get_image(&game_state->assets, entity->sprite);
+                        if (sprite) {
+                            push_image(render_context, transform, sprite, entity->color);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
+                    } break;
+
+                    case EntityType_SoundtrackPlayer: {
+                        Image* sprite = get_image(&game_state->assets, entity->sprite);
+                        if (sprite) {
+                            push_image(render_context, transform, sprite, entity->color);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), COLOR_GREEN, ShapeRenderMode_Outline);
+                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline);
                     }
-                } break;
+
+                    default: {
+                        if (entity->sprite.value) {
+                            Image* sprite = get_image(&game_state->assets, entity->sprite);
+                            if (sprite) {
+                                push_image(render_context, transform, sprite, entity->color);
+                            } else {
+                                INVALID_CODE_PATH;
+                            }
+                        } else {
+                            push_shape(render_context, transform, rectangle(entity->collision), entity->color);
+                        }
+                    } break;
+                }
+            }
+
+            if (entity->sprite.value) {
+                entity->color = COLOR_WHITE;
+            } else {
+                entity->color = (entity->flags & EntityFlag_Hazard) ? COLOR_RED : game_state->foreground_color;
+                if (entity->flags & EntityFlag_Invisible) {
+                    entity->color.a *= 0.25f;
+                }
             }
         }
 
-        if (entity->sprite.value) {
-            entity->color = COLOR_WHITE;
-        } else {
-            entity->color = (entity->flags & EntityFlag_Hazard) ? COLOR_RED : game_state->foreground_color;
+        if (game_state->player && game_state->player->killed_this_frame) {
+            game_state->player->dead = true;
+            game_state->player->support = 0;
+            game_state->player->killed_this_frame = false;
         }
     }
 }

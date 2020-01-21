@@ -8,7 +8,7 @@ struct FontID       { u32 value; };
 struct MidiID       { u32 value; };
 struct SoundtrackID { u32 value; };
 
-enum AssetType {
+introspect() enum AssetType {
     AssetType_Unknown,
 
     AssetType_Image,

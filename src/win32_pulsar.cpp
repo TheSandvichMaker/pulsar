@@ -1,5 +1,7 @@
 // @TODO: Use large pages with VirtualAlloc
 
+#define ASSERT_ON_LOG_ERROR 0
+
 #include <windows.h>
 #include <dsound.h>
 // #include <mmdeviceapi.h>
@@ -78,12 +80,14 @@ internal PLATFORM_DEALLOCATE_MEMORY(win32_deallocate_memory) {
     }
 }
 
-internal DEBUG_PLATFORM_PRINT(win32_debug_print) {
-    OutputDebugStringA(text);
-}
-
 #define win32_log_print(log_level, format_string, ...) win32_log_print_internal(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
 internal PLATFORM_LOG_PRINT(win32_log_print_internal) {
+#if ASSERT_ON_LOG_ERROR
+    if (log_level == LogLevel_Error) {
+        assert(!"Asserted on LogLevel_Error");
+    }
+#endif
+
     va_list va_args;
     va_start(va_args, format_string);
 
@@ -805,10 +809,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.log_print = win32_log_print_internal;
             game_memory.platform_api.get_most_recent_log_message = win32_get_most_recent_log_message;
             game_memory.platform_api.get_unread_log_messages = win32_get_unread_log_messages;
-
-#if PULSAR_DEBUG
-            game_memory.platform_api.debug_print = win32_debug_print;
-#endif
 
             PlatformDebugInfo* debug_info = &game_memory.debug_info;
             debug_info->frame_history = push_struct(&win32_state.platform_arena, DebugFrameTimeHistory);

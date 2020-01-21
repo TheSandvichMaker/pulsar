@@ -112,9 +112,12 @@ global PlatformAPI platform;
 #include "pulsar_entity.h"
 #include "pulsar_editor.h"
 
-enum GameMode {
+introspect() enum GameMode {
+    GameMode_StartScreen,
     GameMode_Ingame,
     GameMode_Editor,
+
+    GameMode_Count,
 };
 
 struct PlayingMidi {
@@ -122,6 +125,8 @@ struct PlayingMidi {
         PlayingMidi* next;
         PlayingMidi* next_free;
     };
+
+    SoundtrackID source_soundtrack;
 
     // @Note: Without a sync sound, midi timing is going to be pretty rubbish.
     // With a sync sound however, it will be very good.
@@ -136,6 +141,7 @@ struct PlayingMidi {
 
 struct ActiveMidiEvent {
     using_struct(MidiEvent, midi_event);
+    SoundtrackID source_soundtrack;
     f32 dt_left;
 };
 
@@ -145,6 +151,9 @@ struct GameState {
 
     RenderContext render_context;
 
+    Font* console_font;
+
+    ConsoleState* console_state;
     EditorState* editor_state;
 
     GameMode game_mode;
@@ -181,12 +190,11 @@ struct GameState {
     b32 mid_camera_transition;
     f32 camera_transition_t;
 
+    Level* background_level;
     Level* active_level;
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
-
-    Shape2D arrow;
 };
 
 #if PULSAR_DEBUG
@@ -194,11 +202,12 @@ global GameState* dbg_game_state;
 #endif
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
-inline PlayingSound* play_soundtrack(GameState* game_state, Soundtrack* soundtrack, u32 flags = 0);
-inline void dbg_draw_arrow(v2 start, v2 end, v4 color);
+inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags = 0);
 
+inline void switch_gamemode(GameState* game_state, GameMode game_mode);
 internal void write_level_to_disk(GameState* game_state, Level* level, String level_name);
 internal b32 load_level_from_disk(GameState* game_state, Level* level, String level_name);
+internal void load_level(GameState* game_state, String level_name);
 
 #define DEFINE_COLORS(MIDDLE_FIX, VALUE, COUNTER_VALUE) \
 static const v4 COLOR_##MIDDLE_FIX##RED    = { VALUE         , COUNTER_VALUE , COUNTER_VALUE , 1 }; \

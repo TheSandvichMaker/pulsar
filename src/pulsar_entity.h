@@ -1,6 +1,8 @@
 #ifndef PULSAR_ENTITY_H
 #define PULSAR_ENTITY_H
 
+struct EntityID { u32 value; };
+
 introspect(flags: true) enum EntityFlag {
     EntityFlag_Physical  = 0x1,
     EntityFlag_Collides  = 0x2,
@@ -24,13 +26,22 @@ introspect() enum EntityType {
     EntityType_Count,
 };
 
-struct EntityID { u32 value; };
+introspect() enum WallBehaviour {
+    WallBehaviour_None,
+
+    WallBehaviour_Move = 1,
+    WallBehaviour_Toggle = 2,
+
+    WallBehaviour_Count,
+};
 
 struct Entity {
     EntityID guid;
     EntityType type;
 
     u32 flags;
+
+    b32 killed_this_frame;
     b32 dead;
 
     v2 p;
@@ -49,20 +60,25 @@ struct Entity {
             f32 late_jump_timer;
             f32 gravity;
             b32 was_supported;
-            v2 support_dp;
             Entity* support;
+            v2 support_dp;
             v2 support_normal;
-            v2 local_p;
+            Entity* contact;
+            v2 contact_move;
         };
 
         struct {
             // @Note: Wall
-            f32 surface_friction;
-            u32 midi_note;
+            WallBehaviour behaviour;
 
+            u32 midi_note;
+            SoundtrackID listening_to;
+            v2 end_p;
+            f32 movement_speed_ms;
+
+            v2 start_p;
+            b32 moving_to_end;
             f32 movement_t;
-            v2 sticking_dp;
-            v2 midi_test_target;
         };
 
         struct {

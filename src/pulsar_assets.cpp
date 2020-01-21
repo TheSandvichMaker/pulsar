@@ -78,8 +78,15 @@ inline AssetID get_asset_id_by_name(Assets* assets, String name, AssetType asset
         if (asset->name.len && strings_are_equal(asset->name, name)) {
             if (asset_type == AssetType_Unknown || asset->type == asset_type) {
                 result = { asset_index };
+                break;
             }
         }
+    }
+
+    if (!result.value) {
+        __debugbreak();
+        // @TODO: Check if the asset was present, but there was a type mismatch
+        log_print(LogLevel_Error, "Could not find asset '%.*s'", PRINTF_STRING(name));
     }
 
     return result;
@@ -107,17 +114,26 @@ inline SoundtrackID get_soundtrack_id_by_name(Assets* assets, String name) {
 
 inline Asset* get_asset(Assets* assets, AssetID asset_id) {
     assert(asset_id.value < assets->asset_count);
-    Asset* result = assets->asset_catalog + asset_id.value;
+
+    Asset* result = 0;
+    if (asset_id.value > 0 && asset_id.value < assets->asset_count) {
+        result = assets->asset_catalog + asset_id.value;
+    } else {
+        log_print(LogLevel_Error, "Asset ID %u was out of range", asset_id.value);
+    }
+
     return result;
 }
 
 inline Sound* get_sound(Assets* assets, SoundID id) {
-    Asset* asset = get_asset(assets, { id.value });
     Sound* result = 0;
-    if (asset->type == AssetType_Sound) {
-        result = &asset->sound;
-    } else {
-        INVALID_CODE_PATH;
+    Asset* asset = get_asset(assets, { id.value });
+    if (asset) {
+        if (asset->type == AssetType_Sound) {
+            result = &asset->sound;
+        } else {
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Sound, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+        }
     }
 
     return result;
@@ -135,16 +151,19 @@ inline Sound* get_sound_by_name(Assets* assets, String name) {
 }
 
 inline Image* get_image(Assets* assets, ImageID id) {
-    Asset* asset = get_asset(assets, { id.value });
     Image* result = 0;
-    if (asset->type == AssetType_Image) {
-        result = &asset->image;
-    } else {
-        INVALID_CODE_PATH;
+    Asset* asset = get_asset(assets, { id.value });
+    if (asset) {
+        if (asset->type == AssetType_Image) {
+            result = &asset->image;
+        } else {
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Image, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+        }
     }
 
     return result;
 }
+
 
 inline Image* get_image_by_name(Assets* assets, String name) {
     Image* result = 0;
@@ -158,12 +177,14 @@ inline Image* get_image_by_name(Assets* assets, String name) {
 }
 
 inline Font* get_font(Assets* assets, FontID id) {
-    Asset* asset = get_asset(assets, { id.value });
     Font* result = 0;
-    if (asset->type == AssetType_Font) {
-        result = &asset->font;
-    } else {
-        INVALID_CODE_PATH;
+    Asset* asset = get_asset(assets, { id.value });
+    if (asset) {
+        if (asset->type == AssetType_Font) {
+            result = &asset->font;
+        } else {
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Font, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+        }
     }
 
     return result;
@@ -221,12 +242,14 @@ inline f32 get_line_spacing(Font* font) {
 }
 
 inline MidiTrack* get_midi(Assets* assets, MidiID id) {
-    Asset* asset = get_asset(assets, { id.value });
     MidiTrack* result = 0;
-    if (asset->type == AssetType_Midi) {
-        result = &asset->midi_track;
-    } else {
-        INVALID_CODE_PATH;
+    Asset* asset = get_asset(assets, { id.value });
+    if (asset) {
+        if (asset->type == AssetType_Midi) {
+            result = &asset->midi_track;
+        } else {
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Midi, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+        }
     }
 
     return result;
@@ -244,12 +267,14 @@ inline MidiTrack* get_midi_by_name(Assets* assets, String name) {
 }
 
 inline Soundtrack* get_soundtrack(Assets* assets, SoundtrackID id) {
-    Asset* asset = get_asset(assets, { id.value });
     Soundtrack* result = 0;
-    if (asset->type == AssetType_Soundtrack) {
-        result = &asset->soundtrack;
-    } else {
-        INVALID_CODE_PATH;
+    Asset* asset = get_asset(assets, { id.value });
+    if (asset) {
+        if (asset->type == AssetType_Soundtrack) {
+            result = &asset->soundtrack;
+        } else {
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Soundtrack, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+        }
     }
 
     return result;

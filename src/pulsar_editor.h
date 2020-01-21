@@ -61,6 +61,7 @@ enum EditableType {
     Editable_SoundtrackID,
     Editable_EntityFlag,
     Editable_EntityPtr,
+    Editable_WallBehaviour,
 };
 
 struct EditableParameter {
@@ -87,7 +88,8 @@ introspect() enum EditorWidgetType {
     Widget_None = 0,
     Widget_DragEditable,
     Widget_ManipulateEntity,
-    Widget_DragV2,
+    Widget_DragRegion,
+    Widget_DragP,
 };
 
 enum EntityManipulateType {
@@ -103,7 +105,13 @@ struct EditorWidgetManipulateEntity {
     v2 drag_offset;
 };
 
-struct EditorWidgetDragV2 {
+struct EditorWidgetDragP {
+    v2 original_p;
+    v2 drag_offset;
+    EntityData<v2> target;
+};
+
+struct EditorWidgetDragRegion {
     v2 scaling;
     v2 original;
     v2 original_p;
@@ -117,7 +125,8 @@ struct EditorWidget {
     union {
         void* start_value;
         EditorWidgetManipulateEntity manipulate;
-        EditorWidgetDragV2 drag_v2;
+        EditorWidgetDragRegion drag_region;
+        EditorWidgetDragP drag_p;
     };
 };
 
@@ -127,6 +136,8 @@ struct EntityHash {
 };
 
 struct ConsoleState {
+    RenderContext rc;
+
     b32 open;
     f32 openness_t;
 
@@ -139,16 +150,22 @@ inline String input_buffer_as_string(ConsoleState* console) {
     return result;
 }
 
+introspect() enum EntityPrefab {
+    EntityPrefab_Null,
+
+    EntityPrefab_Hazard,
+    EntityPrefab_InvisibleHazard,
+};
+
 struct EditorState {
+    // @TODO: Disentangle GameState from EditorState
+    struct GameState* game_state;
+
     b32 initialized;
     b32 shown;
     b32 show_statistics;
 
-    ConsoleState console_state;
-
     MemoryArena* arena;
-
-    Level* active_level;
 
     RenderContext render_context;
     Assets* assets;
@@ -186,6 +203,9 @@ struct EditorState {
 
     v2 spawn_menu_p;
     EntityType type_to_spawn;
+    EntityPrefab prefab_to_spawn;
+
+    LinearBuffer<EntityPrefab>* entity_prefabs[EntityType_Count];
 
     EditorWidget next_hot_widget;
     EditorWidget hot_widget;
@@ -203,10 +223,15 @@ struct EditorState {
     u8 undo_buffer[UNDO_BUFFER_SIZE];
 };
 
-struct EditorLayout {
-    EditorState* editor;
+struct UILayoutContext {
+    RenderContext* rc;
+    Assets* assets;
+    MemoryArena* temp_arena;
+    Font* font;
+};
 
-    Font* active_font;
+struct UILayout {
+    UILayoutContext context;
 
     v2 origin;
     v2 at_p;
@@ -223,16 +248,16 @@ struct EditorLayout {
     AxisAlignedBox2 total_bounds;
 };
 
-inline EditorLayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = false) {
-    EditorLayout layout = {};
+inline UILayout make_layout(UILayoutContext context, v2 origin, b32 bottom_up = false) {
+    UILayout layout = {};
 
-    layout.editor = editor;
-    layout.active_font = editor->font;
+    layout.context = context;
+
     layout.origin = origin;
     layout.at_p = layout.origin;
     layout.spacing = 8.0f;
 
-    layout.vertical_advance = -(get_line_spacing(editor->font) + layout.spacing);
+    layout.vertical_advance = -(get_line_spacing(context.font) + layout.spacing);
     if (bottom_up) {
         layout.vertical_advance = -layout.vertical_advance;
     }
@@ -241,6 +266,11 @@ inline EditorLayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = 
     layout.last_print_bounds = inverted_infinity_aab2();
     layout.total_bounds = inverted_infinity_aab2();
 
+    return layout;
+}
+
+inline UILayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = false) {
+    UILayout layout = make_layout({ &editor->render_context, editor->assets, editor->arena, editor->font }, origin, bottom_up);
     return layout;
 }
 
