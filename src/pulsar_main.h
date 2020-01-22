@@ -98,9 +98,7 @@
 #include "pulsar_common.h"
 #include "pulsar_platform_bridge.h"
 
-global GameConfig game_config;
-global PlatformAPI platform;
-#define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
+global GameConfig* game_config;
 
 #include "pulsar_shapes.h"
 #include "pulsar_render_commands.h"
@@ -113,7 +111,7 @@ global PlatformAPI platform;
 #include "pulsar_editor.h"
 
 introspect() enum GameMode {
-    GameMode_StartScreen,
+    GameMode_Menu,
     GameMode_Ingame,
     GameMode_Editor,
 
@@ -132,6 +130,7 @@ struct PlayingMidi {
     // With a sync sound however, it will be very good.
     PlayingSound* sync_sound;
 
+    f32 playback_rate;
     u32 tick_timer;
     u32 event_index;
     MidiTrack* track;
@@ -145,27 +144,35 @@ struct ActiveMidiEvent {
     f32 dt_left;
 };
 
+struct MenuState {
+    Font* font;
+
+    u32 selected_item;
+    f32 bob_t;
+};
+
 struct GameState {
     MemoryArena permanent_arena;
     MemoryArena transient_arena;
 
     RenderContext render_context;
 
-    Font* console_font;
+    Assets assets;
 
-    ConsoleState* console_state;
-    EditorState* editor_state;
+    AudioMixer audio_mixer;
+    AudioGroup game_audio;
+    AudioGroup ui_audio;
 
     GameMode game_mode;
 
-    AudioMixer audio_mixer;
-    Assets assets;
+    MenuState* menu_state;
+    ConsoleState* console_state;
+    EditorState* editor_state;
+
+    String level_to_load;
 
     v4 foreground_color;
     v4 background_color;
-
-    f32 frame_dt;
-    f32 frame_dt_left;
 
     f32 player_respawn_timer;
 
@@ -196,10 +203,6 @@ struct GameState {
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
 };
-
-#if PULSAR_DEBUG
-global GameState* dbg_game_state;
-#endif
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags = 0);

@@ -46,6 +46,7 @@ inline size_t get_arena_size_remaining(MemoryArena* arena, AllocateParams params
     return result;
 }
 
+// @TODO: Isn't zero_struct redundant given you can do *instance = {}? I guess if you want to intentionally not initialize to default values it's got a purpose.
 #define zero_struct(instance) zero_size(sizeof(instance), &(instance))
 #define zero_array(count, pointer) zero_size(count*sizeof((pointer)[0]), pointer)
 inline void* zero_size(size_t size, void* ptr) {

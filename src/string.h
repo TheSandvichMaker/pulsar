@@ -358,6 +358,33 @@ inline String advance_to(String* string, char target, u32 flags = 0) {
     return result;
 }
 
+inline String advance_legal_identifier(String* string) {
+    char* start = 0;
+    char* end = 0;
+    if (chars_left(string)) {
+        while (chars_left(string) && is_whitespace(peek(string))) {
+            advance(string);
+        }
+
+        if (!is_numeric(peek(string))) {
+            start = string->data;
+            while (chars_left(string) && !is_whitespace(peek(string)) && (is_alphanumeric(peek(string)) || peek(string) == '_')) {
+                advance(string);
+            }
+            end = string->data;
+
+            while (chars_left(string) && is_whitespace(peek(string))) {
+                advance(string);
+            }
+        } else {
+            /* You have to start with a non-digit */
+        }
+    }
+
+    String result = string_from_two_pointers(start, end);
+    return result;
+}
+
 inline String advance_word(String* string) {
     char* start = 0;
     char* end = 0;
@@ -397,7 +424,7 @@ inline b32 match_word(String* source_string, char* target, String* out_word = 0)
 
 inline String advance_line(String* string) {
     char* start = string->data;
-    while (!is_newline(peek(string))) {
+    while (chars_left(string) && !is_newline(peek(string))) {
         advance(string);
     }
     char* end = string->data;

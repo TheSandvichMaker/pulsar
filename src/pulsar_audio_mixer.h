@@ -5,6 +5,10 @@ enum PlaybackFlag {
     Playback_Looping = 0x1,
 };
 
+enum SoundCategory {
+
+};
+
 enum SoundSourceType {
     SoundSource_Sound,
     SoundSource_Synth,
@@ -13,13 +17,18 @@ enum SoundSourceType {
 #define SOUND_SYNTH(name) f32 name(u32 channel_count, u32 channel_index, u32 sample_rate, u32 sample_index, f32 pitch)
 typedef SOUND_SYNTH(Synth);
 
+struct SoundVolume {
+    f32 current_volume[2];
+    f32 dv_over_t[2];
+    f32 target_volume[2];
+};
+
 struct PlayingSound {
     b32 initialized;
 
-    f32 current_volume[2];
-    f32 dv_over_t[2]; // v: volume
-    f32 target_volume[2];
+    SoundVolume volume;
 
+    f32 playback_rate;
     u32 samples_played;
 
     u32 flags;
@@ -35,12 +44,24 @@ struct PlayingSound {
     PlayingSound* next;
 };
 
+struct AudioGroup {
+    struct AudioMixer* mixer;
+
+    b32 pause_requested;
+    b32 paused;
+    SoundVolume volume;
+    f32 volume_on_unpause[2];
+
+    PlayingSound* first_playing_sound;
+    AudioGroup* next_audio_group;
+};
+
 struct AudioMixer {
     MemoryArena* arena;
 
     f32 master_volume[2];
 
-    PlayingSound* first_playing_sound;
+    AudioGroup* first_audio_group;
     PlayingSound* first_free_playing_sound;
 };
 

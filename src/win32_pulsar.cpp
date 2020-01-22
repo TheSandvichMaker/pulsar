@@ -31,6 +31,9 @@
 global WglInfo wgl_info;
 global OpenGLInfo opengl_info;
 
+// @TODO: Have a good policy about shared code
+inline b32 parse_config(GameConfig* config, String in_file);
+
 #include "pulsar_main.cpp"
 
 #define WIN32_LOG_MEMORY_CHUNK_SIZE MEGABYTES(1)
@@ -502,11 +505,12 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                     if (was_down == is_down) break;
 
                     GameConfig* config = &win32_state.config;
-                    if (vk_code == config->up    || vk_code == config->alternate_up   ) win32_process_keyboard_message(&input->controller.move_up,    is_down);
-                    if (vk_code == config->left  || vk_code == config->alternate_left ) win32_process_keyboard_message(&input->controller.move_left,  is_down);
-                    if (vk_code == config->down  || vk_code == config->alternate_down ) win32_process_keyboard_message(&input->controller.move_down,  is_down);
-                    if (vk_code == config->right || vk_code == config->alternate_right) win32_process_keyboard_message(&input->controller.move_right, is_down);
-                    if (vk_code == config->jump  || vk_code == config->alternate_jump ) win32_process_keyboard_message(&input->controller.jump,       is_down);
+                    if (vk_code == config->up       || vk_code == config->alternate_up      ) win32_process_keyboard_message(&input->controller.move_up,    is_down);
+                    if (vk_code == config->left     || vk_code == config->alternate_left    ) win32_process_keyboard_message(&input->controller.move_left,  is_down);
+                    if (vk_code == config->down     || vk_code == config->alternate_down    ) win32_process_keyboard_message(&input->controller.move_down,  is_down);
+                    if (vk_code == config->right    || vk_code == config->alternate_right   ) win32_process_keyboard_message(&input->controller.move_right, is_down);
+                    if (vk_code == config->jump     || vk_code == config->alternate_jump    ) win32_process_keyboard_message(&input->controller.jump,       is_down);
+                    if (vk_code == config->interact || vk_code == config->alternate_interact) win32_process_keyboard_message(&input->controller.interact,   is_down);
 
                     switch (vk_code) {
                         case VK_ESCAPE: {
@@ -563,114 +567,108 @@ inline b32 parse_config(GameConfig* config, String in_file) {
             continue;
         }
 
-        String key       = advance_word(&line);
-        String separator = advance_word(&line);
+        String key       = advance_legal_identifier(&line);
         String value     = trim_spaces(advance_to(&line, '#'));
 
-        if (strings_are_equal(separator, "=") || strings_are_equal(separator, ":")) {
-            b32 found_matching_member = false;
-            for (u32 member_index = 0; member_index < members_count(GameConfig) && !found_matching_member; member_index++) {
-                MemberDefinition* member = members_of(GameConfig) + member_index;
-                void** member_ptr = member_ptr(config, member);
+        b32 found_matching_member = false;
+        for (u32 member_index = 0; member_index < members_count(GameConfig) && !found_matching_member; member_index++) {
+            MemberDefinition* member = members_of(GameConfig) + member_index;
+            void** member_ptr = member_ptr(config, member);
 
-                if (strings_are_equal(member->name, key)) {
-                    found_matching_member = true;
-                    b32 successful_parse = true;
+            if (strings_are_equal(member->name, key)) {
+                found_matching_member = true;
+                b32 successful_parse = true;
 
-                    if (member->flags & MetaMemberFlag_IsPointer) {
-                        assert(!"I don't support any types that are pointers!!!");
-                    }
+                if (member->flags & MetaMemberFlag_IsPointer) {
+                    assert(!"I don't support any types that are pointers!!!");
+                }
 
-                    switch (member->type) {
-                        case meta_type(b32): {
-                            if (strings_are_equal(value, "true", StringMatch_CaseInsenitive) || strings_are_equal(value, "1")) {
-                                *(cast(b32*) member_ptr) = true;
-                            } else if (strings_are_equal(value, "false", StringMatch_CaseInsenitive) || strings_are_equal(value, "0")) {
-                                *(cast(b32*) member_ptr) = false;
-                            } else {
-                                successful_parse = false;
+                switch (member->type) {
+                    case meta_type(b32): {
+                        if (strings_are_equal(value, "true", StringMatch_CaseInsenitive) || strings_are_equal(value, "1")) {
+                            *(cast(b32*) member_ptr) = true;
+                        } else if (strings_are_equal(value, "false", StringMatch_CaseInsenitive) || strings_are_equal(value, "0")) {
+                            *(cast(b32*) member_ptr) = false;
+                        } else {
+                            successful_parse = false;
+                        }
+                    } break;
+
+                    case meta_type(s8):
+                    case meta_type(s16):
+                    case meta_type(s32):
+                    case meta_type(s64): {
+                        s64 result = 0;
+                        if (parse_s64(&value, &result)) {
+                            switch (member->type) {
+                                case meta_type(s8 ): { *(cast(s8 *) member_ptr) = cast(s8 ) CLAMP(result,  INT8_MIN,  INT8_MAX); } break;
+                                case meta_type(s16): { *(cast(s16*) member_ptr) = cast(s16) CLAMP(result, INT16_MIN, INT16_MAX); } break;
+                                case meta_type(s32): { *(cast(s32*) member_ptr) = cast(s32) CLAMP(result, INT32_MIN, INT32_MAX); } break;
+                                case meta_type(s64): { *(cast(s64*) member_ptr) = result; } break;
+                                default: { successful_parse = false; } break;
                             }
-                        } break;
+                        } else {
+                            successful_parse = false;
+                        }
+                    } break;
 
-                        case meta_type(s8):
-                        case meta_type(s16):
-                        case meta_type(s32):
-                        case meta_type(s64): {
-                            s64 result = 0;
-                            if (parse_s64(&value, &result)) {
-                                switch (member->type) {
-                                    case meta_type(s8 ): { *(cast(s8 *) member_ptr) = cast(s8 ) CLAMP(result,  INT8_MIN,  INT8_MAX); } break;
-                                    case meta_type(s16): { *(cast(s16*) member_ptr) = cast(s16) CLAMP(result, INT16_MIN, INT16_MAX); } break;
-                                    case meta_type(s32): { *(cast(s32*) member_ptr) = cast(s32) CLAMP(result, INT32_MIN, INT32_MAX); } break;
-                                    case meta_type(s64): { *(cast(s64*) member_ptr) = result; } break;
-                                    default: { successful_parse = false; } break;
-                                }
-                            } else {
-                                successful_parse = false;
+                    case meta_type(char):
+                    case meta_type(u8):
+                    case meta_type(u16):
+                    case meta_type(u32):
+                    case meta_type(u64): {
+                        u64 result = 0;
+                        if (parse_u64(&value, &result)) {
+                            switch (member->type) {
+                                case meta_type(u8 ): { *(cast(u8 *) member_ptr) = cast(u8 ) MIN(result,  UINT8_MAX); } break;
+                                case meta_type(u16): { *(cast(u16*) member_ptr) = cast(u16) MIN(result, UINT16_MAX); } break;
+                                case meta_type(u32): { *(cast(u32*) member_ptr) = cast(u32) MIN(result, UINT32_MAX); } break;
+                                case meta_type(u64): { *(cast(u64*) member_ptr) = result; } break;
+                                default: { successful_parse = false; } break;
                             }
-                        } break;
-
-                        case meta_type(char):
-                        case meta_type(u8):
-                        case meta_type(u16):
-                        case meta_type(u32):
-                        case meta_type(u64): {
-                            u64 result = 0;
-                            if (parse_u64(&value, &result)) {
-                                switch (member->type) {
-                                    case meta_type(u8 ): { *(cast(u8 *) member_ptr) = cast(u8 ) MIN(result,  UINT8_MAX); } break;
-                                    case meta_type(u16): { *(cast(u16*) member_ptr) = cast(u16) MIN(result, UINT16_MAX); } break;
-                                    case meta_type(u32): { *(cast(u32*) member_ptr) = cast(u32) MIN(result, UINT32_MAX); } break;
-                                    case meta_type(u64): { *(cast(u64*) member_ptr) = result; } break;
-                                    default: { successful_parse = false; } break;
-                                }
-                            } else if (member->type == meta_type(u8) || member->type == meta_type(char)) {
-                                if (value.len != 1) {
-                                    log_print(LogLevel_Warn, "Found multiple characters in character value. Ignoring all but the first");
-                                }
-                                *(cast(char*) member_ptr) = peek(value);
-                            } else {
-                                successful_parse = false;
+                        } else if (member->type == meta_type(u8) || member->type == meta_type(char)) {
+                            if (value.len != 1) {
+                                log_print(LogLevel_Warn, "Found multiple characters in character value. Ignoring all but the first");
                             }
-                        } break;
+                            *(cast(char*) member_ptr) = peek(value);
+                        } else {
+                            successful_parse = false;
+                        }
+                    } break;
 
-                        case meta_type(f32):
-                        case meta_type(f64): {
-                            f64 result = 0;
-                            if (parse_f64(&value, &result)) {
-                                switch (member->type) {
-                                    case meta_type(f32): { *(cast(f32*) member_ptr) = cast(f32) clamp(result, cast(f64) -FLT_MAX, cast(f64) FLT_MAX); } break;
-                                    case meta_type(f64): { *(cast(f64*) member_ptr) = result; } break;
-                                    default: { successful_parse = false; } break;
-                                }
-                            } else {
-                                successful_parse = false;
+                    case meta_type(f32):
+                    case meta_type(f64): {
+                        f64 result = 0;
+                        if (parse_f64(&value, &result)) {
+                            switch (member->type) {
+                                case meta_type(f32): { *(cast(f32*) member_ptr) = cast(f32) clamp(result, cast(f64) -FLT_MAX, cast(f64) FLT_MAX); } break;
+                                case meta_type(f64): { *(cast(f64*) member_ptr) = result; } break;
+                                default: { successful_parse = false; } break;
                             }
-                        } break;
+                        } else {
+                            successful_parse = false;
+                        }
+                    } break;
 
-                        case meta_type(String): {
-                            *(cast(String*) member_ptr) = value;
-                        } break;
-                    }
+                    case meta_type(String): {
+                        *(cast(String*) member_ptr) = value;
+                    } break;
+                }
 
-                    if (!successful_parse) {
-                        no_errors = false;
-                        win32_log_print(LogLevel_Error, "Could not parse value '%.*s' for key '%.*s' of type '%s'",
-                            PRINTF_STRING(value),
-                            PRINTF_STRING(key),
-                            meta_type_name(member->type)
-                        );
-                    }
+                if (!successful_parse) {
+                    no_errors = false;
+                    win32_log_print(LogLevel_Error, "Could not parse value '%.*s' for key '%.*s' of type '%s'",
+                        PRINTF_STRING(value),
+                        PRINTF_STRING(key),
+                        meta_type_name(member->type)
+                    );
                 }
             }
+        }
 
-            if (!found_matching_member) {
-                no_errors = false;
-                win32_log_print(LogLevel_Error, "Found no matching config member for key '%.*s'", PRINTF_STRING(key));
-            }
-        } else {
+        if (!found_matching_member) {
             no_errors = false;
-            win32_log_print(LogLevel_Error, "Unexpected string after %.*s: '%.*s'", PRINTF_STRING(key), PRINTF_STRING(separator));
+            win32_log_print(LogLevel_Error, "Found no matching config member for key '%.*s'", PRINTF_STRING(key));
         }
     }
 
@@ -768,7 +766,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             sound_output.buffer_size = sound_output.sample_rate*sound_output.bytes_per_sample;
 
             // @Note: sound_latency_ms defines how long game_get_sound can take without producing any audio glitches.
-            f32 sound_latency_ms = 4.0f;
+            f32 sound_latency_ms = 6.0f;
             sound_output.safety_bytes = cast(u32) (sound_output.sample_rate*sound_output.bytes_per_sample*sound_latency_ms*0.001f);
 
             sound_output.buffer = win32_init_dsound(window, sound_output.sample_rate, sound_output.buffer_size);
@@ -871,7 +869,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                 new_input->event_mode = old_input->event_mode;
                 new_input->update_rate = game_update_rate;
-                new_input->frame_dt = 1.0f / new_input->update_rate;
+                new_input->frame_dt = (1.0f / new_input->update_rate)*win32_state.config.simulation_rate;
                 new_input->in_focus = win32_state.in_focus;
                 new_input->focus_changed = win32_state.focus_changed;
 
@@ -986,6 +984,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 win32_output_image(&render_commands, window_dc);
 
                 game_post_render(&game_memory, new_input, &render_commands);
+
+                // @Note: Preserve changes the game made to the config
+                win32_state.config = game_memory.config;
 
                 LARGE_INTEGER end_counter = win32_get_clock();
                 last_frame_time = win32_get_seconds_elapsed(start_counter, end_counter);

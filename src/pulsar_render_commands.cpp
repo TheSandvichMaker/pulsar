@@ -14,7 +14,7 @@ inline void render_worldspace(RenderContext* render_context, f32 vertical_fov) {
 }
 
 inline void initialize_render_context(RenderContext* render_context, GameRenderCommands* commands, f32 vertical_screen_percentage_to_units) {
-    zero_struct(*render_context);
+    *render_context = {};
     render_worldspace(render_context, vertical_screen_percentage_to_units);
     render_context->camera_rotation_arm = vec2(1, 0);
     render_context->commands = commands;

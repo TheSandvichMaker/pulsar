@@ -55,6 +55,7 @@ internal void load_assets(Assets* assets, MemoryArena* arena, char* file_name) {
                     MidiTrack* midi_track = &dest_asset->midi_track;
                     midi_track->packed_midi = source_asset->midi;
                     midi_track->events = cast(MidiEvent*) (assets->asset_data + source_asset->data_offset);
+                    int y = 0;
                 } break;
 
                 case AssetType_Soundtrack: {

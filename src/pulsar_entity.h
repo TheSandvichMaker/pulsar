@@ -41,13 +41,12 @@ struct Entity {
 
     u32 flags;
 
-    b32 killed_this_frame;
+    b32 killed_this_frame; // @Note: this is to defer entity death to the end of the frame, so they still get rendered on the frame on which they died
     b32 dead;
 
     v2 p;
     v2 dp;
     v2 ddp;
-    v2 ballistic_dp;
 
     v2 collision;
 
@@ -55,8 +54,7 @@ struct Entity {
     v4 color;
 
     union {
-        struct {
-            // @Note: Player
+        struct /* Player */ {
             f32 early_jump_timer;
             f32 late_jump_timer;
 
@@ -69,12 +67,12 @@ struct Entity {
             f32 retained_support_dp_timer;
             v2 support_normal;
 
-            Entity* contact;
+            v2 ballistic_dp;
+
             v2 contact_move;
         };
 
-        struct {
-            // @Note: Wall
+        struct /* Wall */ {
             WallBehaviour behaviour;
 
             u32 midi_note;
@@ -87,8 +85,7 @@ struct Entity {
             f32 movement_t;
         };
 
-        struct {
-            // @Note: Soundtrack Player
+        struct /* SoundtrackPlayer */ {
             SoundtrackID soundtrack_id;
             u32 playback_flags;
             v2 audible_zone;
@@ -98,15 +95,13 @@ struct Entity {
             PlayingSound* playing;
         };
 
-        struct {
-            // @Note: Camera Zone;
+        struct /* CameraZone */ {
             v2 active_region;
             f32 view_region_height;
             v2 camera_rotation_arm;
         };
 
-        struct {
-            // @Note: Checkpoint
+        struct /* Checkpoint */ {
             v2 checkpoint_zone;
             v2 most_recent_player_position;
         };

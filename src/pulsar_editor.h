@@ -51,6 +51,8 @@ enum EditableFlag {
     Editable_IsBool = 0x8,
 };
 
+global char* midi_note_names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
 enum EditableType {
     Editable_u32,
     Editable_s32,
@@ -137,6 +139,8 @@ struct EntityHash {
 
 struct ConsoleState {
     RenderContext rc;
+
+    Font* font;
 
     b32 open;
     b32 wide_open;
@@ -236,8 +240,11 @@ struct UILayoutContext {
 struct UILayout {
     UILayoutContext context;
 
+    u32 flags;
+
     v2 origin;
     v2 at_p;
+    v2 offset_p;
     f32 spacing;
     u32 depth;
 
@@ -251,17 +258,27 @@ struct UILayout {
     AxisAlignedBox2 total_bounds;
 };
 
-inline UILayout make_layout(UILayoutContext context, v2 origin, b32 bottom_up = false) {
+enum LayoutFlag {
+    Layout_BottomUp        = 0x1,
+    // @TODO: Make these do something
+    Layout_HorzCenterAlign = 0x2,
+    Layout_VertCenterAlign = 0x4,
+    Layout_CenterAlign     = Layout_HorzCenterAlign|Layout_VertCenterAlign,
+};
+
+inline UILayout make_layout(UILayoutContext context, v2 origin, u32 flags = 0) {
     UILayout layout = {};
 
     layout.context = context;
+
+    layout.flags = flags;
 
     layout.origin = origin;
     layout.at_p = layout.origin;
     layout.spacing = 8.0f;
 
     layout.vertical_advance = -(get_line_spacing(context.font) + layout.spacing);
-    if (bottom_up) {
+    if (layout.flags & Layout_BottomUp) {
         layout.vertical_advance = -layout.vertical_advance;
     }
 
@@ -270,6 +287,15 @@ inline UILayout make_layout(UILayoutContext context, v2 origin, b32 bottom_up = 
     layout.total_bounds = inverted_infinity_aab2();
 
     return layout;
+}
+
+inline void set_spacing(UILayout* layout, f32 spacing) {
+    layout->spacing = spacing;
+
+    layout->vertical_advance = -(get_line_spacing(layout->context.font) + layout->spacing);
+    if (layout->flags & Layout_BottomUp) {
+        layout->vertical_advance = -layout->vertical_advance;
+    }
 }
 
 inline UILayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = false) {

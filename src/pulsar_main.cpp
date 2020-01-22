@@ -346,6 +346,23 @@ level_load_end:
     return !level_load_error;
 }
 
+internal void load_level(GameState* game_state, String level_name) {
+    if (load_level_from_disk(game_state, game_state->background_level, level_name)) {
+        Level* temp = game_state->active_level;
+        game_state->active_level = game_state->background_level;
+        game_state->background_level = temp;
+
+        if (game_state->editor_state) {
+            load_level_into_editor(game_state->editor_state, game_state->active_level);
+        }
+    }
+}
+
+inline String level_name(Level* level) {
+    String result = wrap_string(level->name_length, level->name);
+    return result;
+}
+
 inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0, SoundtrackID source_soundtrack = { 0 }) {
     if (!game_state->first_free_playing_midi) {
         game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
@@ -358,14 +375,21 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     playing_midi->next = game_state->first_playing_midi;
     game_state->first_playing_midi = playing_midi;
 
-    zero_struct(*playing_midi);
+    *playing_midi = {};
     playing_midi->track = track;
     playing_midi->flags = flags;
     playing_midi->source_soundtrack = source_soundtrack;
     playing_midi->sync_sound = sync_sound;
     playing_midi->sync_sound->synced_midi = playing_midi;
+    playing_midi->playback_rate = 1.0f;
+
+    log_print(LogLevel_Info, "Playing midi track with %u events", track->event_count);
 
     return playing_midi;
+}
+
+inline void change_playback_rate(PlayingMidi* midi, f32 playback_rate) {
+    midi->playback_rate = clamp(playback_rate, 0.1f, 32.0f);
 }
 
 inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags) {
@@ -374,10 +398,10 @@ inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtr
     if (soundtrack) {
         Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
         if (sound) {
-            result = play_sound(&game_state->audio_mixer, sound, flags);
+            result = play_sound(&game_state->game_audio, sound, flags);
             for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
                 MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
-                play_midi(game_state, track, flags, result, soundtrack_id);
+                PlayingMidi* playing_midi = play_midi(game_state, track, flags, result, soundtrack_id);
             }
         }
     }
@@ -448,12 +472,20 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
         editor->camera_p_on_exit = game_state->render_context.camera_p;
     }
 
+    if (game_state->game_mode == GameMode_Ingame && game_mode != GameMode_Ingame) {
+        pause_group(&game_state->game_audio, 0.1f);
+    }
+
     switch (game_mode) {
-        case GameMode_StartScreen: {
+        case GameMode_Menu: {
         } break;
 
         case GameMode_Ingame: {
-            load_level_into_game_state(game_state, game_state->active_level);
+            if (!strings_are_equal(game_state->level_to_load, level_name(game_state->active_level))) {
+                load_level(game_state, game_state->level_to_load);
+                load_level_into_game_state(game_state, game_state->active_level);
+            }
+            unpause_group(&game_state->game_audio, 0.25f);
         } break;
 
         case GameMode_Editor: {
@@ -462,8 +494,6 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 
             editor->shown = true;
 
-            stop_all_sounds(&game_state->audio_mixer);
-            stop_all_midi_tracks(game_state);
             game_state->entity_count = 0;
             game_state->player = 0;
         } break;
@@ -495,22 +525,12 @@ inline CameraView get_camera_view(RenderContext* render_context, Entity* camera_
     return result;
 }
 
-internal void load_level(GameState* game_state, String level_name) {
-    if (load_level_from_disk(game_state, game_state->background_level, level_name)) {
-        Level* temp = game_state->active_level;
-        game_state->active_level = game_state->background_level;
-        game_state->background_level = temp;
-
-        if (game_state->editor_state) {
-            load_level_into_editor(game_state->editor_state, game_state->active_level);
-        }
-    }
-}
+global Sound* test_sound;
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
-    game_config = memory->config;
+    game_config = &memory->config;
     platform = memory->platform_api;
 
     //
@@ -519,26 +539,31 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     GameState* game_state = cast(GameState*) memory->permanent_storage;
 
-#if PULSAR_DEBUG
-    dbg_game_state = game_state;
-#endif
-
-    u32 width = render_commands->width;
-    u32 height = render_commands->height;
-    f32 aspect_ratio = cast(f32) width / cast(f32) height;
-
     if (!memory->initialized) {
         initialize_arena(&game_state->permanent_arena, memory->permanent_storage_size - sizeof(GameState), cast(u8*) memory->permanent_storage + sizeof(GameState));
         initialize_arena(&game_state->transient_arena, memory->transient_storage_size, memory->transient_storage);
 
-        initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
-
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        game_state->console_font = get_font_by_name(&game_state->assets, string_literal("editor_font"));
-        game_state->console_state = push_struct(&game_state->permanent_arena, ConsoleState);
-        initialize_render_context(&game_state->console_state->rc, render_commands, 1.0f);
+        test_sound = get_sound_by_name(&game_state->assets, string_literal("test_sound"));
+
+        initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
+        initialize_audio_group(&game_state->game_audio, &game_state->audio_mixer);
+        initialize_audio_group(&game_state->ui_audio, &game_state->audio_mixer);
+
+        {
+            ConsoleState* console = game_state->console_state = push_struct(&game_state->permanent_arena, ConsoleState);
+
+            initialize_render_context(&game_state->console_state->rc, render_commands, 1.0f);
+            console->font = get_font_by_name(&game_state->assets, string_literal("editor_font"));
+        }
+
+        {
+            MenuState* menu = game_state->menu_state = push_struct(&game_state->permanent_arena, MenuState);
+
+            menu->font = get_font_by_name(&game_state->assets, string_literal("menu_font"));
+        }
 
         game_state->background_level = allocate_level(&game_state->permanent_arena, "background level");
         game_state->active_level = allocate_level(&game_state->permanent_arena, "no level");
@@ -548,52 +573,131 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         game_state->editor_state = allocate_editor(game_state, render_commands);
 
-        if (game_config.startup_level.len) {
-            load_level(game_state, game_config.startup_level);
-        }
+        game_state->level_to_load = game_config->startup_level;
 
         switch_gamemode(game_state, GameMode_Editor);
 
         initialize_render_context(&game_state->render_context, render_commands, 30.0f);
 
-        // PlayingSound* test_tone = play_synth(&game_state->audio_mixer, synth_test_tone);
-        // change_volume(test_tone, vec2(0.25f, 0.25f));
-
         memory->initialized = true;
     }
 
-    //
-    // Pre-Sim
-    //
-
-    v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
     f32 frame_dt = input->frame_dt;
-    game_state->frame_dt = frame_dt;
+    v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
 
     RenderContext* render_context = &game_state->render_context;
 
+    v2 screen_dim = get_screen_dim(render_context);
+    f32 aspect_ratio = get_aspect_ratio(render_context);
+
     execute_console(game_state, game_state->console_state, input);
 
-    if (game_state->game_mode == GameMode_StartScreen) {
+    if (game_state->game_mode == GameMode_Menu) {
+        MenuState* menu = game_state->menu_state;
+
         render_screenspace(render_context);
         push_clear(render_context, game_state->background_color);
+
+        // @TODO: I feel like things like this just indicate I should be using more global state
+        UILayoutContext layout_context;
+        layout_context.rc = render_context;
+        layout_context.assets = &game_state->assets;
+        layout_context.temp_arena = &game_state->transient_arena;
+        layout_context.font = menu->font;
+
+        char* menu_items[3];
+        u32 item_index = 0;
+        u32 start_game = (menu_items[item_index] = "Start Game", item_index++);
+        u32 options    = (menu_items[item_index] = "Options", item_index++);
+        u32 quit       = (menu_items[item_index] = "Quit", item_index++);
+
+        f32 spacing = 12.0f;
+
+        u32 num_items = ARRAY_COUNT(menu_items);
+        f32 row_height   = get_line_spacing(layout_context.font) + spacing;
+
+        GameController* controller = &input->controller;
+        if (was_pressed(controller->move_down)) {
+            if (menu->selected_item < num_items - 1) {
+                menu->selected_item++;
+                menu->bob_t = 1.0f;
+                play_sound(&game_state->ui_audio, test_sound);
+            }
+        }
+        if (was_pressed(controller->move_up)) {
+            if (menu->selected_item > 0) {
+                menu->selected_item--;
+                menu->bob_t = 1.0f;
+                play_sound(&game_state->ui_audio, test_sound);
+            }
+        }
+
+        f32 magnitude = square(game_config->menu_bob_magnitude);
+        f32 y_bob = magnitude*square(menu->bob_t) + -magnitude*menu->bob_t;
+
+        if (menu->bob_t > 0.0f) {
+            menu->bob_t -= frame_dt / game_config->menu_bob_speed;
+            if (menu->bob_t < 0.0f) {
+                menu->bob_t = 0.0f;
+            }
+        }
+
+        UILayout layout = make_layout(layout_context, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.5f*(cast(f32) num_items*row_height)), Layout_CenterAlign);
+        set_spacing(&layout, spacing);
+
+        for (u32 item = 0; item < num_items; item++) {
+            v4 color = COLOR_WHITE;
+            if (item == menu->selected_item) {
+                layout.offset_p = vec2(0.0f, y_bob);
+                color = COLOR_YELLOW;
+            }
+
+            char* menu_item = menu_items[item];
+
+            v2 text_dim = get_dim(layout_text_bounds(&layout, menu_item));
+
+            // @TODO: Some non-hacky way to do centered text
+            layout.offset_p.x -= text_dim.x*0.5f;
+            layout_print_line(&layout, color, menu_item);
+            layout.offset_p = vec2(0, 0);
+        }
+
+        if (was_pressed(controller->interact)) {
+            if (menu->selected_item == start_game) {
+                switch_gamemode(game_state, GameMode_Ingame);
+            } else if (menu->selected_item == options) {
+                /* there's no options for now */
+            } else if (menu->selected_item == quit) {
+                input->quit_requested = true;
+            }
+        }
+
+        if (was_pressed(input->escape)) {
+            input->quit_requested = true;
+        }
     } else {
         render_worldspace(render_context, 30.0f);
         game_state->render_context.camera_rotation_arm = vec2(1, 0);
 
         push_clear(render_context, game_state->background_color);
 
-        if (game_state->player && game_state->player->dead) {
-            if (game_state->player_respawn_timer > 0.0f) {
-                game_state->player_respawn_timer -= frame_dt;
-            } else {
-                game_state->player->dead = false;
-                if (game_state->last_activated_checkpoint) {
-                    game_state->player->p = game_state->last_activated_checkpoint->most_recent_player_position;
-                    game_state->player->dp = game_state->player->ddp = vec2(0, 0);
+        //
+        // Pre-Sim
+        //
+
+        if (game_state->game_mode == GameMode_Ingame) {
+            if (game_state->player && game_state->player->dead) {
+                if (game_state->player_respawn_timer > 0.0f) {
+                    game_state->player_respawn_timer -= frame_dt;
                 } else {
-                    // @Note: I suspect I won't have this case, instead you just always start with the first checkpoint activated.
-                    INVALID_CODE_PATH;
+                    game_state->player->dead = false;
+                    if (game_state->last_activated_checkpoint) {
+                        game_state->player->p = game_state->last_activated_checkpoint->most_recent_player_position;
+                        game_state->player->dp = game_state->player->ddp = vec2(0, 0);
+                    } else {
+                        // @Note: I suspect I won't have this case, instead you just always start with the first checkpoint activated.
+                        INVALID_CODE_PATH;
+                    }
                 }
             }
         }
@@ -645,7 +749,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                         render_worldspace(render_context, lerp(prev_view.vfov, view.vfov, t));
 
-                        game_state->camera_transition_t += frame_dt / game_config.camera_transition_speed;
+                        game_state->camera_transition_t += frame_dt / game_config->camera_transition_speed;
                     } else {
                         game_state->mid_camera_transition = false;
 
@@ -764,6 +868,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             game_state->player->dead = true;
             game_state->player->support = 0;
             game_state->player->killed_this_frame = false;
+        }
+
+        if (was_pressed(input->escape)) {
+            switch_gamemode(game_state, GameMode_Menu);
         }
     }
 }

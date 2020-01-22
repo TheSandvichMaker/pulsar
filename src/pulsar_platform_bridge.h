@@ -88,20 +88,20 @@ introspect() struct GameConfig {
     String startup_level = string_literal("levels/debug_level.lev");
 
     // Key Binds
-    u8 up    = 'W';
-    u8 left  = 'A';
-    u8 down  = 'S';
-    u8 right = 'D';
-
-    u8 jump  = 'W';
+    u8 up       = 'W';
+    u8 left     = 'A';
+    u8 down     = 'S';
+    u8 right    = 'D';
+    u8 jump     = 'W';
+    u8 interact = 'F';
 
     // Alternate Binds
-    u8 alternate_up    = 0x26;
-    u8 alternate_left  = 0x25;
-    u8 alternate_down  = 0x28;
-    u8 alternate_right = 0x27;
-
-    u8 alternate_jump  = 0x20;
+    u8 alternate_up       = 0x26;
+    u8 alternate_left     = 0x25;
+    u8 alternate_down     = 0x28;
+    u8 alternate_right    = 0x27;
+    u8 alternate_jump     = 0x20;
+    u8 alternate_interact = 0xD;
 
     // Player Movement
     u32 max_collision_iterations    = 8;
@@ -116,13 +116,23 @@ introspect() struct GameConfig {
     f32 min_y_vel                   = -40.0f;
     f32 max_y_vel                   = 40.0f;
 
-    f32 jump_force                  = 500.0f;
+    f32 jump_force                  = 10.0f;
 
     f32 early_jump_window           = 0.075f;
     f32 late_jump_window            = 0.15f;
 
     // Camera
-    f32 camera_transition_speed = 0.2f;
+    f32 camera_transition_speed = 0.4f;
+
+    // Menu
+    f32 menu_bob_speed = 0.2f;
+    f32 menu_bob_magnitude = 4.0f;
+
+    // Debug
+    f32 simulation_rate     = 1.0f;
+
+    f32 console_open_speed  = 0.14f;
+    f32 console_close_speed = 0.08f;
 };
 
 //
@@ -182,13 +192,14 @@ enum GameInputMouseButton {
 
 struct GameController {
     union {
-        GameButtonState buttons[5];
+        GameButtonState buttons[6];
         struct {
             GameButtonState move_up;
             GameButtonState move_down;
             GameButtonState move_left;
             GameButtonState move_right;
             GameButtonState jump;
+            GameButtonState interact;
         };
     };
 };
@@ -321,12 +332,17 @@ struct GameInput {
     f32 update_rate, frame_dt;
 
     // @Note: quit_requested is from the game to the platform, not the other way around.
+    // @TODO: Make the platform API a bit more unified
     b32 quit_requested;
 
     GameController controller;
 
     u32 mouse_x, mouse_y, mouse_z;
     GameButtonState mouse_buttons[PlatformMouseButton_Count];
+
+    b32 event_mode;
+    u32 event_count;
+    u32 event_buffer[PLATFORM_INPUT_EVENT_BUFFER_SIZE];
 
     // @Note: All these keys are just for dev purposes
     GameButtonState debug_fkeys[13];
@@ -337,10 +353,6 @@ struct GameInput {
         };
     };
     GameButtonState keys[26];
-
-    b32 event_mode;
-    u32 event_count;
-    u32 event_buffer[PLATFORM_INPUT_EVENT_BUFFER_SIZE];
 };
 
 inline PlatformKeyCode decode_input_event(u32 event, char* ascii = 0) {
@@ -373,6 +385,9 @@ typedef GAME_GET_SOUND(GameGetSound);
 
 #define GAME_POST_RENDER(name) void name(GameMemory* memory, GameInput* input, GameRenderCommands* render_commands)
 typedef GAME_POST_RENDER(GamePostRender);
+
+global PlatformAPI platform;
+#define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
 
 // @Note: This is here because the code generator is pretty dumb and will only generate MetaTypes for introspected structs
 introspect() struct DummyIntrospectStruct {

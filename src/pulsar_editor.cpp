@@ -69,7 +69,7 @@ inline AddEntityResult add_entity(EditorState* editor, EntityType type, EntityID
 
     u32 index = level->entity_count++;
     Entity* entity = level->entities + index;
-    zero_struct(*entity);
+    *entity = {};
 
     if (guid.value) {
         entity->guid = guid;
@@ -265,7 +265,7 @@ inline UndoFooter* add_undo_footer(EditorState* editor, u32 data_size) {
     }
 
     UndoFooter* footer = get_undo_footer(editor, footer_index);
-    zero_struct(*footer);
+    *footer = {};
 
     if (prev_footer) {
         prev_footer->next = footer_index;
@@ -505,13 +505,74 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
     return num_bytes;
 }
 
-internal void layout_print_va(UILayout* layout, v4 color, char* format_string, va_list va_args) {
-    TemporaryMemory temp = begin_temporary_memory(layout->context.temp_arena);
-
+inline String push_formatted_string_va(MemoryArena* arena, char* format_string, va_list va_args) {
     u32 text_size = stbsp_vsnprintf(0, 0, format_string, va_args) + 1; // @Note: stbsp_vsprintf doesn't include the null terminator in the returned size, so I add it in.
 
-    char* text = cast(char*) push_size(layout->context.temp_arena, text_size, align_no_clear(1));
+    char* text = cast(char*) push_size(arena, text_size, no_clear());
     stbsp_vsnprintf(text, text_size, format_string, va_args);
+
+    String result = wrap_string(text_size, text);
+    return result;
+}
+
+#if 0
+struct PrintTextResult {
+    AxisAlignedBox2 bounds;
+    v2 at_p;
+};
+
+inline PrintTextResult print_text_at(RenderContext* rc, Assets* assets, Font* font, v2 p, String text) {
+    PrintTextResult result;
+    result.bounds = inverted_infinity_aab2();
+    result.at_p = p;
+
+    f32 vertical_advance = get_line_spacing(font);
+
+    while (chars_left(text)) {
+        char c0 = peek(text);
+        char c1 = peek_by(text, 1);
+
+        if (c0 == ' ') {
+            result.at_p.x += font->whitespace_width;
+        } else if (c0 == '\n') {
+            result.at_p.x  = p.x;
+            result.at_p.y += vertical_advance;
+        } else {
+            ImageID glyph_id = get_glyph_id_for_codepoint(font, c0);
+            if (glyph_id.value) {
+                Image* glyph = get_image(assets, glyph_id);
+                v2 rounded_p = vec2(roundf(result.at_p.x), roundf(result.at_p.y));
+
+                if (op == LayoutTextOp_Print) {
+                    push_image(rc, transform2d(rounded_p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
+                    push_image(rc, transform2d(rounded_p, vec2(glyph->w, glyph->h)), glyph, color);
+                }
+
+                AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
+                result.bounds = aab_union(result.bounds, glyph_aab);
+
+                if (c1 && in_font_range(font, c1)) {
+                    result.at_p.x += get_advance_for_codepoint_pair(font, c0, c1);
+                }
+            }
+        }
+
+        advance(&text);
+    }
+
+    return result;
+}
+#endif
+
+enum LayoutTextOp {
+    LayoutTextOp_GetBounds,
+    LayoutTextOp_Print,
+};
+
+internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, char* format_string, va_list va_args) {
+    TemporaryMemory temp = begin_temporary_memory(layout->context.temp_arena);
+
+    String text = push_formatted_string_va(layout->context.temp_arena, format_string, va_args);
 
     Font* font = layout->context.font;
 
@@ -519,12 +580,14 @@ internal void layout_print_va(UILayout* layout, v4 color, char* format_string, v
         layout->last_print_bounds = inverted_infinity_aab2();
         layout->print_initialized = true;
     } else {
-        if (layout->last_codepoint && text[0]) {
-            layout->at_p.x += get_advance_for_codepoint_pair(font, layout->last_codepoint, text[0]);
+        if (layout->last_codepoint && text.data[0]) {
+            layout->at_p.x += get_advance_for_codepoint_pair(font, layout->last_codepoint, text.data[0]);
         }
     }
 
-    for (char* at = text; at[0]; at++) {
+    v2 old_at_p = layout->at_p;
+
+    for (char* at = text.data; at[0]; at++) {
         layout->last_codepoint = at[0];
         if (at[0] == ' ') {
             layout->at_p.x += font->whitespace_width;
@@ -535,10 +598,12 @@ internal void layout_print_va(UILayout* layout, v4 color, char* format_string, v
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             if (glyph_id.value) {
                 Image* glyph = get_image(layout->context.assets, glyph_id);
-                layout->at_p = vec2(roundf(layout->at_p.x), roundf(layout->at_p.y));
-                v2 p = layout->at_p + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
-                push_image(layout->context.rc, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
-                push_image(layout->context.rc, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
+                v2 p = vec2(roundf(layout->offset_p.x + layout->at_p.x), roundf(layout->offset_p.y + layout->at_p.y)) + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
+
+                if (op == LayoutTextOp_Print) {
+                    push_image(layout->context.rc, transform2d(p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
+                    push_image(layout->context.rc, transform2d(p, vec2(glyph->w, glyph->h)), glyph, color);
+                }
 
                 AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
                 layout->last_print_bounds = aab_union(layout->last_print_bounds, glyph_aab);
@@ -550,9 +615,17 @@ internal void layout_print_va(UILayout* layout, v4 color, char* format_string, v
         }
     }
 
+    if (op == LayoutTextOp_GetBounds) {
+        layout->at_p = old_at_p;
+    }
+
     layout->total_bounds = aab_union(layout->total_bounds, layout->last_print_bounds);
 
     end_temporary_memory(temp);
+}
+
+inline void layout_print_va(UILayout* layout, v4 color, char* format_string, va_list va_args) {
+    layout_text_op_va(layout, LayoutTextOp_Print, color, format_string, va_args);
 }
 
 inline void layout_print(UILayout* layout, v4 color, char* format_string, ...) {
@@ -572,6 +645,20 @@ internal AxisAlignedBox2 layout_finish_print(UILayout* layout) {
     layout->at_p.x  = layout->origin.x;
     layout->at_p.y += layout->vertical_advance;
 
+    return result;
+}
+
+inline AxisAlignedBox2 layout_text_bounds_va(UILayout* layout, char* format_string, va_list va_args) {
+    layout_text_op_va(layout, LayoutTextOp_GetBounds, COLOR_WHITE, format_string, va_args);
+    AxisAlignedBox2 result = layout_finish_print(layout);
+    return result;
+}
+
+inline AxisAlignedBox2 layout_text_bounds(UILayout* layout, char* format_string, ...) {
+    va_list va_args;
+    va_start(va_args, format_string);
+    AxisAlignedBox2 result = layout_text_bounds_va(layout, format_string, va_args);
+    va_end(va_args);
     return result;
 }
 
@@ -719,8 +806,6 @@ internal void set_up_editable_parameters(EditorState* editor) {
     lb_add(prefabs, EntityPrefab_InvisibleHazard);
     end_linear_buffer(prefabs);
 }
-
-char* midi_note_names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
 inline void print_editable(UILayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
     switch (editable->type) {
@@ -918,6 +1003,15 @@ internal CONSOLE_COMMAND(cc_switch_gamemode) {
     }
 }
 
+internal CONSOLE_COMMAND(cc_set) {
+    b32 no_errors = parse_config(game_config, arguments);
+    if (no_errors) {
+        String key = advance_word(&arguments);
+        String value = trim_spaces(advance_to(&arguments, '#'));
+        log_print(LogLevel_Info, "Set '%.*s' to '%.*s'", PRINTF_STRING(key), PRINTF_STRING(value));
+    }
+}
+
 internal CONSOLE_COMMAND(cc_quit) {
     input->quit_requested = true;
 }
@@ -928,6 +1022,7 @@ global ConsoleCommand console_commands[] = {
     console_command(save_level),
     console_command(set_soundtrack),
     console_command(switch_gamemode),
+    console_command(set),
     console_command(quit),
 };
 
@@ -1029,28 +1124,32 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
     layout_context.rc         = rc;
     layout_context.assets     = &game_state->assets;
     layout_context.temp_arena = &game_state->transient_arena;
-    layout_context.font       = game_state->console_font;
+    layout_context.font       = console->font;
 
     v2 dim = get_screen_dim(rc);
     f32 width = dim.x;
     f32 height = dim.y;
 
     if (was_pressed(input->tilde)) {
-        if (console->open && !console->wide_open) {
-            console->wide_open = true;
+        if (console->open && !console->in_focus) {
+            console->in_focus = true;
         } else {
-            console->wide_open = false;
-            console->open = !console->open;
-            console->in_focus = console->open;
-            input->event_mode = console->open;
+            if (console->open && !console->wide_open) {
+                console->wide_open = true;
+            } else {
+                console->wide_open = false;
+                console->open = !console->open;
+                console->in_focus = console->open;
+                input->event_mode = console->open;
+            }
         }
     }
 
     input->event_mode = console->open && console->in_focus;
 
-    f32 console_input_box_height = cast(f32) game_state->console_font->size;
-    f32 console_open_speed = 0.1f;
-    f32 console_close_speed = 0.04f;
+    f32 console_input_box_height = cast(f32) console->font->size;
+    f32 console_open_speed = game_config->console_open_speed;
+    f32 console_close_speed = game_config->console_close_speed;
     f32 console_height = 0.66f*dim.y;
 
     f32 openness_target = console->wide_open ? 1.0f : 0.33f;
@@ -1058,20 +1157,24 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
     if (console->open) {
         if (console->openness_t < openness_target) {
             console->openness_t += input->frame_dt / console_open_speed;
-        } else {
-            console->openness_t = openness_target;
+            if (console->openness_t >= openness_target) {
+                console->openness_t = openness_target;
+            }
         }
     } else {
         if (console->openness_t > 0.0f) {
             console->openness_t -= input->frame_dt / console_close_speed;
-        } else {
-            console->openness_t = 0.0f;
+            if (console->openness_t <= 0.0f) {
+                console->openness_t = 0.0f;
+            }
         }
     }
 
+    f32 openness_t = console->openness_t;
+
     u32 warnings, errors;
     platform.get_unread_log_messages(0, &warnings, &errors);
-    UILayout message_counter = make_layout(layout_context, vec2(width - 50.0f, height - console_height*console->openness_t - 2.0f*console_input_box_height*console->openness_t - get_baseline_from_top(game_state->console_font)));
+    UILayout message_counter = make_layout(layout_context, vec2(width - 50.0f, height - console_height*openness_t - 2.0f*console_input_box_height*openness_t - get_baseline_from_top(console->font)));
     if (warnings) {
         layout_print(&message_counter, vec4(1.0f, 0.5f, 0.0f, 1.0f), "%u ", warnings);
     }
@@ -1082,7 +1185,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
         layout_finish_print(&message_counter);
     }
 
-    if (console->openness_t > 0.0f) {
+    if (openness_t > 0.0f) {
         if (console->in_focus) {
             for (u32 event_index = 0; event_index < input->event_count; event_index++) {
                 char ascii;
@@ -1092,8 +1195,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                         if (console->input_buffer_count > 0) {
                             console->input_buffer_count = 0;
                         } else {
-                            console->open = false;
-                            input->event_mode = false;
+                            console->in_focus = false;
                         }
                     } break;
 
@@ -1147,13 +1249,13 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
 
         f32 console_alpha = console->in_focus ? 1.0f : 0.5f;
 
-        f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*console->openness_t;
+        f32 console_log_box_height = cast(f32) height - (console_height + console_input_box_height)*openness_t;
         AxisAlignedBox2 console_log_box = aab_min_max(vec2(0.0f, console_log_box_height), vec2(width, height));
         push_shape(rc, default_transform2d(), rectangle(console_log_box), vec4(0.0f, 0.0f, 0.0f, console_alpha*0.65f));
 
         PlatformLogMessage* selected_message = 0;
 
-        UILayout log = make_layout(layout_context, vec2(4.0f, console_log_box_height + get_line_spacing(game_state->console_font) + get_baseline(game_state->console_font)), true);
+        UILayout log = make_layout(layout_context, vec2(4.0f, console_log_box_height + get_line_spacing(console->font) + get_baseline(console->font)), true);
         for (PlatformLogMessage* message = platform.get_most_recent_log_message(); message; message = message->next) {
             if (log.at_p.y < height) {
                 b32 filter_match = false;
@@ -1195,7 +1297,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
         AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
         push_shape(rc, default_transform2d(), rectangle(console_input_box), vec4(0.0f, 0.0f, 0.0f, console_alpha*0.8f));
 
-        UILayout input_box = make_layout(layout_context, input_box_min + vec2(4.0f, get_line_spacing(game_state->console_font) + get_baseline(game_state->console_font)));
+        UILayout input_box = make_layout(layout_context, input_box_min + vec2(4.0f, get_line_spacing(console->font) + get_baseline(console->font)));
         layout_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
 
         if (selected_message) {
@@ -1305,13 +1407,16 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (editor->shown || editor->show_statistics) {
         f32 average_frame_time = 0.0f;
+        // @TODO: be a good statistician and don't use a stupid average for this, but some cool gaussian or something
         for (u32 frame_index = 0; frame_index < frame_history->valid_entry_count; frame_index++) {
             average_frame_time += frame_history->history[(frame_history->first_valid_entry + frame_index) % ARRAY_COUNT(frame_history->history)];
         }
         average_frame_time /= frame_history->valid_entry_count;
 
+        f32 adjusted_frame_dt = input->frame_dt / game_config->simulation_rate; // @Note: This way the frame time counter won't go bright red if you lower the simulation rate
+
         f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
-        f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - input->frame_dt));
+        f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - adjusted_frame_dt));
         v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
         layout_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
     }
@@ -1400,6 +1505,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         } else {
             break;
         }
+    }
+
+    UILayout midi_tracker = make_layout(editor, vec2(1000.0f, editor->top_margin));
+    layout_print_line(&midi_tracker, COLOR_WHITE, "Playing Midi:");
+    midi_tracker.depth++;
+    for (PlayingMidi* playing_midi = game_state->first_playing_midi; playing_midi; playing_midi = playing_midi->next) {
+        MidiTrack* track = playing_midi->track;
+        layout_print_line(&midi_tracker, COLOR_WHITE, "Track from SoundtrackID { %u }: %u events, tick timer: %u, event_index: %u", playing_midi->source_soundtrack, track->event_count, playing_midi->tick_timer, playing_midi->event_index);
     }
 
     Entity* moused_over = 0;

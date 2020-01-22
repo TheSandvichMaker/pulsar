@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <memory.h>
 
-#include "common.h"
+#include "pulsar_common.h"
 #include "intrinsics.h"
 #include "math.h"
 #include "string.h"
@@ -246,6 +246,7 @@ int main(int argument_count, char** arguments) {
     add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 24);
     add_font("editor_font_big", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
+    add_font("menu_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 72);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'l', 'a', 'f');
@@ -487,7 +488,7 @@ int main(int argument_count, char** arguments) {
                         stream.at = cast(u8*) file.data;
                         stream.stop = stream.at + file.size;
 
-                        MidiEvent* events = begin_linear_buffer(&global_arena, MidiEvent, no_clear());
+                        LinearBuffer<MidiEvent>* events = begin_linear_buffer<MidiEvent>(&global_arena);
 
                         while (stream.at < stream.stop) {
                             MidiChunk chunk = midi_read_chunk(&stream);
@@ -629,10 +630,10 @@ done_parsing_midi:
                         packed->midi.beats_per_minute = asset_desc->bpm;
 
                         end_linear_buffer(events);
-                        packed->midi.event_count = cast(u32) lb_count(events);
+                        packed->midi.event_count = cast(u32) events->count;
 
                         u32 midi_events_size = sizeof(MidiEvent)*packed->midi.event_count;
-                        fwrite(events, midi_events_size, 1, out);
+                        fwrite(events->data, midi_events_size, 1, out);
 
                         fprintf(stderr, "Packed midi track '%s' from '%s' (events: %d)\n", asset_desc->asset_name, asset_desc->source_file, packed->midi.event_count);
                     } break;

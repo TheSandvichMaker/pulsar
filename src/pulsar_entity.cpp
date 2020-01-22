@@ -1,5 +1,5 @@
 //
-// @TODO: Take a more intelligent approach to dead entities so I don't have to put in tons of error-prone checks for it
+// @TODO: Take a more intelligent approach to dead entities so I don't have to put in error-prone checks for it
 //
 
 struct TraceInfo {
@@ -30,8 +30,7 @@ inline b32 line_trace(f32 wall_x, v2 wall_bounds, v2 wall_normal, v2 start_p, v2
 inline b32 aab_trace(v2 start_p, v2 end_p, AxisAlignedBox2 aab, TraceInfo* info) {
     b32 result = false;
 
-    info->t_min = 1.0f;
-    info->t_max = 0.0f;
+    *info = {};
 
     f32 t_epsilon = 1.0e-3f;
 
@@ -90,7 +89,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             // playing_midi->tick_timer will be synced to it at the end of every frame, meaning this addition here
             // will be overwritten. It's here to account for midi events that would happen during the frame, and to
             // advance the tick timer if the midi track has no sync sound - 16/01/2020
-            playing_midi->tick_timer += ticks_for_frame;
+            playing_midi->tick_timer += cast(u32) (game_config->simulation_rate*(cast(f32) ticks_for_frame*playing_midi->playback_rate));
             // P.S: This is the kind of comment I don't want to have, because it is extremely vulnerable to going out
             // of date, but I thought it was relevant to note because it's not clear from this code here that this
             // behaviour is happening.
@@ -107,6 +106,11 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                 assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
 
+                char* midi_note_name = midi_note_names[event.note_value % 12];
+                s32 midi_note_octave = (cast(s32) event.note_value / 12) - 2;
+
+                log_print(LogLevel_Info, "Pushed %s %s %d midi event with timing: %u (tick_timer: %u)", event.type == MidiEvent_NoteOn ? "note on" : "note off", midi_note_name, midi_note_octave, event.absolute_time_in_ticks, playing_midi->tick_timer);
+
                 event = track->events[playing_midi->event_index];
             }
         }
@@ -114,6 +118,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
         if (playing_midi->event_index >= track->event_count) {
             assert(playing_midi->event_index == track->event_count);
             if (playing_midi->flags & Playback_Looping) {
+                log_print(LogLevel_Info, "Midi track from SoundtrackID { %u } looped", playing_midi->source_soundtrack.value);
                 playing_midi->event_index = 0;
                 playing_midi->tick_timer = 0;
                 playing_midi_ptr = &playing_midi->next;
@@ -151,7 +156,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                 GameController* controller = &input->controller;
 
-                f32 move_speed = game_config.movement_speed;
+                f32 move_speed = game_config->movement_speed;
                 v2 target_dp = entity->dp;
 
                 if (controller->move_left.is_down) {
@@ -169,7 +174,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 entity->ddp = accel_towards(vec2(-move_speed, 0.0f), vec2(move_speed, 0.0f), entity->dp, target_dp, frame_dt);
 
                 if (was_pressed(controller->jump)) {
-                    entity->early_jump_timer = game_config.early_jump_window;
+                    entity->early_jump_timer = game_config->early_jump_window;
                 }
 
                 b32 do_jump = false;
@@ -179,7 +184,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     }
                 } else {
                     if (entity->was_supported) {
-                        entity->late_jump_timer = game_config.late_jump_window;
+                        entity->late_jump_timer = game_config->late_jump_window;
                     }
 
                     if (was_pressed(controller->jump) && entity->late_jump_timer > 0.0f) {
@@ -191,17 +196,22 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     entity->early_jump_timer = 0.0f;
                     entity->late_jump_timer = 0.0f;
 
-                    entity->ddp.y += game_config.jump_force;
+                    // @Note: I'm dividing the jump force by the frame dt because the jump is instantaneous.
+                    // For regular movement, normally if you doubled your fps the amount of acceleration per
+                    // frame would be halved, but the number of frames would double, so the net result would
+                    // be the same. But because the jump isn't spread out across frames, we need to divide
+                    // out the frame dt to make it frame-rate independent.
+                    entity->ddp.y += game_config->jump_force / frame_dt;
                     entity->support = 0;
                 }
 
                 if (entity->early_jump_timer > 0.0f) entity->early_jump_timer -= frame_dt;
                 if (entity->late_jump_timer  > 0.0f) entity->late_jump_timer  -= frame_dt;
 
-                entity->gravity = game_config.gravity;
+                entity->gravity = game_config->gravity;
 
                 if (!controller->jump.is_down || entity->dp.y < 0.0f) {
-                    entity->gravity *= game_config.downward_gravity_multiplier;
+                    entity->gravity *= game_config->downward_gravity_multiplier;
                 }
             } break;
 
@@ -213,10 +223,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                             if (event.note_value == entity->midi_note) {
                                 if (event.type == MidiEvent_NoteOn) {
                                     entity->moving_to_end = true;
-                                    entity->movement_t = 0.0f;
                                 } else if (event.type == MidiEvent_NoteOff) {
                                     entity->moving_to_end = false;
-                                    entity->movement_t = 0.0f;
                                 } else {
                                     INVALID_CODE_PATH;
                                 }
@@ -227,21 +235,28 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     v2 start_p = entity->start_p;
                     v2 end_p = entity->end_p;
 
-                    if (!entity->moving_to_end) {
-                        start_p = entity->end_p;
-                        end_p = entity->start_p;
-                    }
-
                     f32 t = smootherstep(entity->movement_t);
 
-                    if (entity->movement_t < 1.0f) {
-                        v2 target = lerp(start_p, end_p, t);
+                    // @TODO: Maybe make it so that moving platforms don't spaz out if the note off comes before the note on movement is done.
+                    // Or just make sure that never happens. But ideally it would just reverse direction midway through.
 
-                        entity->dp = (target - entity->p) / frame_dt;
-                        entity->movement_t += frame_dt / (0.001f*entity->movement_speed_ms);
+                    v2 target = lerp(start_p, end_p, t);
+                    entity->dp = (target - entity->p) / frame_dt;
+
+                    if (entity->moving_to_end) {
+                        if (entity->movement_t < 1.0f) {
+                            entity->movement_t += frame_dt / (0.001f*entity->movement_speed_ms);
+                        }
+                        if (entity->movement_t > 1.0f) {
+                            entity->movement_t = 1.0f;
+                        }
                     } else {
-                        entity->dp = (end_p - entity->p) / frame_dt;
-                        entity->movement_t = 1.0f;
+                        if (entity->movement_t > 0.0f) {
+                            entity->movement_t -= frame_dt / (0.001f*entity->movement_speed_ms);
+                        }
+                        if (entity->movement_t < 0.0f) {
+                            entity->movement_t = 0.0f;
+                        }
                     }
                 }
             } break;
@@ -304,14 +319,14 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
         f32 t = 1.0f;
 
-        u32 max_iterations = game_config.max_collision_iterations;
+        u32 max_iterations = game_config->max_collision_iterations;
         u32 iteration_count = 0;
 
         f32 epsilon = 1.0e-3f;
 
         v2 gravity = vec2(0.0f, player->gravity);
 
-        while (t > epsilon && iteration_count < max_iterations) {
+        while (iteration_count < max_iterations) {
             f32 dt = t*frame_dt;
 
             v2 ddp = player->ddp;
@@ -321,16 +336,14 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             }
 
             // @TODO: Figure out where this sits compared to accel_towards
-            f32 max_x_vel = game_config.max_x_vel;
-            f32 min_y_vel = game_config.min_y_vel;
-            f32 max_y_vel = game_config.max_y_vel;
+            f32 max_x_vel = game_config->max_x_vel;
+            f32 min_y_vel = game_config->min_y_vel;
+            f32 max_y_vel = game_config->max_y_vel;
 
             ddp.x = (clamp(ddp.x*dt + player->dp.x, -max_x_vel, max_x_vel) - player->dp.x) / dt;
             ddp.y = (clamp(ddp.y*dt + player->dp.y,  min_y_vel, max_y_vel) - player->dp.y) / dt;
 
-            player->dp += ddp*dt;
-
-            v2 external_dp = {};
+            v2 transient_dp = ddp*dt;
 
             if (player->support) {
                 if (!player->was_supported) {
@@ -341,9 +354,9 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 player->support_dp = player->support->dp;
                 if (length_sq(player->support_dp) > length_sq(player->retained_support_dp)) {
                     player->retained_support_dp = player->support_dp;
-                    player->retained_support_dp_timer = game_config.support_dp_retention_time;
+                    player->retained_support_dp_timer = game_config->support_dp_retention_time;
                 }
-                external_dp += player->support->dp;
+                transient_dp += player->support->dp;
             } else {
                 if (player->was_supported) {
                     player->was_supported = false;
@@ -354,11 +367,13 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     }
                     player->ballistic_dp.x += player->support_dp.x;
                     player->dp.y += player->support_dp.y;
-                    log_print(LogLevel_Info, "Added { %f, %f } support_dp to player->dp", player->support_dp.x, player->support_dp.y);
+                    if (length_sq(player->support_dp) > 0.0f) {
+                        log_print(LogLevel_Info, "Added { %f, %f } support_dp to player->dp", player->support_dp.x, player->support_dp.y);
+                    }
                     player->support_dp = vec2(0, 0);
                 }
 
-                external_dp += player->ballistic_dp;
+                transient_dp += player->ballistic_dp;
             }
 
             if (player->retained_support_dp_timer > 0.0f) {
@@ -368,10 +383,10 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 }
             }
 
-            external_dp += player->contact_move;
+            transient_dp += player->contact_move;
             player->contact_move = {};
 
-            v2 delta = 0.5f*ddp*square(dt) + (external_dp + player->dp)*dt;
+            v2 delta = 0.5f*ddp*square(dt) + (transient_dp + player->dp)*dt;
 
             b32 did_an_unstuck = false;
             b32 did_collide = false;
@@ -451,9 +466,13 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 }
             }
 
+            f32 t_spent = 1.0f;
+
             if (did_collide) {
-                log_print(LogLevel_Info, "collision.t_min = %f, .t_max = %f", collision.t_min, collision.t_max);
+                // log_print(LogLevel_Info, "collision.t_min = %f, .t_max = %f", collision.t_min, collision.t_max);
                 t *= 1.0f - collision.t_min;
+
+                player->dp += ddp*dt*collision.t_min;
 
                 delta *= collision.t_min;
 
@@ -481,11 +500,14 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     // @TODO: Unfry brain, un-shitty hack collision handling
                     v2 what_the_fuck_is_this = collision.hit_normal*dot(collision_entity->dp, collision.hit_normal);
                     player->contact_move = what_the_fuck_is_this;
-                    log_print(LogLevel_Warn, "the fuck: { %f, %f }", what_the_fuck_is_this.x, what_the_fuck_is_this.y);
+                    // log_print(LogLevel_Warn, "the fuck: { %f, %f }", what_the_fuck_is_this.x, what_the_fuck_is_this.y);
                     // player->contact_move = -collision_rel_delta*(collision.t_max - collision.t_min)*collision.hit_normal;
                 }
 
                 process_collision_logic(game_state, player, collision_entity);
+            } else {
+                player->dp += ddp*dt;
+                t = 0.0f;
             }
 
             force_applied_to_player += length_sq(delta);
@@ -518,7 +540,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
         f32 length_of_player_move = length(player->p - start_player_p);
 
         f32 unused_force = force_applied_to_player - length_of_player_move;
-        if (unused_force > game_config.death_by_crushing_threshold) {
+        if (unused_force > game_config->death_by_crushing_threshold) {
             log_print(LogLevel_Info, "Death by crushing.");
             kill_player(game_state);
         }

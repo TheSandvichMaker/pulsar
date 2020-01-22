@@ -116,7 +116,7 @@ char* GetEnumNameOf_WallBehaviour(int value) {
 
 char* GetEnumNameOf_GameMode(int value) {
     switch (value) {
-        case GameMode_StartScreen: return "GameMode_StartScreen";
+        case GameMode_Menu: return "GameMode_Menu";
         case GameMode_Ingame: return "GameMode_Ingame";
         case GameMode_Editor: return "GameMode_Editor";
         case GameMode_Count: return "GameMode_Count";
@@ -177,11 +177,13 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_u8, 4, "down", (unsigned int)&((GameConfig*)0)->down, sizeof(u8) },
     { 0, MetaType_u8, 5, "right", (unsigned int)&((GameConfig*)0)->right, sizeof(u8) },
     { 0, MetaType_u8, 4, "jump", (unsigned int)&((GameConfig*)0)->jump, sizeof(u8) },
+    { 0, MetaType_u8, 8, "interact", (unsigned int)&((GameConfig*)0)->interact, sizeof(u8) },
     { 0, MetaType_u8, 12, "alternate_up", (unsigned int)&((GameConfig*)0)->alternate_up, sizeof(u8) },
     { 0, MetaType_u8, 14, "alternate_left", (unsigned int)&((GameConfig*)0)->alternate_left, sizeof(u8) },
     { 0, MetaType_u8, 14, "alternate_down", (unsigned int)&((GameConfig*)0)->alternate_down, sizeof(u8) },
     { 0, MetaType_u8, 15, "alternate_right", (unsigned int)&((GameConfig*)0)->alternate_right, sizeof(u8) },
     { 0, MetaType_u8, 14, "alternate_jump", (unsigned int)&((GameConfig*)0)->alternate_jump, sizeof(u8) },
+    { 0, MetaType_u8, 18, "alternate_interact", (unsigned int)&((GameConfig*)0)->alternate_interact, sizeof(u8) },
     { 0, MetaType_u32, 24, "max_collision_iterations", (unsigned int)&((GameConfig*)0)->max_collision_iterations, sizeof(u32) },
     { 0, MetaType_f32, 7, "gravity", (unsigned int)&((GameConfig*)0)->gravity, sizeof(f32) },
     { 0, MetaType_f32, 27, "downward_gravity_multiplier", (unsigned int)&((GameConfig*)0)->downward_gravity_multiplier, sizeof(f32) },
@@ -195,6 +197,11 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 17, "early_jump_window", (unsigned int)&((GameConfig*)0)->early_jump_window, sizeof(f32) },
     { 0, MetaType_f32, 16, "late_jump_window", (unsigned int)&((GameConfig*)0)->late_jump_window, sizeof(f32) },
     { 0, MetaType_f32, 23, "camera_transition_speed", (unsigned int)&((GameConfig*)0)->camera_transition_speed, sizeof(f32) },
+    { 0, MetaType_f32, 14, "menu_bob_speed", (unsigned int)&((GameConfig*)0)->menu_bob_speed, sizeof(f32) },
+    { 0, MetaType_f32, 18, "menu_bob_magnitude", (unsigned int)&((GameConfig*)0)->menu_bob_magnitude, sizeof(f32) },
+    { 0, MetaType_f32, 15, "simulation_rate", (unsigned int)&((GameConfig*)0)->simulation_rate, sizeof(f32) },
+    { 0, MetaType_f32, 18, "console_open_speed", (unsigned int)&((GameConfig*)0)->console_open_speed, sizeof(f32) },
+    { 0, MetaType_f32, 19, "console_close_speed", (unsigned int)&((GameConfig*)0)->console_close_speed, sizeof(f32) },
 };
 
 static MemberDefinition MembersOf_DummyIntrospectStruct[] = {
