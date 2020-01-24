@@ -180,7 +180,7 @@ internal PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
     if (file_handle != INVALID_HANDLE_VALUE) {
         LARGE_INTEGER file_size;
         if (GetFileSizeEx(file_handle, &file_size)) {
-            u32 file_size32 = safe_truncate_u64u32(file_size.QuadPart);
+            u32 file_size32 = safe_truncate_u64_u32(file_size.QuadPart);
             result.data = allocate(allocator, file_size32, no_clear());
             if (result.data) {
                 DWORD bytes_read;
@@ -249,14 +249,14 @@ inline f32 win32_get_seconds_elapsed(LARGE_INTEGER start, LARGE_INTEGER end) {
     return result;
 }
 
-typedef HRESULT WINAPI Typedef_DirectSoundCreate(LPCGUID pcGuidDevice, LPDIRECTSOUND* ppDS, LPUNKNOWN pUnkOuter);
+typedef HRESULT WINAPI TYPEDEF_DirectSoundCreate(LPCGUID pcGuidDevice, LPDIRECTSOUND* ppDS, LPUNKNOWN pUnkOuter);
 
 internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32 buffer_size) {
     HMODULE dsound_lib = LoadLibraryA("dsound.dll");
 
     LPDIRECTSOUNDBUFFER secondary_buffer = 0;
     if (dsound_lib) {
-        Typedef_DirectSoundCreate* dsound_create = (Typedef_DirectSoundCreate*)GetProcAddress(dsound_lib, "DirectSoundCreate");
+        TYPEDEF_DirectSoundCreate* dsound_create = (TYPEDEF_DirectSoundCreate*)GetProcAddress(dsound_lib, "DirectSoundCreate");
 
         LPDIRECTSOUND dsound;
         if (dsound_create && SUCCEEDED(dsound_create(NULL, &dsound, NULL))) {
@@ -341,26 +341,6 @@ internal void win32_fill_sound_buffer(Win32SoundOutput* output, DWORD byte_to_lo
         output->buffer->Unlock(region1, region1_size, region2, region2_size);
     } else {
         INVALID_CODE_PATH;
-    }
-}
-
-internal void win32_fill_sound_buffer_with_test_tone(Win32SoundOutput* output) {
-    VOID* region1;
-    DWORD region1_size;
-    VOID* region2;
-    DWORD region2_size;
-    if (SUCCEEDED(output->buffer->Lock(0, output->buffer_size, &region1, &region1_size, &region2, &region2_size, NULL))) {
-        assert(region2_size == 0);
-
-        s16* dest_sample = cast(s16*) region1;
-        u32 sample_count = output->buffer_size / output->bytes_per_sample;
-        for (u32 sample_index = 0; sample_index < sample_count; sample_index++) {
-            s16 test_tone = ((sample_index / 64) & 1) == 0 ? 8192 : -8192;
-            *dest_sample++ = test_tone; // L
-            *dest_sample++ = test_tone; // R
-        }
-
-        output->buffer->Unlock(region1, region1_size, region2, region2_size);
     }
 }
 
@@ -728,12 +708,12 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
     window_class.hInstance = instance;
     window_class.hCursor = LoadCursorA(NULL, IDC_ARROW);
     window_class.hbrBackground = cast(HBRUSH) GetStockObject(BLACK_BRUSH);
-    window_class.lpszClassName = "Win32WindowClass";
+    window_class.lpszClassName = "PulsarWindowClass";
 
     if (RegisterClassA(&window_class)) {
         HWND window = CreateWindowA(
             window_class.lpszClassName,
-            "Win32 Test Window",
+            "Pulsar",
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT,
             CW_USEDEFAULT, CW_USEDEFAULT,

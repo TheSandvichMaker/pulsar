@@ -145,10 +145,18 @@ struct ActiveMidiEvent {
 };
 
 struct MenuState {
+    GameMode source_gamemode;
+
     Font* font;
+    Font* big_font;
+
+    Sound* select_sound;
+    Sound* confirm_sound;
 
     u32 selected_item;
     f32 bob_t;
+
+    f32 quit_timer;
 };
 
 struct GameState {
@@ -170,6 +178,7 @@ struct GameState {
     EditorState* editor_state;
 
     String level_to_load;
+    b32 level_loaded;
 
     v4 foreground_color;
     v4 background_color;

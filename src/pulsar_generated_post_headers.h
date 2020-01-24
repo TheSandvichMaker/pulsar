@@ -150,7 +150,7 @@ static MemberDefinition MembersOf_PackedFont[] = {
 
 static MemberDefinition MembersOf_PackedMidi[] = {
     { 0, MetaType_u32, 16, "ticks_per_second", (unsigned int)&((PackedMidi*)0)->ticks_per_second, sizeof(u32) },
-    { 0, MetaType_u32, 16, "beats_per_minute", (unsigned int)&((PackedMidi*)0)->beats_per_minute, sizeof(u32) },
+    { 0, MetaType_f32, 16, "beats_per_minute", (unsigned int)&((PackedMidi*)0)->beats_per_minute, sizeof(f32) },
     { 0, MetaType_u16, 24, "time_signature_numerator", (unsigned int)&((PackedMidi*)0)->time_signature_numerator, sizeof(u16) },
     { 0, MetaType_u16, 26, "time_signature_denominator", (unsigned int)&((PackedMidi*)0)->time_signature_denominator, sizeof(u16) },
     { 0, MetaType_u32, 11, "event_count", (unsigned int)&((PackedMidi*)0)->event_count, sizeof(u32) },
@@ -199,6 +199,7 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 23, "camera_transition_speed", (unsigned int)&((GameConfig*)0)->camera_transition_speed, sizeof(f32) },
     { 0, MetaType_f32, 14, "menu_bob_speed", (unsigned int)&((GameConfig*)0)->menu_bob_speed, sizeof(f32) },
     { 0, MetaType_f32, 18, "menu_bob_magnitude", (unsigned int)&((GameConfig*)0)->menu_bob_magnitude, sizeof(f32) },
+    { 0, MetaType_f32, 15, "menu_quit_speed", (unsigned int)&((GameConfig*)0)->menu_quit_speed, sizeof(f32) },
     { 0, MetaType_f32, 15, "simulation_rate", (unsigned int)&((GameConfig*)0)->simulation_rate, sizeof(f32) },
     { 0, MetaType_f32, 18, "console_open_speed", (unsigned int)&((GameConfig*)0)->console_open_speed, sizeof(f32) },
     { 0, MetaType_f32, 19, "console_close_speed", (unsigned int)&((GameConfig*)0)->console_close_speed, sizeof(f32) },

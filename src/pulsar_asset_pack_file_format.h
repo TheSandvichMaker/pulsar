@@ -66,7 +66,7 @@ introspect() struct PackedFont {
 // @Note: A more complete implementation would allow time signature and bpm to vary across the track.
 introspect() struct PackedMidi {
     u32 ticks_per_second;
-    u32 beats_per_minute;
+    f32 beats_per_minute;
     u16 time_signature_numerator;
     u16 time_signature_denominator;
     u32 event_count;

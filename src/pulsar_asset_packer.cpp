@@ -7,13 +7,11 @@
 #include "math.h"
 #include "string.h"
 #include "file_io.h"
-#include "asset_loading.h"
 
 #include "pulsar_memory.h"
 #include "pulsar_memory_arena.h"
 
 #include "file_io.cpp"
-#include "asset_loading.cpp"
 
 #include "pulsar_asset_pack_file_format.h"
 #include "pulsar_template_array.h"
@@ -24,6 +22,303 @@
 
 #define GAMMA_CORRECT_FONTS 1
 #define FONT_OVERSAMPLING 2
+#define AUDIO_SAMPLE_RATE 48000
+
+#pragma pack(push, 1)
+struct BitmapHeader {
+    u16 file_type;
+    u32 file_size;
+    u16 reserved1;
+    u16 reserved2;
+    u32 bitmap_offset;
+    u32 size;
+    s32 width;
+    s32 height;
+    u16 planes;
+    u16 bits_per_pixel;
+
+    u32 compression;
+    u32 size_of_bitmap;
+    s32 horz_resolution;
+    s32 vert_resolution;
+    u32 colors_used;
+    u32 colors_important;
+
+    u32 red_mask;
+    u32 green_mask;
+    u32 blue_mask;
+    u32 alpha_mask;
+};
+#pragma pack(pop)
+
+internal void* load_bitmap(size_t size, void* memory, u32* out_width, u32* out_height) {
+    void* result = 0;
+
+    if (size != 0 && memory) {
+        BitmapHeader* header = cast(BitmapHeader*) memory;
+
+        assert(header->size >= sizeof(header));
+        assert(header->height >= 0);
+        assert(header->compression == 3);
+
+        u32* pixels = cast(u32*) (cast(u8*) header + header->bitmap_offset);
+        *out_width  = header->width;
+        *out_height = header->height;
+
+        u32 alpha_mask = header->alpha_mask;
+        u32 red_mask   = header->red_mask;
+        u32 green_mask = header->green_mask;
+        u32 blue_mask  = header->blue_mask;
+
+        // TODO: Would the alpha mask ever not be present?
+        if (!alpha_mask) {
+            alpha_mask = ~(red_mask | green_mask | blue_mask);
+        }
+
+        BitScanResult alpha_scan = find_least_significant_set_bit(alpha_mask);
+        BitScanResult red_scan   = find_least_significant_set_bit(red_mask);
+        BitScanResult green_scan = find_least_significant_set_bit(green_mask);
+        BitScanResult blue_scan  = find_least_significant_set_bit(blue_mask);
+
+        assert(alpha_scan.found && red_scan.found && green_scan.found && blue_scan.found);
+
+        s32 alpha_shift_down = cast(s32) alpha_scan.index;
+        s32 red_shift_down   = cast(s32) red_scan.index;
+        s32 green_shift_down = cast(s32) green_scan.index;
+        s32 blue_shift_down  = cast(s32) blue_scan.index;
+
+        s32 alpha_shift_up = 24;
+        s32 red_shift_up   = 16;
+        s32 green_shift_up =  8;
+        s32 blue_shift_up  =  0;
+
+        u32* source_dest = pixels;
+        for (s32 i = 0; i < header->width * header->height; i++) {
+            u32 c = *source_dest;
+            f32 texel_r = cast(f32) ((c & red_mask) >> red_shift_down);
+            f32 texel_g = cast(f32) ((c & green_mask) >> green_shift_down);
+            f32 texel_b = cast(f32) ((c & blue_mask) >> blue_shift_down);
+            f32 texel_a = cast(f32) ((c & alpha_mask) >> alpha_shift_down);
+
+            f32 rcp_255 = 1.0f/255.0f;
+            texel_a = rcp_255*texel_a;
+            texel_r = 255.0f*square_root(square(rcp_255*texel_r) * texel_a);
+            texel_g = 255.0f*square_root(square(rcp_255*texel_g) * texel_a);
+            texel_b = 255.0f*square_root(square(rcp_255*texel_b) * texel_a);
+            texel_a *= 255.0f;
+
+            *source_dest++ = cast(u32) (texel_a + 0.5f) << alpha_shift_up |
+                             cast(u32) (texel_r + 0.5f) << red_shift_up   |
+                             cast(u32) (texel_g + 0.5f) << green_shift_up |
+                             cast(u32) (texel_b + 0.5f) << blue_shift_up;
+        }
+
+        result = pixels;
+    }
+
+    return result;
+}
+
+#pragma pack(push, 1)
+struct WaveHeader {
+    u32 riff_id;
+    u32 size;
+    u32 wave_id;
+};
+
+struct WaveFmt {
+    u16 format_tag;
+    u16 num_channels;
+    u32 samples_per_sec;
+    u32 avg_bytes_per_sec;
+    u16 block_align;
+    u16 bits_per_sample;
+    u16 cb_size;
+    u16 valid_bits_per_sample;
+    u32 channel_mask;
+    u8 sub_format[16];
+};
+
+struct WaveChunk {
+    u32 id;
+    u32 size;
+};
+#pragma pack(pop)
+
+#define RIFF_CODE(a, b, c, d) (((u32)(a) << 0) | ((u32)(b) << 8) | ((u32)(c) << 16) | ((u32)(d) << 24))
+enum WaveChunkID {
+    WaveChunkID_fmt = RIFF_CODE('f', 'm', 't', ' '),
+    WaveChunkID_RIFF = RIFF_CODE('R', 'I', 'F', 'F'),
+    WaveChunkID_WAVE = RIFF_CODE('W', 'A', 'V', 'E'),
+    WaveChunkID_data = RIFF_CODE('d', 'a', 't', 'a'),
+};
+
+struct RiffIterator {
+    u8* at;
+    u8* stop;
+};
+
+inline RiffIterator parse_chunk_at(void* at, void* stop) {
+    RiffIterator iter;
+
+    iter.at = (u8*)at;
+    iter.stop = (u8*)stop;
+
+    return iter;
+}
+
+inline RiffIterator next_chunk(RiffIterator iter) {
+    WaveChunk* chunk = cast(WaveChunk*) iter.at;
+    u32 size = (chunk->size + 1) & ~1;
+    iter.at += sizeof(WaveChunk) + size;
+    return iter;
+}
+
+inline b32 is_valid(RiffIterator iter) {
+    b32 result = iter.at < iter.stop;
+    return result;
+}
+
+inline void* get_chunk_data(RiffIterator iter) {
+    void* result = iter.at + sizeof(WaveChunk);
+    return result;
+}
+
+inline u32 get_type(RiffIterator iter) {
+    WaveChunk* chunk = cast(WaveChunk*) iter.at;
+    u32 result = chunk->id;
+    return result;
+}
+
+inline u32 get_chunk_data_size(RiffIterator iter) {
+    WaveChunk* chunk = cast(WaveChunk*) iter.at;
+    u32 result = chunk->size;
+    return result;
+}
+
+internal s16* load_wav(size_t size, void* memory, u32* out_channel_count, u32* out_sample_rate, u32* out_sample_count) {
+    s16* result = 0;
+
+    if (size != 0 && memory) {
+        WaveHeader* header = cast(WaveHeader*) memory;
+        assert(header->riff_id == WaveChunkID_RIFF);
+        assert(header->wave_id == WaveChunkID_WAVE);
+
+        u32 sample_rate = 0;
+        u32 channel_count = 0;
+        s16* sample_data = 0;
+        u32 sample_data_size = 0;
+        for (RiffIterator iter = parse_chunk_at(header + 1, cast(u8*) (header + 1) + header->size - 4);
+             is_valid(iter);
+             iter = next_chunk(iter)
+        ) {
+            switch (get_type(iter)) {
+                case WaveChunkID_fmt: {
+                    WaveFmt* fmt = cast(WaveFmt*) get_chunk_data(iter);
+                    assert(fmt->format_tag == 1);
+                    assert(fmt->num_channels == 2);
+                    assert(fmt->samples_per_sec == AUDIO_SAMPLE_RATE);
+                    assert(fmt->bits_per_sample == 16);
+                    assert(fmt->block_align == sizeof(s16)*fmt->num_channels);
+                    channel_count = fmt->num_channels;
+                    sample_rate = fmt->samples_per_sec;
+                } break;
+
+                case WaveChunkID_data: {
+                    sample_data = cast(s16*) get_chunk_data(iter);
+                    sample_data_size = get_chunk_data_size(iter);
+                } break;
+            }
+        }
+
+        assert(channel_count && sample_data);
+        assert(channel_count == 2);
+
+        *out_channel_count = channel_count;
+        *out_sample_count = sample_data_size / (sizeof(s16)*channel_count);
+        *out_sample_rate = sample_rate;
+        result = sample_data;
+    }
+
+    return result;
+}
+
+#pragma pack(push, 1)
+struct MidiChunk {
+    u32 type;
+    u32 length;
+};
+
+struct MidiHeader {
+    u16 format;
+    u16 ntrcks;
+    u16 division;
+};
+#pragma pack(pop)
+
+#define MIDI_TYPE(type) ((type[0] << 0) | (type[1] << 8) | (type[2] << 16) | (type[3] << 24))
+
+struct MidiStream {
+    u8* at;
+    u8* stop;
+};
+
+inline u32 flip_endianness_u32(u32 value) {
+    u32 result = ((value & 0x000000FF) << 24) |
+                 ((value & 0x0000FF00) <<  8) |
+                 ((value & 0x00FF0000) >>  8) |
+                 ((value & 0xFF000000) >> 24);
+    return result;
+}
+
+inline u32 midi_read_variable_length_quantity(MidiStream* stream) {
+    u32 result = (*stream->at++);
+
+    if (result & 0x80) {
+        u8 c;
+        result &= 0x7F;
+        do {
+            c = (*stream->at++);
+            result = (result << 7) + (c & 0x7F);
+        } while (c & 0x80);
+    }
+
+    return result;
+}
+
+inline u8 midi_read_u8(MidiStream* stream) {
+    u8 result = *stream->at++;
+    return result;
+}
+
+inline u32 midi_read_u32(MidiStream* stream) {
+    u32 result  = midi_read_u8(stream) << 24;
+        result |= midi_read_u8(stream) << 16;
+        result |= midi_read_u8(stream) <<  8;
+        result |= midi_read_u8(stream) <<  0;
+    return result;
+}
+
+inline u32 midi_read_u24(MidiStream* stream) {
+    u32 result  = midi_read_u8(stream) << 16;
+        result |= midi_read_u8(stream) <<  8;
+        result |= midi_read_u8(stream) <<  0;
+    return result;
+}
+
+inline u16 midi_read_u16(MidiStream* stream) {
+    u16 result  = midi_read_u8(stream) << 8;
+        result |= midi_read_u8(stream) << 0;
+    return result;
+}
+
+inline MidiChunk midi_read_chunk(MidiStream* stream) {
+    MidiChunk result;
+    result.type = *(cast(u32*) stream->at);
+    stream->at += 4;
+    result.length = midi_read_u32(stream);
+    return result;
+}
 
 enum AssetDataType {
     AssetDataType_Unknown,
@@ -44,14 +339,12 @@ struct AssetDescription {
     u32 asset_index;
     PackedAsset packed;
 
-    u32 bpm;
+    f32 bpm;
     MidiID* midi_tracks;
 };
 
 global MemoryArena global_arena;
-
 global Array<AssetDescription> asset_descriptions;
-
 global u32 packed_asset_count = 1; // @Note: Reserving the 0th index for the null asset
 
 internal AssetDescription* add_asset(char* asset_name = 0, char* file_name = 0) {
@@ -114,13 +407,13 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
     return desc;
 }
 
-internal AssetDescription* add_midi_track(char* asset_name, char* file_name, u32 bpm) {
+internal AssetDescription* add_midi_track(char* asset_name, char* file_name, f32 bpm) {
     AssetDescription* desc = add_asset(asset_name, file_name);
     desc->bpm = bpm;
     return desc;
 }
 
-internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, char** midi_files, u32 bpm) {
+internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, char** midi_files, f32 bpm) {
     AssetDescription* desc = add_asset(asset_name, 0);
     desc->data_type = AssetDataType_Soundtrack;
     desc->bpm = bpm;
@@ -132,83 +425,6 @@ internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u3
         desc->midi_tracks[midi_index] = { add_midi_track(0, midi_files[midi_index], bpm)->asset_index };
     }
     return desc;
-}
-
-#define MIDI_TYPE(type) ((type[0] << 0) | (type[1] << 8) | (type[2] << 16) | (type[3] << 24))
-
-struct MidiStream {
-    u8* at;
-    u8* stop;
-};
-
-#pragma pack(push, 1)
-struct MidiChunk {
-    u32 type;
-    u32 length;
-};
-
-struct MidiHeader {
-    u16 format;
-    u16 ntrcks;
-    u16 division;
-};
-#pragma pack(pop)
-
-inline u32 flip_endianness_u32(u32 value) {
-    u32 result = ((value & 0x000000FF) << 24) |
-                 ((value & 0x0000FF00) <<  8) |
-                 ((value & 0x00FF0000) >>  8) |
-                 ((value & 0xFF000000) >> 24);
-    return result;
-}
-
-inline u32 midi_read_variable_length_quantity(MidiStream* stream) {
-    u32 result = (*stream->at++);
-
-    if (result & 0x80) {
-        u8 c;
-        result &= 0x7F;
-        do {
-            c = (*stream->at++);
-            result = (result << 7) + (c & 0x7F);
-        } while (c & 0x80);
-    }
-
-    return result;
-}
-
-inline u8 midi_read_u8(MidiStream* stream) {
-    u8 result = *stream->at++;
-    return result;
-}
-
-inline u32 midi_read_u32(MidiStream* stream) {
-    u32 result  = midi_read_u8(stream) << 24;
-        result |= midi_read_u8(stream) << 16;
-        result |= midi_read_u8(stream) <<  8;
-        result |= midi_read_u8(stream) <<  0;
-    return result;
-}
-
-inline u32 midi_read_u24(MidiStream* stream) {
-    u32 result  = midi_read_u8(stream) << 16;
-        result |= midi_read_u8(stream) <<  8;
-        result |= midi_read_u8(stream) <<  0;
-    return result;
-}
-
-inline u16 midi_read_u16(MidiStream* stream) {
-    u16 result  = midi_read_u8(stream) << 8;
-        result |= midi_read_u8(stream) << 0;
-    return result;
-}
-
-inline MidiChunk midi_read_chunk(MidiStream* stream) {
-    MidiChunk result;
-    result.type = *(cast(u32*) stream->at);
-    stream->at += 4;
-    result.length = midi_read_u32(stream);
-    return result;
 }
 
 int main(int argument_count, char** arguments) {
@@ -236,17 +452,25 @@ int main(int argument_count, char** arguments) {
         add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files), midi_files, 118);
     }
 
+    {
+        char* midi_files[] = { "assets/pulsar_kicktrack_1.mid" };
+        add_soundtrack("pulsar_kicktrack_1", "assets/pulsar_kicktrack_1.wav", ARRAY_COUNT(midi_files), midi_files, 95);
+    }
+
     add_sound("test_sound", "assets/test_sound.wav");
     add_sound("test_music", "assets/test_music.wav");
+
+    add_sound("menu_select", "assets/menu_select.wav");
+    add_sound("menu_confirm", "assets/menu_confirm.wav");
 
     add_image("camera_icon", "assets/camera_icon.bmp");
     add_image("speaker_icon", "assets/speaker_icon.bmp");
     add_image("checkpoint_icon", "assets/checkpoint_icon.bmp");
 
-    add_font("debug_font", "C:/Windows/Fonts/SourceCodePro-Regular.ttf", 24);
+    add_font("console_font", "C:/Windows/Fonts/consola.ttf", 16);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 24);
-    add_font("editor_font_big", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 28);
     add_font("menu_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 72);
+    add_font("big_menu_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 128);
 
     AssetPackHeader header;
     header.magic_value = ASSET_PACK_CODE('p', 'l', 'a', 'f');
@@ -308,7 +532,7 @@ int main(int argument_count, char** arguments) {
 
                         u32 channel_count, sample_rate, sample_count;
                         s16* samples = load_wav(file.size, file.data, &channel_count, &sample_rate, &sample_count);
-                        assert(sample_rate == 48000);
+                        assert(sample_rate == AUDIO_SAMPLE_RATE);
 
                         u32 sound_size = sizeof(s16)*channel_count*sample_count;
 
@@ -411,13 +635,12 @@ int main(int argument_count, char** arguments) {
                             s32 w = ix1 - ix0;
                             s32 h = iy1 - iy0;
                             u8* stb_glyph = cast(u8*) push_size(&global_arena, w*h);
-
                             stbtt_MakeCodepointBitmap(&font_info, stb_glyph, w, h, w, font_scale, font_scale, codepoint);
 
                             s32 advance_width, left_side_bearing;
                             stbtt_GetCodepointHMetrics(&font_info, codepoint, &advance_width, &left_side_bearing);
 
-                            f32 scaled_left_side_bearing = rcp_oversample_amount*font_scale * cast(f32) left_side_bearing;
+                            f32 scaled_left_side_bearing = rcp_oversample_amount*font_scale*cast(f32) left_side_bearing;
 
                             for (u32 paired_glyph_index = 0; paired_glyph_index < glyph_count; paired_glyph_index++) {
                                 u32 paired_codepoint = packed->font.first_codepoint + paired_glyph_index;
@@ -451,14 +674,12 @@ int main(int argument_count, char** arguments) {
                                 }
                                 dest_row -= pitch;
                             }
-
                             fwrite(out_glyph, out_glyph_size, 1, out);
 
                             end_temporary_memory(glyph_temp);
                         }
 
                         u32 end_position = ftell(out);
-
                         fseek(out, kerning_table_position, SEEK_SET);
                         fwrite(kerning_table, kerning_table_size, 1, out);
                         fseek(out, end_position, SEEK_SET);
@@ -469,17 +690,16 @@ int main(int argument_count, char** arguments) {
                     case AssetDataType_Midi: {
                         packed->type = AssetType_Midi;
 
-                        b32 had_tempo_change = false;
+                        assert(asset_desc->bpm);
 
                         f64 running_sample_index = 0.0f;
 
-                        packed->midi.ticks_per_second = 48000;
+                        packed->midi.ticks_per_second = AUDIO_SAMPLE_RATE;
                         packed->midi.time_signature_numerator = 4;
                         packed->midi.time_signature_denominator = 4;
 
                         f64 samples_per_microsecond = cast(f32) packed->midi.ticks_per_second / 1000000.0f;
                         u32 ticks_per_quarter_note = 0;
-                        assert(asset_desc->bpm);
                         u32 microseconds_per_quarter_note = round_f32_to_u32(1000000.0f*(60.0f / asset_desc->bpm));
 
                         f64 samples_per_delta_time = 0.0f;
@@ -536,8 +756,6 @@ int main(int argument_count, char** arguments) {
                                                         // @Note: Tempo Change
                                                         microseconds_per_quarter_note = midi_read_u24(&data);
                                                         samples_per_delta_time = samples_per_microsecond*(cast(f64) microseconds_per_quarter_note / cast(f64) ticks_per_quarter_note);
-
-                                                        had_tempo_change = true;
                                                     } break;
 
                                                     case 0x58: {
@@ -551,10 +769,9 @@ int main(int argument_count, char** arguments) {
                                                         packed->midi.time_signature_denominator = 1 << negative_power_for_denominator;
                                                     } break;
 
-                                                    // @TODO: What's the point of this, for me?
                                                     case 0x2F: {
                                                         // @Note: End of Track
-                                                        goto done_parsing_midi;
+                                                        goto done_parsing_track;
                                                     } break;
 
                                                     default: {
@@ -605,14 +822,14 @@ parse_data_bytes:
                                             }
 
                                             if (handled) {
-                                                event.absolute_time_in_ticks = safe_truncate_u64u32(round_f64_to_u64(running_sample_index));
+                                                event.absolute_time_in_ticks = safe_truncate_u64_u32(round_f64_to_u64(running_sample_index));
                                                 event.channel = cast(u8) channel;
 
                                                 lb_add(events, event);
                                             }
                                         }
                                     }
-
+done_parsing_track:
                                     // @Note: Since we only support single track midi files, we'll jump out right here and now.
                                     goto done_parsing_midi;
                                 } break;

@@ -181,7 +181,6 @@ struct EditorState {
     ImageID speaker_icon;
     ImageID checkpoint_icon;
 
-    Font* big_font;
     Font* font;
 
     v2 default_collision;
@@ -211,8 +210,12 @@ struct EditorState {
     v2 spawn_menu_p;
     EntityType type_to_spawn;
     EntityPrefab prefab_to_spawn;
-
     LinearBuffer<EntityPrefab>* entity_prefabs[EntityType_Count];
+
+    b32 show_all_move_widgets;
+    b32 show_camera_zones;
+    b32 show_soundtrack_player_zones;
+    b32 show_checkpoint_zones;
 
     EditorWidget next_hot_widget;
     EditorWidget hot_widget;
@@ -234,13 +237,14 @@ struct UILayoutContext {
     RenderContext* rc;
     Assets* assets;
     MemoryArena* temp_arena;
-    Font* font;
 };
 
 struct UILayout {
     UILayoutContext context;
 
     u32 flags;
+
+    Font* font;
 
     v2 origin;
     v2 at_p;
@@ -266,18 +270,20 @@ enum LayoutFlag {
     Layout_CenterAlign     = Layout_HorzCenterAlign|Layout_VertCenterAlign,
 };
 
-inline UILayout make_layout(UILayoutContext context, v2 origin, u32 flags = 0) {
+inline UILayout make_layout(UILayoutContext context, Font* font, v2 origin, u32 flags = 0) {
     UILayout layout = {};
 
     layout.context = context;
 
     layout.flags = flags;
 
+    layout.font = font;
+
     layout.origin = origin;
     layout.at_p = layout.origin;
     layout.spacing = 8.0f;
 
-    layout.vertical_advance = -(get_line_spacing(context.font) + layout.spacing);
+    layout.vertical_advance = -(get_line_spacing(layout.font) + layout.spacing);
     if (layout.flags & Layout_BottomUp) {
         layout.vertical_advance = -layout.vertical_advance;
     }
@@ -292,14 +298,19 @@ inline UILayout make_layout(UILayoutContext context, v2 origin, u32 flags = 0) {
 inline void set_spacing(UILayout* layout, f32 spacing) {
     layout->spacing = spacing;
 
-    layout->vertical_advance = -(get_line_spacing(layout->context.font) + layout->spacing);
+    layout->vertical_advance = -(get_line_spacing(layout->font) + layout->spacing);
     if (layout->flags & Layout_BottomUp) {
         layout->vertical_advance = -layout->vertical_advance;
     }
 }
 
+inline void set_font(UILayout* layout, Font* font) {
+    layout->font = font;
+    set_spacing(layout, layout->spacing);
+}
+
 inline UILayout make_layout(EditorState* editor, v2 origin, b32 bottom_up = false) {
-    UILayout layout = make_layout({ &editor->render_context, editor->assets, editor->arena, editor->font }, origin, bottom_up);
+    UILayout layout = make_layout({ &editor->render_context, editor->assets, editor->arena }, editor->font, origin, bottom_up);
     return layout;
 }
 

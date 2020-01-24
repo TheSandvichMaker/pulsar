@@ -307,7 +307,7 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
                             }
 
                             if (strings_are_equal(ser->name, "guid")) {
-                                if (entity->guid.value > level->first_available_guid) {
+                                if (entity->guid.value >= level->first_available_guid) {
                                     level->first_available_guid = entity->guid.value + 1;
                                 }
                             }
@@ -459,6 +459,7 @@ internal void load_level_into_game_state(GameState* game_state, Level* level) {
             if (distance_sq < best_checkpoint_distance_sq) {
                 best_checkpoint_distance_sq = distance_sq;
                 game_state->last_activated_checkpoint = entity;
+                game_state->last_activated_checkpoint->most_recent_player_position = entity->p;
             }
         }
     }
@@ -472,23 +473,31 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
         editor->camera_p_on_exit = game_state->render_context.camera_p;
     }
 
-    if (game_state->game_mode == GameMode_Ingame && game_mode != GameMode_Ingame) {
-        pause_group(&game_state->game_audio, 0.1f);
-    }
-
     switch (game_mode) {
         case GameMode_Menu: {
+            game_state->menu_state->source_gamemode = game_state->game_mode;
+            if (game_state->game_mode == GameMode_Ingame) {
+                pause_group(&game_state->game_audio, 0.1f);
+            }
         } break;
 
         case GameMode_Ingame: {
             if (!strings_are_equal(game_state->level_to_load, level_name(game_state->active_level))) {
                 load_level(game_state, game_state->level_to_load);
                 load_level_into_game_state(game_state, game_state->active_level);
+                game_state->level_loaded = true;
+            } else if (game_state->game_mode == GameMode_Editor) {
+                load_level_into_game_state(game_state, game_state->active_level);
             }
             unpause_group(&game_state->game_audio, 0.25f);
         } break;
 
         case GameMode_Editor: {
+            if (game_state->game_mode == GameMode_Ingame && game_mode != GameMode_Ingame) {
+                stop_all_sounds(&game_state->game_audio);
+                stop_all_midi_tracks(game_state);
+            }
+
             EditorState* editor = game_state->editor_state;
             game_state->render_context.camera_p = editor->camera_p_on_exit;
 
@@ -525,8 +534,6 @@ inline CameraView get_camera_view(RenderContext* render_context, Entity* camera_
     return result;
 }
 
-global Sound* test_sound;
-
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
@@ -546,8 +553,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        test_sound = get_sound_by_name(&game_state->assets, string_literal("test_sound"));
-
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
         initialize_audio_group(&game_state->game_audio, &game_state->audio_mixer);
         initialize_audio_group(&game_state->ui_audio, &game_state->audio_mixer);
@@ -556,13 +561,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             ConsoleState* console = game_state->console_state = push_struct(&game_state->permanent_arena, ConsoleState);
 
             initialize_render_context(&game_state->console_state->rc, render_commands, 1.0f);
-            console->font = get_font_by_name(&game_state->assets, string_literal("editor_font"));
+            console->font = get_font_by_name(&game_state->assets, string_literal("console_font"));
         }
 
         {
             MenuState* menu = game_state->menu_state = push_struct(&game_state->permanent_arena, MenuState);
 
             menu->font = get_font_by_name(&game_state->assets, string_literal("menu_font"));
+            menu->big_font = get_font_by_name(&game_state->assets, string_literal("big_menu_font"));
+            menu->select_sound = get_sound_by_name(&game_state->assets, string_literal("menu_select"));
+            menu->confirm_sound = get_sound_by_name(&game_state->assets, string_literal("menu_confirm"));
         }
 
         game_state->background_level = allocate_level(&game_state->permanent_arena, "background level");
@@ -575,7 +583,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         game_state->level_to_load = game_config->startup_level;
 
-        switch_gamemode(game_state, GameMode_Editor);
+        switch_gamemode(game_state, GameMode_Menu);
 
         initialize_render_context(&game_state->render_context, render_commands, 30.0f);
 
@@ -603,37 +611,37 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         layout_context.rc = render_context;
         layout_context.assets = &game_state->assets;
         layout_context.temp_arena = &game_state->transient_arena;
-        layout_context.font = menu->font;
 
-        char* menu_items[3];
+        char* menu_items[32]; // @Note: Oversized array
         u32 item_index = 0;
-        u32 start_game = (menu_items[item_index] = "Start Game", item_index++);
-        u32 options    = (menu_items[item_index] = "Options", item_index++);
-        u32 quit       = (menu_items[item_index] = "Quit", item_index++);
+        u32 start_game    = (menu_items[item_index] = menu->source_gamemode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
+        u32 enter_editor  = (menu_items[item_index] = "Enter Editor", item_index++);
+        u32 options       = (menu_items[item_index] = "Options", item_index++);
+        u32 quit          = (menu_items[item_index] = "Quit", item_index++);
 
         f32 spacing = 12.0f;
 
-        u32 num_items = ARRAY_COUNT(menu_items);
-        f32 row_height   = get_line_spacing(layout_context.font) + spacing;
+        u32 num_items  = item_index;
+        f32 row_height = menu->font->size + get_line_spacing(menu->font) + spacing;
 
         GameController* controller = &input->controller;
         if (was_pressed(controller->move_down)) {
             if (menu->selected_item < num_items - 1) {
                 menu->selected_item++;
                 menu->bob_t = 1.0f;
-                play_sound(&game_state->ui_audio, test_sound);
+                play_sound(&game_state->ui_audio, menu->select_sound);
             }
         }
         if (was_pressed(controller->move_up)) {
             if (menu->selected_item > 0) {
                 menu->selected_item--;
                 menu->bob_t = 1.0f;
-                play_sound(&game_state->ui_audio, test_sound);
+                play_sound(&game_state->ui_audio, menu->select_sound);
             }
         }
 
         f32 magnitude = square(game_config->menu_bob_magnitude);
-        f32 y_bob = magnitude*square(menu->bob_t) + -magnitude*menu->bob_t;
+        f32 bob_amount = magnitude*square(menu->bob_t) + -magnitude*menu->bob_t;
 
         if (menu->bob_t > 0.0f) {
             menu->bob_t -= frame_dt / game_config->menu_bob_speed;
@@ -642,14 +650,23 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        UILayout layout = make_layout(layout_context, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.5f*(cast(f32) num_items*row_height)), Layout_CenterAlign);
+        UILayout layout = make_layout(layout_context, menu->big_font, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.5f*(cast(f32) num_items*row_height)));
         set_spacing(&layout, spacing);
+
+        {
+            v2 text_dim = get_dim(layout_text_bounds(&layout, "PULSAR"));
+            layout.offset_p = vec2(-text_dim.x*0.5f, 0.0f);
+            layout_print_line(&layout, COLOR_WHITE, "PULSAR");
+            layout.offset_p = vec2(0, 0);
+        }
+
+        set_font(&layout, menu->font);
 
         for (u32 item = 0; item < num_items; item++) {
             v4 color = COLOR_WHITE;
             if (item == menu->selected_item) {
-                layout.offset_p = vec2(0.0f, y_bob);
-                color = COLOR_YELLOW;
+                layout.offset_p = vec2(0.0f, bob_amount);
+                color.rgb = COLOR_YELLOW.rgb;
             }
 
             char* menu_item = menu_items[item];
@@ -665,15 +682,37 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         if (was_pressed(controller->interact)) {
             if (menu->selected_item == start_game) {
                 switch_gamemode(game_state, GameMode_Ingame);
+            } else if (menu->selected_item == enter_editor) {
+                switch_gamemode(game_state, GameMode_Editor);
             } else if (menu->selected_item == options) {
                 /* there's no options for now */
             } else if (menu->selected_item == quit) {
-                input->quit_requested = true;
+                menu->quit_timer = 1.0f;
             }
+
+            play_sound(&game_state->ui_audio, menu->confirm_sound);
         }
 
         if (was_pressed(input->escape)) {
-            input->quit_requested = true;
+            if (menu->source_gamemode == GameMode_Menu) {
+                if (menu->selected_item != quit) {
+                    menu->selected_item = quit;
+                    menu->bob_t = 1.0f;
+                    play_sound(&game_state->ui_audio, menu->select_sound);
+                } else {
+                    menu->quit_timer = 1.0f;
+                }
+            } else {
+                switch_gamemode(game_state, menu->source_gamemode);
+            }
+        }
+
+        if (menu->quit_timer > 0.0f) {
+            menu->quit_timer -= frame_dt / game_config->menu_quit_speed;
+            if (menu->quit_timer <= 0.0f) {
+                input->quit_requested = true;
+            }
+            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, 1.0f - 1.2f*menu->quit_timer + 0.2f));
         }
     } else {
         render_worldspace(render_context, 30.0f);
@@ -814,8 +853,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         } else {
                             INVALID_CODE_PATH;
                         }
-                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
-                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.5f), ShapeRenderMode_Outline);
+                        if (editor->show_camera_zones) {
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.25f), ShapeRenderMode_Outline);
+                        }
                     } break;
 
                     case EntityType_Checkpoint: {
@@ -825,7 +866,9 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         } else {
                             INVALID_CODE_PATH;
                         }
-                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
+                        if (editor->show_checkpoint_zones) {
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
+                        }
                     } break;
 
                     case EntityType_SoundtrackPlayer: {
@@ -835,8 +878,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         } else {
                             INVALID_CODE_PATH;
                         }
-                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), COLOR_GREEN, ShapeRenderMode_Outline);
-                        push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline);
+                        if (editor->show_soundtrack_player_zones) {
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), vec4(COLOR_GREEN.rgb, 0.5f), ShapeRenderMode_Outline);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline);
+                        }
                     }
 
                     default: {

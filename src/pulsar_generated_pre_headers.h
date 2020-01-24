@@ -61,7 +61,7 @@ enum MetaType {
 
 #define BodyOf_PackedMidi \
     u32 ticks_per_second; \
-    u32 beats_per_minute; \
+    f32 beats_per_minute; \
     u16 time_signature_numerator; \
     u16 time_signature_denominator; \
     u32 event_count;
@@ -107,6 +107,7 @@ enum MetaType {
     f32 camera_transition_speed; \
     f32 menu_bob_speed; \
     f32 menu_bob_magnitude; \
+    f32 menu_quit_speed; \
     f32 simulation_rate; \
     f32 console_open_speed; \
     f32 console_close_speed;

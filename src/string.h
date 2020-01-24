@@ -47,6 +47,11 @@ inline b32 is_alphanumeric(char c) {
     return result;
 }
 
+inline b32 is_printable_ascii(char c) {
+    b32 result = (c >= ' ' && c <= '~');
+    return result;
+}
+
 inline char to_lower(char c) {
     char result = c;
     if (c >= 'A' && c <= 'Z') {

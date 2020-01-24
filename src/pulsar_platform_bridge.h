@@ -125,12 +125,12 @@ introspect() struct GameConfig {
     f32 camera_transition_speed = 0.4f;
 
     // Menu
-    f32 menu_bob_speed = 0.2f;
+    f32 menu_bob_speed     = 0.2f;
     f32 menu_bob_magnitude = 4.0f;
+    f32 menu_quit_speed    = 0.4f;
 
     // Debug
     f32 simulation_rate     = 1.0f;
-
     f32 console_open_speed  = 0.14f;
     f32 console_close_speed = 0.08f;
 };

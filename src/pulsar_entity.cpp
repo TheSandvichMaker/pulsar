@@ -109,7 +109,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 char* midi_note_name = midi_note_names[event.note_value % 12];
                 s32 midi_note_octave = (cast(s32) event.note_value / 12) - 2;
 
-                log_print(LogLevel_Info, "Pushed %s %s %d midi event with timing: %u (tick_timer: %u)", event.type == MidiEvent_NoteOn ? "note on" : "note off", midi_note_name, midi_note_octave, event.absolute_time_in_ticks, playing_midi->tick_timer);
+                // log_print(LogLevel_Info, "Pushed %s %s %d midi event with timing: %u (tick_timer: %u)", event.type == MidiEvent_NoteOn ? "note on" : "note off", midi_note_name, midi_note_octave, event.absolute_time_in_ticks, playing_midi->tick_timer);
 
                 event = track->events[playing_midi->event_index];
             }
@@ -118,7 +118,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
         if (playing_midi->event_index >= track->event_count) {
             assert(playing_midi->event_index == track->event_count);
             if (playing_midi->flags & Playback_Looping) {
-                log_print(LogLevel_Info, "Midi track from SoundtrackID { %u } looped", playing_midi->source_soundtrack.value);
+                // log_print(LogLevel_Info, "Midi track from SoundtrackID { %u } looped", playing_midi->source_soundtrack.value);
                 playing_midi->event_index = 0;
                 playing_midi->tick_timer = 0;
                 playing_midi_ptr = &playing_midi->next;
@@ -539,11 +539,14 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
         force_applied_to_player = square_root(force_applied_to_player);
         f32 length_of_player_move = length(player->p - start_player_p);
 
+#if 0
+        // @Note: This is not a good way to do death by crushing
         f32 unused_force = force_applied_to_player - length_of_player_move;
         if (unused_force > game_config->death_by_crushing_threshold) {
             log_print(LogLevel_Info, "Death by crushing.");
             kill_player(game_state);
         }
+#endif
     }
 
     for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {
