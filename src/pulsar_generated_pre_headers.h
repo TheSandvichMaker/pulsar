@@ -104,9 +104,12 @@ enum MetaType {
     f32 jump_force; \
     f32 early_jump_window; \
     f32 late_jump_window; \
+    f32 player_respawn_speed; \
+    f32 level_intro_speed; \
     f32 camera_transition_speed; \
     f32 menu_bob_speed; \
     f32 menu_bob_magnitude; \
+    f32 menu_fade_in_speed; \
     f32 menu_quit_speed; \
     f32 simulation_rate; \
     f32 console_open_speed; \

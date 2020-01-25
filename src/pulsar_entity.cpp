@@ -2,6 +2,16 @@
 // @TODO: Take a more intelligent approach to dead entities so I don't have to put in error-prone checks for it
 //
 
+inline b32 player_can_move(GameState* game_state) {
+    Entity* player = game_state->player;
+
+    if (player->dead)                         return false;
+    if (game_state->mid_camera_transition)    return false;
+    if (game_state->level_intro_timer > 0.0f) return false;
+
+    return true;
+}
+
 struct TraceInfo {
     f32 t_min = 1.0f;
     f32 t_max = 0.0f;
@@ -55,10 +65,11 @@ inline b32 on_ground(Entity* entity) {
 }
 
 inline void kill_player(GameState* game_state) {
-    assert(game_state->player);
-    if (!game_state->player->dead) {
-        game_state->player->killed_this_frame = true;
-        game_state->player_respawn_timer = 2.0f;
+    Entity* player = game_state->player;
+    if (player && !player->dead) {
+        player->death_p = player->p;
+        player->killed_this_frame = true;
+        game_state->player_respawn_timer = 1.0f;
     }
 }
 
@@ -146,12 +157,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
         switch (entity->type) {
             case EntityType_Player: {
-                if (game_state->mid_camera_transition) {
+                if (!player_can_move(game_state)) {
                     break;
-                }
-
-                if (!game_state->camera_target) {
-                    game_state->camera_target = entity;
                 }
 
                 GameController* controller = &input->controller;
@@ -282,7 +289,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         volume = vec2(1.0f - fade, 1.0f - fade);
                     }
 
-                    change_volume(entity->playing, 0.1f, volume);
+                    change_volume(entity->playing, 0.05f, volume);
                 }
             } break;
 
@@ -292,7 +299,10 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     if (is_in_region(entity->active_region, camera_target->p - entity->p)) {
                         game_state->previous_camera_zone = game_state->active_camera_zone;
                         game_state->active_camera_zone = entity;
-                        game_state->camera_transition_t = 0.0f;
+                        // @TODO: camera_transition_t doesn't follow the convention of timers in the rest of the codebase
+                        if (!camera_target->dead) {
+                            game_state->camera_transition_t = 0.0f;
+                        }
                     }
                 }
             } break;
@@ -313,7 +323,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
     Entity* player = game_state->player;
 
-    if (player && !player->dead && !game_state->mid_camera_transition) {
+    if (player && player_can_move(game_state)) {
         v2 start_player_p = player->p;
         f32 force_applied_to_player = 0.0f;
 
@@ -340,8 +350,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             f32 min_y_vel = game_config->min_y_vel;
             f32 max_y_vel = game_config->max_y_vel;
 
-            ddp.x = (clamp(ddp.x*dt + player->dp.x, -max_x_vel, max_x_vel) - player->dp.x) / dt;
-            ddp.y = (clamp(ddp.y*dt + player->dp.y,  min_y_vel, max_y_vel) - player->dp.y) / dt;
+            ddp.x = safe_ratio_0((clamp(ddp.x*dt + player->dp.x, -max_x_vel, max_x_vel) - player->dp.x), dt);
+            ddp.y = safe_ratio_0((clamp(ddp.y*dt + player->dp.y,  min_y_vel, max_y_vel) - player->dp.y), dt);
 
             v2 transient_dp = ddp*dt;
 

@@ -553,6 +553,11 @@ internal void parse_enum(Tokenizer* tokenizer, IntrospectionParams params) {
 
     add_meta_type_if_unique(&meta_type_array, meta.name);
 
+    if (match(tokenizer, ':')) {
+        /* Maybe do something with the type */
+        Token enum_type = get_token(tokenizer);
+    }
+
     if (match(tokenizer, '{')) {
         for (;;) {
             Token member_token = get_token(tokenizer);

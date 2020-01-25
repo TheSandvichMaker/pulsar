@@ -206,6 +206,16 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 }
 
                 switch (shape->type) {
+                    case Shape_Line: {
+                        glBegin(GL_LINES);
+                        glColor4fv(command->color.e);
+                        v2 start_p = transform->offset;
+                        v2 end_p   = transform->offset + transform->scale*rotate(shape->arm, transform->rotation_arm);
+                        glVertex2fv(start_p.e);
+                        glVertex2fv(end_p.e);
+                        glEnd();
+                    } break;
+
                     case Shape_Polygon: {
                         glBegin(render_mode);
                         glColor4fv(command->color.e);

@@ -119,3 +119,9 @@ inline RenderCommandShape* push_quick_rect(RenderContext* render_context, v2 p, 
     RenderCommandShape* result = push_shape(render_context, transform2d(p), rectangle(aab_center_dim(vec2(0, 0), dim)), color, render_mode, sort_key);
     return result;
 }
+
+
+inline RenderCommandShape* push_line(RenderContext* render_context, v2 start_p, v2 end_p, v4 color = vec4(1, 1, 1, 1), f32 sort_key = 0.0f) {
+    RenderCommandShape* result = push_shape(render_context, transform2d(start_p), line(end_p - start_p), color, ShapeRenderMode_Outline, sort_key);
+    return result;
+}

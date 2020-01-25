@@ -878,8 +878,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 POINT mouse_position;
                 GetCursorPos(&mouse_position);
                 ScreenToClient(window, &mouse_position);
-                new_input->mouse_x = mouse_position.x;
-                new_input->mouse_y = (height - 1) - mouse_position.y;
+                new_input->mouse_x = CLAMP(mouse_position.x, 0, cast(s32) width);
+                new_input->mouse_y = CLAMP((height - 1) - mouse_position.y, 0, cast(s32) height);
                 new_input->mouse_z = 0; // @TODO: Mousewheel support
 
                 DWORD win32_button_id[PlatformMouseButton_Count] = {

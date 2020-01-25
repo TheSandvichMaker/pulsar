@@ -121,12 +121,18 @@ introspect() struct GameConfig {
     f32 early_jump_window           = 0.075f;
     f32 late_jump_window            = 0.15f;
 
+    f32 player_respawn_speed        = 2.0f;
+
+    // Level
+    f32 level_intro_speed = 1.0f;
+
     // Camera
     f32 camera_transition_speed = 0.4f;
 
     // Menu
     f32 menu_bob_speed     = 0.2f;
     f32 menu_bob_magnitude = 4.0f;
+    f32 menu_fade_in_speed = 0.8f;
     f32 menu_quit_speed    = 0.4f;
 
     // Debug

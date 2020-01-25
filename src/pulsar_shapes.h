@@ -25,6 +25,7 @@ inline Transform2D transform2d(v2 offset, v2 scale = vec2(1.0f, 1.0f), v2 sweep 
 
 enum ShapeType {
     Shape_Point,
+    Shape_Line,
     Shape_Polygon,
     Shape_Circle,
     Shape_Rectangle,
@@ -34,14 +35,16 @@ struct Shape2D {
     ShapeType type;
     AxisAlignedBox2 bounding_box; // @Note: Also used as the shape information for Shape_Rectangle
     union {
-        // @Note: Polygon
-        struct {
+        struct /* Shape_Line */ {
+            v2 arm;
+        };
+
+        struct /* Shape_Polygon */ {
             u32 vert_count;
             v2* vertices;
         };
 
-        // @Note: Circle
-        struct {
+        struct /* Shape_Circle */ {
             f32 radius;
         };
     };
@@ -52,6 +55,10 @@ inline AxisAlignedBox2 find_bounding_box_for_shape(Shape2D shape) {
     switch (shape.type) {
         case Shape_Point: {
             /* Do nothing at all... */
+        } break;
+
+        case Shape_Line: {
+            result = aab_min_dim(vec2(0, 0), shape.arm);
         } break;
 
         case Shape_Polygon: {
@@ -65,11 +72,25 @@ inline AxisAlignedBox2 find_bounding_box_for_shape(Shape2D shape) {
         } break;
 
         case Shape_Rectangle: {
-            /* A rectangle is by definition already a bounding box, so what's the deal with that. */
+            /* A rectangle is by definition already a bounding box, so that's that. */
         } break;
 
         INVALID_DEFAULT_CASE;
     }
+    return result;
+}
+
+inline Shape2D point() {
+    Shape2D result = {};
+    result.type = Shape_Point;
+    return result;
+}
+
+inline Shape2D line(v2 arm) {
+    Shape2D result = {};
+    result.type = Shape_Line;
+    result.arm = arm;
+    result.bounding_box = find_bounding_box_for_shape(result);
     return result;
 }
 
@@ -101,12 +122,6 @@ inline Shape2D rectangle(v2 dim) {
     Shape2D result = {};
     result.type = Shape_Rectangle;
     result.bounding_box = aab_center_dim(vec2(0, 0), dim);
-    return result;
-}
-
-inline Shape2D point() {
-    Shape2D result = {};
-    result.type = Shape_Point;
     return result;
 }
 

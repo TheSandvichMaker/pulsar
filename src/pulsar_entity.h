@@ -53,6 +53,10 @@ struct Entity {
     ImageID sprite;
     v4 color;
 
+    // @TODO: Eventually make this more safe by giving these structs names
+    // P.S. that doesn't mean they have to have a type, you can use auto in C++
+    // to refer to the type of whatever these otherwise anonymous struct types
+    // might be.
     union {
         struct /* Player */ {
             f32 early_jump_timer;
@@ -68,8 +72,9 @@ struct Entity {
             v2 support_normal;
 
             v2 ballistic_dp;
-
             v2 contact_move;
+
+            v2 death_p;
         };
 
         struct /* Wall */ {
@@ -96,6 +101,7 @@ struct Entity {
         };
 
         struct /* CameraZone */ {
+            b32 primary_camera_zone;
             v2 active_region;
             f32 view_region_height;
             v2 camera_rotation_arm;

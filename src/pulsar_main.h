@@ -109,6 +109,7 @@ global GameConfig* game_config;
 #include "pulsar_gjk.h"
 #include "pulsar_entity.h"
 #include "pulsar_editor.h"
+#include "pulsar_console.h"
 
 introspect() enum GameMode {
     GameMode_Menu,
@@ -156,6 +157,9 @@ struct MenuState {
     u32 selected_item;
     f32 bob_t;
 
+    f32 fade_in_timer;
+
+    b32 asking_for_quit_confirmation;
     f32 quit_timer;
 };
 
@@ -176,9 +180,6 @@ struct GameState {
     MenuState* menu_state;
     ConsoleState* console_state;
     EditorState* editor_state;
-
-    String level_to_load;
-    b32 level_loaded;
 
     v4 foreground_color;
     v4 background_color;
@@ -206,8 +207,12 @@ struct GameState {
     b32 mid_camera_transition;
     f32 camera_transition_t;
 
+    String desired_level;
+
     Level* background_level;
     Level* active_level;
+
+    f32 level_intro_timer;
 
     u32 entity_count;
     Entity entities[MAX_ENTITY_COUNT];
