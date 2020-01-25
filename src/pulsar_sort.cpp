@@ -1,3 +1,5 @@
+// @Note: Copied straight from Handmade Hero
+
 struct SortEntry {
     f32 sort_key;
     u32 index;

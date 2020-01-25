@@ -428,11 +428,40 @@ inline void stop_all_midi_tracks(GameState* game_state) {
 internal void play_level(GameState* game_state, Level* level) {
     game_state->active_level = level;
 
-    for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
-        Entity* source = level->entities + entity_index;
+    TemporaryMemory temp = begin_temporary_memory(&game_state->transient_arena);
+    SortEntry* sort_temp = push_array(&game_state->transient_arena, level->entity_count, SortEntry);
+
+    SortEntry* sorted_entities = push_array(&game_state->transient_arena, level->entity_count, SortEntry);
+    for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+        Entity* entity = level->entities + entity_index;
+        SortEntry* entry = sorted_entities + entity_index;
+        entry->sort_key = cast(f32) entity->type; // @TODO: Kind of weird to cast an enum to a float, makes me feel bad
+        entry->index = entity_index;
+    }
+
+    radix_sort(level->entity_count, sorted_entities, sort_temp);
+
+    u32 current_type_count = 0;
+    EntityType current_type = EntityType_Null;
+    game_state->entity_type_offsets[current_type] = 0;
+    for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+        SortEntry* sort_entry = sorted_entities + entity_index;
+
+        Entity* source = level->entities + sort_entry->index;
         Entity* dest = game_state->entities + entity_index;
 
         *dest = *source;
+
+        if (dest->type != current_type) {
+            game_state->entity_type_counts[current_type] = current_type_count;
+            log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
+            current_type_count = 0;
+            current_type       = dest->type;
+            game_state->entity_type_offsets[current_type] = entity_index;
+            // log_print(LogLevel_Info, "Offset for %s: %u", enum_name_safe(EntityType, current_type), entity_index);
+        }
+
+        current_type_count++;
 
         if (dest->type == EntityType_Player) {
             if (!game_state->player) {
@@ -443,6 +472,10 @@ internal void play_level(GameState* game_state, Level* level) {
             }
         }
     }
+    game_state->entity_type_counts[current_type] = current_type_count;
+    log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
+
+    end_temporary_memory(temp);
 
     assert(game_state->player);
 
@@ -844,14 +877,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         game_state->death_cam_start = get_camera_view(game_state, camera_zone, player->p);
 
                         Entity* end_camera_zone = camera_zone;
-                        // @TODO: I would like to start being able to iterate through certain entity types
-                        for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
-                            Entity* entity = game_state->entities + entity_index;
-                            if (entity->type == EntityType_CameraZone) {
-                                if (is_in_region(entity->active_region, checkpoint->p - entity->p)) {
-                                    end_camera_zone = entity;
-                                    break;
-                                }
+                        for_entity_type (game_state, EntityType_CameraZone) {
+                            if (is_in_region(entity->active_region, checkpoint->p - entity->p)) {
+                                end_camera_zone = entity;
+                                break;
                             }
                         }
 

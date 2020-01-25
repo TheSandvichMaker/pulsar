@@ -1424,12 +1424,17 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->show_all_move_widgets = !editor->show_all_move_widgets;
     }
 
-    if (selected || editor->show_all_move_widgets) {
-        u32 shown_entity_count = editor->show_all_move_widgets ? level->entity_count : 1;
-        u32 entity_index = 0;
-        Entity* entity = editor->show_all_move_widgets ? level->entities : selected;
-        while (entity) {
-            if (entity->type == EntityType_Wall && entity->behaviour == WallBehaviour_Move) {
+    if ((selected && selected->type == EntityType_Wall) || editor->show_all_move_widgets) {
+        for_entity_type (game_state, EntityType_Wall) {
+            // @Speed: It's obviously a bit silly to loop through all walls if we've only got one selected,
+            // but it realistically speaking probably will never matter.
+            if (!editor->show_all_move_widgets) {
+                if (entity != selected) {
+                    continue;
+                }
+            }
+
+            if (entity->behaviour == WallBehaviour_Move) {
                 EditorWidget widget;
                 widget.guid = entity;
                 widget.type = Widget_DragP;
@@ -1464,13 +1469,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                         editor->next_hot_widget = widget;
                     }
                 // }
-            }
-
-            entity_index++;
-            if (entity_index < shown_entity_count) {
-                entity = level->entities + entity_index;
-            } else {
-                entity = 0;
             }
         }
     }

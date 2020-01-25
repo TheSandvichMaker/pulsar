@@ -224,8 +224,30 @@ struct GameState {
     f32 level_intro_timer;
 
     u32 entity_count;
+    u32 entity_type_counts [EntityType_Count];
+    u32 entity_type_offsets[EntityType_Count];
     Entity entities[MAX_ENTITY_COUNT];
 };
+
+inline Entity* get_entities_for_type(GameState* game_state, EntityType type, u32* count = 0) {
+    assert(type > EntityType_Null && type < EntityType_Count);
+    Entity* result = 0;
+
+    if (game_state->entity_count > 0 && game_state->entity_type_counts[type] > 0) {
+        result = game_state->entities + game_state->entity_type_offsets[type];
+        assert(result < game_state->entities + game_state->entity_count);
+    }
+
+    if (count) {
+        *count = game_state->entity_type_counts[type];
+    }
+    return result;
+}
+
+#define for_entity_type(game_state, type)                                                           \
+    for (Entity* entity = get_entities_for_type(game_state, type);                                  \
+         entity < get_entities_for_type(game_state, type) + (game_state)->entity_type_counts[type]; \
+         entity++)
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags = 0);
