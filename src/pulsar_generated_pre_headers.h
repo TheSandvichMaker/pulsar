@@ -80,6 +80,12 @@ enum MetaType {
 #define BodyOf_GameConfig \
     b32 start_fullscreen; \
     String startup_level; \
+    u32 command_buffer_size_mb; \
+    u32 permanent_storage_size_mb; \
+    u32 transient_storage_size_mb; \
+    f32 master_volume; \
+    f32 gameplay_volume; \
+    f32 ui_volume; \
     u8 up; \
     u8 left; \
     u8 down; \
@@ -106,7 +112,12 @@ enum MetaType {
     f32 late_jump_window; \
     f32 player_respawn_speed; \
     f32 level_intro_speed; \
+    f32 background_pulse_intensity; \
+    f32 background_pulse_world_shake_intensity; \
+    f32 background_pulse_spring_force; \
+    f32 background_pulse_spring_dampen; \
     f32 camera_transition_speed; \
+    f32 camera_stop_smoothness; \
     f32 menu_bob_speed; \
     f32 menu_bob_magnitude; \
     f32 menu_fade_in_speed; \

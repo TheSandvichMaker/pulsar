@@ -87,6 +87,16 @@ introspect() struct GameConfig {
     b32 start_fullscreen = false;
     String startup_level = string_literal("levels/debug_level.lev");
 
+    // Memory
+    u32 command_buffer_size_mb    = 16;
+    u32 permanent_storage_size_mb = 512;
+    u32 transient_storage_size_mb = 1024;
+
+    // Sound
+    f32 master_volume   = 1.0f;
+    f32 gameplay_volume = 1.0f;
+    f32 ui_volume       = 1.0f;
+
     // Key Binds
     u8 up       = 'W';
     u8 left     = 'A';
@@ -124,10 +134,15 @@ introspect() struct GameConfig {
     f32 player_respawn_speed        = 2.0f;
 
     // Level
-    f32 level_intro_speed = 1.0f;
+    f32 level_intro_speed                      = 1.0f;
+    f32 background_pulse_intensity             = 1.0f;
+    f32 background_pulse_world_shake_intensity = 0.25f;
+    f32 background_pulse_spring_force          = 16.0f;
+    f32 background_pulse_spring_dampen         = 0.5f;
 
     // Camera
     f32 camera_transition_speed = 0.4f;
+    f32 camera_stop_smoothness  = 1.0f;
 
     // Menu
     f32 menu_bob_speed     = 0.2f;

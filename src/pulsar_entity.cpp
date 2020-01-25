@@ -88,57 +88,76 @@ inline v2 accel_towards(v2 min_ddp, v2 max_ddp, v2 cur_dp, v2 tar_dp, f32 dt) {
 
 internal void simulate_entities(GameState* game_state, GameInput* input, f32 frame_dt) {
     game_state->midi_event_buffer_count = 0;
-    for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
-        PlayingMidi* playing_midi = *playing_midi_ptr;
+    if (!game_state->midi_paused) {
+        for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
+            PlayingMidi* playing_midi = *playing_midi_ptr;
 
-        MidiTrack* track = playing_midi->track;
-        if (playing_midi->event_index < track->event_count) {
-            u32 ticks_for_frame = round_f32_to_u32((cast(f32) track->ticks_per_second)*frame_dt);
+            MidiTrack* track = playing_midi->track;
+            if (playing_midi->event_index < track->event_count) {
+                u32 ticks_for_frame = round_f32_to_u32((cast(f32) track->ticks_per_second)*frame_dt);
 
-            // @Note: I moved the sync to output_playing_sounds, which means that if the midi track has a sync sound
-            // playing_midi->tick_timer will be synced to it at the end of every frame, meaning this addition here
-            // will be overwritten. It's here to account for midi events that would happen during the frame, and to
-            // advance the tick timer if the midi track has no sync sound - 16/01/2020
-            playing_midi->tick_timer += cast(u32) (game_config->simulation_rate*(cast(f32) ticks_for_frame*playing_midi->playback_rate));
-            // P.S: This is the kind of comment I don't want to have, because it is extremely vulnerable to going out
-            // of date, but I thought it was relevant to note because it's not clear from this code here that this
-            // behaviour is happening.
+                // @Note: I moved the sync to output_playing_sounds, which means that if the midi track has a sync sound
+                // playing_midi->tick_timer will be synced to it at the end of every frame, meaning this addition here
+                // will be overwritten. It's here to account for midi events that would happen during the frame, and to
+                // advance the tick timer if the midi track has no sync sound - 16/01/2020
+                playing_midi->tick_timer += cast(u32) (game_config->simulation_rate*(cast(f32) ticks_for_frame*playing_midi->playback_rate));
+                // P.S: This is the kind of comment I don't want to have, because it is extremely vulnerable to going out
+                // of date, but I thought it was relevant to note because it's not clear from this code here that this
+                // behaviour is happening.
 
-            MidiEvent event = track->events[playing_midi->event_index];
-            while (event.absolute_time_in_ticks <= playing_midi->tick_timer && playing_midi->event_index < track->event_count) {
-                playing_midi->event_index++;
+                MidiEvent event = track->events[playing_midi->event_index];
+                while (event.absolute_time_in_ticks <= playing_midi->tick_timer && playing_midi->event_index < track->event_count) {
+                    playing_midi->event_index++;
 
-                ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
-                active_event->source_soundtrack = playing_midi->source_soundtrack;
-                active_event->midi_event = event;
-                f32 timing_into_frame = cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame;
-                active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
+                    ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
+                    active_event->source_soundtrack = playing_midi->source_soundtrack;
+                    active_event->midi_event = event;
+                    f32 timing_into_frame = cast(f32) (playing_midi->tick_timer - event.absolute_time_in_ticks) / cast(f32) ticks_for_frame;
+                    active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
 
-                assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
+                    assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
 
-                char* midi_note_name = midi_note_names[event.note_value % 12];
-                s32 midi_note_octave = (cast(s32) event.note_value / 12) - 2;
+                    char* midi_note_name = midi_note_names[event.note_value % 12];
+                    s32 midi_note_octave = (cast(s32) event.note_value / 12) - 2;
 
-                // log_print(LogLevel_Info, "Pushed %s %s %d midi event with timing: %u (tick_timer: %u)", event.type == MidiEvent_NoteOn ? "note on" : "note off", midi_note_name, midi_note_octave, event.absolute_time_in_ticks, playing_midi->tick_timer);
+#if 0
+                    log_print(LogLevel_Info, "Pushed %s %s %d midi event with timing: %u (tick_timer: %u, event_index: %u)", event.type == MidiEvent_NoteOn ? "note on" : "note off", midi_note_name, midi_note_octave, event.absolute_time_in_ticks, playing_midi->tick_timer, playing_midi->event_index - 1);
+#endif
 
-                event = track->events[playing_midi->event_index];
+                    event = track->events[playing_midi->event_index];
+                }
             }
-        }
 
-        if (playing_midi->event_index >= track->event_count) {
-            assert(playing_midi->event_index == track->event_count);
-            if (playing_midi->flags & Playback_Looping) {
-                // log_print(LogLevel_Info, "Midi track from SoundtrackID { %u } looped", playing_midi->source_soundtrack.value);
-                playing_midi->event_index = 0;
-                playing_midi->tick_timer = 0;
-                playing_midi_ptr = &playing_midi->next;
+            b32 midi_done = false;
+            if (playing_midi->sync_sound) {
+                if (playing_midi->tick_timer >= playing_midi->sync_sound->sound->sample_count) {
+                    if (playing_midi->flags & Playback_Looping) {
+                        playing_midi->event_index = 0;
+                        playing_midi->tick_timer -= playing_midi->sync_sound->sound->sample_count;
+                    } else {
+                        midi_done = true;
+                    }
+                }
             } else {
+                if (playing_midi->event_index >= track->event_count) {
+                    assert(playing_midi->event_index == track->event_count);
+                    if (playing_midi->flags & Playback_Looping) {
+                        playing_midi->event_index = 0;
+                        playing_midi->tick_timer = 0;
+                        playing_midi_ptr = &playing_midi->next;
+                    } else {
+                        midi_done = true;
+                    }
+                }
+            }
+
+            if (midi_done) {
                 *playing_midi_ptr = playing_midi->next;
                 playing_midi->next = game_state->first_free_playing_midi;
                 game_state->first_free_playing_midi = playing_midi;
+            } else {
+                playing_midi_ptr = &playing_midi->next;
             }
-        } else {
-            playing_midi_ptr = &playing_midi->next;
         }
     }
 
@@ -287,16 +306,25 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 } else {
                     entity->color = COLOR_GREEN;
 
-                    v2 rel_target_p = game_state->render_context.camera_p - entity->p;
+                    v2 rel_listener_p = game_state->camera_target->p - entity->p;
 
                     v2 volume = {};
-                    if (is_in_region(entity->audible_zone, rel_target_p)) {
-                        volume = vec2(1, 1);
-                    } else if (is_in_region(entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region), rel_target_p)) {
-                        // f32 right_fade = clamp01((rel_target_p.x - 0.5f*entity->audible_zone.x) / (0.5f*entity->horz_fade_region));
-                        // volume = vec2(1.0f, 1.0f - right_fade);
-                        f32 fade = clamp01((abs(rel_target_p.x) - 0.5f*entity->audible_zone.x) / (0.5f*entity->horz_fade_region));
-                        volume = vec2(1.0f - fade, 1.0f - fade);
+                    if (is_in_region(entity->audible_zone, rel_listener_p)) {
+                        volume = vec2(0.5f, 0.5f);
+                    } else if (is_in_region(entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region), rel_listener_p)) {
+                        // @TODO: Respect vert_fade_region's existence
+                        f32 fade = clamp01((abs(rel_listener_p.x) - 0.5f*entity->audible_zone.x) / (0.5f*entity->horz_fade_region));
+                        f32 positional_fade = rel_listener_p.x < 0.0f ? fade : -fade;
+                        f32 pan_angle = 0.25f*PI_32 + 0.25f*PI_32*positional_fade;
+                        volume = (1.0f - fade)*0.5f*square_root(2.0f)*vec2(cos(pan_angle), sin(pan_angle));
+                        // log_print(LogLevel_Info, "positional_fade: %f, pan_angle: %f, pan_angle in degrees: %f", positional_fade, pan_angle, rad_to_deg(pan_angle));
+                    }
+
+                    for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
+                        ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
+                        if (event.type == MidiEvent_NoteOn) {
+                            game_state->background_pulse_t += (volume.x + volume.y)*game_config->background_pulse_intensity;
+                        }
                     }
 
                     change_volume(entity->playing, 0.05f, volume);
@@ -320,11 +348,11 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
             case EntityType_Checkpoint: {
                 Entity* player = game_state->player;
-                if (player) {
+                if (player && !player->dead) {
                     if (is_in_region(entity->checkpoint_zone - player->collision, entity->p - player->p)) {
                         game_state->last_activated_checkpoint = entity;
                         // @TODO: I'd rather do a trace here to find the ground but let's do that later
-                        entity->respawn_p = entity->p + vec2(0.0f, -0.5f*entity->checkpoint_zone.y + player->collision.y*0.5f + 1.0e-3f);
+                        entity->respawn_p = vec2(player->p.x, entity->p.y) + vec2(0.0f, -0.5f*entity->checkpoint_zone.y + player->collision.y*0.5f + 1.0e-3f);
                     }
                 }
             } break;

@@ -460,7 +460,9 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                     case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
                 }
 
-                if (input->event_mode) {
+                if (is_down && vk_code == VK_RETURN && alt_is_down && message.hwnd) {
+                    win32_toggle_fullscreen(message.hwnd);
+                } else if (input->event_mode) {
                     if (is_down) {
                         // @Note: first 8 bits: PKC code (which I've made identical to VK codes, so other platforms will get to have fun converting, but not us win32 folk)
                         assert(vk_code <= 0xFF);
@@ -502,14 +504,6 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                         case VK_SHIFT:   { win32_process_keyboard_message(&input->shift, is_down); } break;
                         case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl,  is_down); } break;
                         case VK_DELETE:  { win32_process_keyboard_message(&input->del,   is_down); } break;
-
-                        case VK_RETURN: {
-                            if (is_down && alt_is_down) {
-                                if (message.hwnd) {
-                                    win32_toggle_fullscreen(message.hwnd);
-                                }
-                            }
-                        } break;
                     }
                 }
             } break;
@@ -689,7 +683,7 @@ inline void handle_config_file(char* config_file_name) {
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
     win32_initialize_perf_counter();
 
-    size_t platform_storage_size = MEGABYTES(64);
+    size_t platform_storage_size = MEGABYTES(32);
     void* platform_storage = win32_allocate_memory(platform_storage_size);
 
     initialize_arena(&win32_state.platform_arena, platform_storage_size, platform_storage);
@@ -762,15 +756,19 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             }
 
             GameRenderCommands render_commands = {};
-            render_commands.command_buffer_size = MEGABYTES(32);
-            render_commands.command_buffer = cast(u8*) push_size(&win32_state.platform_arena, render_commands.command_buffer_size);
+            render_commands.command_buffer_size = MEGABYTES(win32_state.config.command_buffer_size_mb);
+            render_commands.command_buffer = cast(u8*) win32_allocate_memory(render_commands.command_buffer_size);
 
             b32 sound_is_valid = false;
 
-            size_t permanent_storage_size = MEGABYTES(512);
-            size_t transient_storage_size = GIGABYTES(1);
+            size_t permanent_storage_size = MEGABYTES(cast(u64) win32_state.config.permanent_storage_size_mb);
+            size_t transient_storage_size = MEGABYTES(cast(u64) win32_state.config.transient_storage_size_mb);
             void* permanent_storage = win32_allocate_memory(permanent_storage_size + transient_storage_size);
             void* transient_storage = cast(u8*) permanent_storage + permanent_storage_size;
+
+            win32_log_print(LogLevel_Info, "Command Buffer Size:    %uMB", render_commands.command_buffer_size / 1024 / 1024);
+            win32_log_print(LogLevel_Info, "Permanent Storage Size: %uMB", permanent_storage_size / 1024 / 1024);
+            win32_log_print(LogLevel_Info, "Transient Storage Size: %uMB", transient_storage_size / 1024 / 1024);
 
             GameMemory game_memory = {};
             game_memory.permanent_storage_size = permanent_storage_size;

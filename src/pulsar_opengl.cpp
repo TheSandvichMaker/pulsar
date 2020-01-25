@@ -1,7 +1,7 @@
 inline void opengl_set_screenspace(u32 width, u32 height) {
     glMatrixMode(GL_PROJECTION);
-    f32 a = safe_ratio_1(2.0f, (f32)width);
-    f32 b = safe_ratio_1(2.0f, (f32)height);
+    f32 a = safe_ratio_1(2.0f, cast(f32) width);
+    f32 b = safe_ratio_1(2.0f, cast(f32) height);
     f32 projection_matrix[] = {
          a,  0, 0, 0,
          0,  b, 0, 0,
@@ -159,12 +159,6 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
     glViewport(0, 0, width, height);
     opengl_set_screenspace(width, height);
 
-    glMatrixMode(GL_TEXTURE);
-    glLoadIdentity();
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -188,7 +182,8 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 RenderCommandShape* command = cast(RenderCommandShape*) at;
                 at += sizeof(*command);
 
-                glLineWidth(2.0f);
+                f32 line_width = 2.0f;
+                glLineWidth(line_width);
 
                 Transform2D* transform = &command->transform;
                 Shape2D* shape = &command->shape;
@@ -243,14 +238,30 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                     case Shape_Rectangle: {
                         v2 x_axis = transform->rotation_arm*transform->scale;
                         v2 y_axis = perp(x_axis);
-                        v2 base = transform->scale*(x_axis + y_axis);
 
                         AxisAlignedBox2 aab = shape->bounding_box;
 
-                        v2 p00 = transform->offset + x_axis*corner_a(aab).x + y_axis*corner_a(aab).y;
-                        v2 p10 = transform->offset + x_axis*corner_b(aab).x + y_axis*corner_b(aab).y;
-                        v2 p11 = transform->offset + x_axis*corner_c(aab).x + y_axis*corner_c(aab).y;
-                        v2 p01 = transform->offset + x_axis*corner_d(aab).x + y_axis*corner_d(aab).y;
+                        v2 a, b, c, d;
+                        if (command->render_mode == ShapeRenderMode_Outline && line_width > 1.0f) {
+                            v2 x_adjust = -0.5f*normalize_or_zero(x_axis)*line_width;
+                            v2 y_adjust = -0.5f*normalize_or_zero(y_axis)*line_width;
+
+                            // @Robustness: x_adjust and y_adjust here boldly assume the aab contains its origin!!
+                            a = x_axis*corner_a(aab).x - x_adjust + y_axis*corner_a(aab).y - y_adjust;
+                            b = x_axis*corner_b(aab).x + x_adjust + y_axis*corner_b(aab).y - y_adjust;
+                            c = x_axis*corner_c(aab).x + x_adjust + y_axis*corner_c(aab).y + y_adjust;
+                            d = x_axis*corner_d(aab).x - x_adjust + y_axis*corner_d(aab).y + y_adjust;
+                        } else {
+                            a = x_axis*corner_a(aab).x + y_axis*corner_a(aab).y;
+                            b = x_axis*corner_b(aab).x + y_axis*corner_b(aab).y;
+                            c = x_axis*corner_c(aab).x + y_axis*corner_c(aab).y;
+                            d = x_axis*corner_d(aab).x + y_axis*corner_d(aab).y;
+                        }
+
+                        v2 p00 = transform->offset + a;
+                        v2 p10 = transform->offset + b;
+                        v2 p11 = transform->offset + c;
+                        v2 p01 = transform->offset + d;
 
                         glBegin(render_mode);
                         glColor4fv(command->color.e);

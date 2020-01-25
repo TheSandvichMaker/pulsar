@@ -1,55 +1,6 @@
 #ifndef PULSAR_MAIN_H
 #define PULSAR_MAIN_H
 
-// High level overview of @TODOs:
-// TODAY:
-// - AABB collisions
-//
-// IMPORTANT:
-// - Fix collision once and for all!!!! The way it stands now, GJK and EPA are not enough
-//    for collision handling, because once I intersect two shapes, the collision info I
-//    get back does not consider the direction the shape came from at all, it only looks
-//    at how to most quickly get the shapes to stop intersecting. This results in
-//    collisions resolving in the wrong direction.
-//    How to fix? Does the info I get by expanding GJK empower me? Do I need to understand
-//    EPA better? Or do I need a different algorithm altogether.
-//
-//    If this is not done by 14/01/2020, SWITCH TO AXIS ALIGNED BOXES!!!!
-//
-// - Find the cause of and fix the infinite loop condition in GJK
-//
-// - How the hell do we make player movement feel good? If we use the support entity scheme,
-//    how do we know we're still being supported by the same entity, how do we handle it when
-//    we get smacked off the side by something else?
-//
-//    Movement ideas:
-//     The player's speed while jumping needs to be limited, because the player's run speed is
-//      currently limited by surface friction, but unbounded in the air. I'm not sure if friction
-//      should be the governing factor anyway.
-//     The player probably should never lose contact with a platform they're standing on unless
-//      they either jump off or are bumped off by an obstacle.
-//
-// - Basic profiling
-// - Get the mixer back to full spec (smooth volume fade and (smooth?) variable playback speed)
-//
-// - Add enough editor features to be actually able to make levels
-// - Actual gameplay mechanics (checkpoints+, hazards+, audio zones)
-//
-// - Level saving / loading
-//
-// - Metagame features (savegames, menu, options)
-//
-// Probably also important:
-// - Sub-frame entity logic (e.g. a platform might start moving halfway
-//     into the frame since that's when the midi note hits)
-// - Midi timing (I believe the sync with samples isn't quite right since the
-//     platform asks for more than a frame's worth of audio)
-//
-// Low importance:
-// - Un-templatize LinearBuffer? I'm not sure I like it that much
-// - Shaders?
-// - Make some kind entity system besides just the monolithic entities I've got now
-
 /* RESOURCES:
  * Audio and Music:
  *     test_sound: Handmade Hero
@@ -91,6 +42,10 @@
  *     https://www.youtube.com/watch?v=jTzIDmjkLQo
  * Ring buffers (not used for reference in the actual codebase yet, but my idea for simplifying the undo system was sparked by reading this post):
  *     https://fgiesen.wordpress.com/2010/12/14/ring-buffers-and-queues/
+ * Pan Laws:
+ *     http://www.cs.cmu.edu/~music/icm-online/readings/panlaws/panlaws.pdf
+ * Various things I've learned over time and useful functions like smooth_min:
+ *     https://www.iquilezles.org/www/index.htm
  */
 
 #include <stdarg.h>
@@ -189,24 +144,15 @@ struct GameState {
 
     v4 foreground_color;
     v4 background_color;
+    f32 background_pulse_t;
+    f32 background_pulse_dt;
 
     f32 player_respawn_timer;
 
-    f32 rotation;
-
-    Soundtrack* test_soundtrack;
-
-    PlayingMidi* first_playing_midi;
-    PlayingMidi* first_free_playing_midi;
-
-    u32 midi_event_buffer_count;
-    ActiveMidiEvent midi_event_buffer[256];
-
     Entity* player;
-    Entity* camera_target;
-
     Entity* last_activated_checkpoint;
 
+    Entity* camera_target;
     Entity* previous_camera_zone;
     Entity* active_camera_zone;
 
@@ -222,6 +168,13 @@ struct GameState {
     Level* active_level;
 
     f32 level_intro_timer;
+
+    b32 midi_paused;
+    PlayingMidi* first_playing_midi;
+    PlayingMidi* first_free_playing_midi;
+
+    u32 midi_event_buffer_count;
+    ActiveMidiEvent midi_event_buffer[256];
 
     u32 entity_count;
     u32 entity_type_counts [EntityType_Count];

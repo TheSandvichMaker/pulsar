@@ -510,8 +510,9 @@ internal void play_level(GameState* game_state, Level* level) {
     }
 
     game_state->entity_count = level->entity_count;
-
     game_state->level_intro_timer = 1.0f;
+    game_state->background_pulse_t = 0.0f;
+    game_state->background_pulse_dt = 0.0f;
 }
 
 inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
@@ -534,6 +535,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 
             if (game_state->game_mode == GameMode_Ingame) {
                 pause_group(&game_state->game_audio, 0.1f);
+                game_state->midi_paused = true;
             }
         } break;
 
@@ -545,6 +547,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
                 play_level(game_state, game_state->active_level);
             }
             unpause_group(&game_state->game_audio, 0.25f);
+            game_state->midi_paused = false;
         } break;
 
         case GameMode_Editor: {
@@ -582,7 +585,9 @@ inline CameraView get_camera_view(GameState* game_state, Entity* camera_zone, v2
     v2 view_region   = vec2(aspect_ratio*camera_zone->view_region_height, camera_zone->view_region_height);
     v2 movement_zone = max(vec2(0, 0), camera_zone->active_region - view_region);
 
-    rel_camera_p     = clamp(rel_camera_p, -0.5f*movement_zone, 0.5f*movement_zone);
+    f32 k = game_config->camera_stop_smoothness;
+    rel_camera_p.x = rel_camera_p.x > 0.0f ? smooth_min(rel_camera_p.x, 0.5f*movement_zone.x, k) : -smooth_min(-rel_camera_p.x, 0.5f*movement_zone.x, k);
+    rel_camera_p.y = clamp(rel_camera_p.y, -0.5f*movement_zone.y, 0.5f*movement_zone.y);
 
     result.camera_p            = camera_zone->p + rel_camera_p;
     result.camera_rotation_arm = camera_zone->camera_rotation_arm;
@@ -661,6 +666,15 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         memory->initialized = true;
     }
 
+    game_state->audio_mixer.master_volume[0] = game_config->master_volume;
+    game_state->audio_mixer.master_volume[1] = game_config->master_volume;
+
+    game_state->game_audio.mix_volume[0] = game_config->gameplay_volume;
+    game_state->game_audio.mix_volume[1] = game_config->gameplay_volume;
+
+    game_state->ui_audio.mix_volume[0] = game_config->ui_volume;
+    game_state->ui_audio.mix_volume[1] = game_config->ui_volume;
+
     f32 frame_dt = input->frame_dt;
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
 
@@ -716,8 +730,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        f32 magnitude = square(game_config->menu_bob_magnitude);
-        f32 bob_amount = magnitude*square(menu->bob_t) + -magnitude*menu->bob_t;
+        f32 bob_amount = game_config->menu_bob_magnitude*4.0f*menu->bob_t*(1.0f - menu->bob_t);
 
         if (menu->bob_t > 0.0f) {
             menu->bob_t -= frame_dt / game_config->menu_bob_speed;
@@ -742,7 +755,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         for (u32 item = 0; item < num_items; item++) {
             v4 color = COLOR_WHITE;
             if (item == menu->selected_item) {
-                layout.offset_p = vec2(0.0f, bob_amount);
+                layout.offset_p = vec2(0.0f, -bob_amount);
                 color.rgb = COLOR_YELLOW.rgb;
             }
 
@@ -802,14 +815,22 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, smoothstep(clamp01(1.1f*menu->fade_in_timer))));
         }
     } else {
-        render_worldspace(render_context, 30.0f);
-        game_state->render_context.camera_rotation_arm = vec2(1, 0);
-
-        push_clear(render_context, game_state->background_color);
-
         //
         // Pre-Sim
         //
+
+        render_worldspace(render_context, 30.0f);
+
+        if (game_state->game_mode == GameMode_Ingame) {
+            game_state->background_pulse_dt += frame_dt*(-game_config->background_pulse_spring_force*game_state->background_pulse_t - game_config->background_pulse_spring_dampen*game_state->background_pulse_dt);
+            game_state->background_pulse_t  += frame_dt*game_state->background_pulse_dt;
+        } else {
+            game_state->background_pulse_dt = 0.0f;
+            game_state->background_pulse_t  = 0.0f;
+        }
+
+        v4 background_color = lerp(game_state->background_color, COLOR_YELLOW, clamp(game_state->background_pulse_t, -1.0f, 1.0f));
+        push_clear(render_context, background_color);
 
         if (game_state->game_mode == GameMode_Ingame) {
             Entity* player = game_state->player;
@@ -878,7 +899,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                         Entity* end_camera_zone = camera_zone;
                         for_entity_type (game_state, EntityType_CameraZone, entity) {
-                            if (is_in_region(entity->active_region, checkpoint->p - entity->p)) {
+                            if (is_in_region(entity->active_region, checkpoint->p - entity->respawn_p)) {
                                 end_camera_zone = entity;
                                 break;
                             }
@@ -958,12 +979,20 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
 
             if (should_draw) {
-                if (entity->type == EntityType_Wall && !(entity->flags & EntityFlag_Collides)) {
-                    entity->color.a *= 0.33f;
+                Transform2D transform = transform2d(entity->p + vec2(0.0f, -game_config->background_pulse_world_shake_intensity*game_state->background_pulse_t));
+                if (entity->type == EntityType_Player) {
+                    // @Hack: Making the player just slightly sink into the ground to avoid seeing a tiny gap between it and its supporting entity
+                    transform.offset.y -= 1.0e-3f;
                 }
-
-                Transform2D transform = transform2d(entity->p);
                 switch (entity->type) {
+                    case EntityType_Wall: {
+                        if (entity->type == EntityType_Wall && !(entity->flags & EntityFlag_Collides)) {
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->collision)), vec4(entity->color.rgb, entity->color.a*0.5f), ShapeRenderMode_Outline);
+                        } else {
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->collision)), entity->color);
+                        }
+                    } break;
+
                     case EntityType_CameraZone: {
                         transform.rotation_arm = entity->camera_rotation_arm;
                         Image* sprite = get_image(&game_state->assets, entity->sprite);

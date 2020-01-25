@@ -47,6 +47,8 @@ struct PlayingSound {
 struct AudioGroup {
     struct AudioMixer* mixer;
 
+    f32 mix_volume[2];
+
     b32 pause_requested;
     b32 paused;
     SoundVolume volume;

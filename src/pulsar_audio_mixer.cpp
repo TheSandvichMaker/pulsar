@@ -261,7 +261,7 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
 
                             for (u32 channel = 0; channel < sound->channel_count; channel++) {
                                 f32 volume = get_volume_for_sample_offset(playing_sound->volume, channel, sound_buffer->sample_rate, adjusted_sample_index);
-                                f32 group_volume   = get_volume_for_sample_offset(group->volume, channel, sound_buffer->sample_rate, adjusted_sample_index);
+                                f32 group_volume = group->mix_volume[channel]*get_volume_for_sample_offset(group->volume, channel, sound_buffer->sample_rate, adjusted_sample_index);
 
                                 f32 sample_value = cast(f32) (sound->samples + sound->sample_count*channel)[mapped_sample_index];
                                 *dest[channel]++ += group_volume*volume*(sample_value / cast(f32) INT16_MAX);
@@ -283,7 +283,7 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                         // @TODO: Formalize channels
                         for (u32 channel = 0; channel < 2; channel++) {
                             f32 volume = get_volume_for_sample_offset(playing_sound->volume, channel, sound_buffer->sample_rate, sample_index);
-                            f32 group_volume   = get_volume_for_sample_offset(group->volume, channel, sound_buffer->sample_rate, sample_index);
+                            f32 group_volume = group->mix_volume[channel]*get_volume_for_sample_offset(group->volume, channel, sound_buffer->sample_rate, sample_index);
                             // @TODO: Decide on a way synths can communicate they're done playing
                             *dest[channel]++ += volume*group_volume*playing_sound->synth(2, channel, sound_buffer->sample_rate, samples_played + sample_index, 440.0f);
                         }
@@ -301,8 +301,8 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
     f32* source1 = float_channel1;
     s16* sample_out = sound_buffer->samples;
     for (u32 sample_index = 0; sample_index < sample_count; sample_index++) {
-        *sample_out++ = cast(s16) (mixer->master_volume[0]*(INT16_MAX*(*source0++)));
-        *sample_out++ = cast(s16) (mixer->master_volume[1]*(INT16_MAX*(*source1++)));
+        *sample_out++ = cast(s16) (INT16_MAX*clamp(mixer->master_volume[0]*(*source0++), -1.0f, 1.0f));
+        *sample_out++ = cast(s16) (INT16_MAX*clamp(mixer->master_volume[1]*(*source1++), -1.0f, 1.0f));
     }
 
     end_temporary_memory(mixer_memory);

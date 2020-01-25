@@ -68,6 +68,12 @@ inline f64 clamp(f64 n, f64 lo, f64 hi) {
 
 #define clamp01(n) clamp((n), 0, 1)
 
+// Source: https://www.iquilezles.org/www/articles/smin/smin.htm 
+inline f32 smooth_min(f32 a, f32 b, f32 k) {
+    f32 h = max(k - abs(a - b), 0.0f) / k;
+    return min(a, b) - 0.25f*h*h*k;
+}
+
 inline f32 map_to_range(f32 t, f32 min, f32 max) {
     f32 result = 0.0f;
     f32 range = max - min;
