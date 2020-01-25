@@ -877,7 +877,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         game_state->death_cam_start = get_camera_view(game_state, camera_zone, player->p);
 
                         Entity* end_camera_zone = camera_zone;
-                        for_entity_type (game_state, EntityType_CameraZone) {
+                        for_entity_type (game_state, EntityType_CameraZone, entity) {
                             if (is_in_region(entity->active_region, checkpoint->p - entity->p)) {
                                 end_camera_zone = entity;
                                 break;
@@ -958,6 +958,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
 
             if (should_draw) {
+                if (entity->type == EntityType_Wall && !(entity->flags & EntityFlag_Collides)) {
+                    entity->color.a *= 0.33f;
+                }
+
                 Transform2D transform = transform2d(entity->p);
                 switch (entity->type) {
                     case EntityType_CameraZone: {

@@ -244,10 +244,10 @@ inline Entity* get_entities_for_type(GameState* game_state, EntityType type, u32
     return result;
 }
 
-#define for_entity_type(game_state, type)                                                           \
-    for (Entity* entity = get_entities_for_type(game_state, type);                                  \
-         entity < get_entities_for_type(game_state, type) + (game_state)->entity_type_counts[type]; \
-         entity++)
+#define for_entity_type(game_state, type, it_identifier)                                                   \
+    for (Entity* it_identifier = get_entities_for_type(game_state, type);                                  \
+         it_identifier < get_entities_for_type(game_state, type) + (game_state)->entity_type_counts[type]; \
+         it_identifier++)
 
 inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
 inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags = 0);

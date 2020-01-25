@@ -231,8 +231,6 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                                     entity->moving_to_end = true;
                                 } else if (event.type == MidiEvent_NoteOff) {
                                     entity->moving_to_end = false;
-                                } else {
-                                    INVALID_CODE_PATH;
                                 }
                             }
                         }
@@ -262,6 +260,19 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         }
                         if (entity->movement_t < 0.0f) {
                             entity->movement_t = 0.0f;
+                        }
+                    }
+                } else if (entity->behaviour == WallBehaviour_Toggle) {
+                    for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
+                        ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
+                        if (!entity->listening_to.value || event.source_soundtrack.value == entity->listening_to.value) {
+                            if (event.note_value == entity->midi_note) {
+                                if (event.type == MidiEvent_NoteOn) {
+                                    entity->flags |= EntityFlag_Collides;
+                                } else if (event.type == MidiEvent_NoteOff) {
+                                    entity->flags &= ~EntityFlag_Collides;
+                                }
+                            }
                         }
                     }
                 }
@@ -405,14 +416,9 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             Entity* collision_entity = 0;
             v2 collision_rel_delta = {};
 
-            // @TODO: Optimized spatial indexing of sorts?
-            for (u32 test_entity_index = 0; test_entity_index < game_state->entity_count; test_entity_index++) {
-                Entity* test_entity = game_state->entities + test_entity_index;
-                if (player != test_entity &&
-                    (test_entity->flags & EntityFlag_Collides) &&
-                    !(test_entity->flags & EntityFlag_Physical)
-                ) {
-                    // @TODO: Why do you sometimes get stuck inside your support?
+            // @TODO: Spatial indexing of sorts?
+            for_entity_type (game_state, EntityType_Wall, test_entity) {
+                if (test_entity->flags & EntityFlag_Collides) {
                     v2 test_delta = test_entity->dp*dt;
                     v2 spent_test_delta = test_entity->dp*(1.0f - t)*frame_dt;
 
