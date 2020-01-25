@@ -1079,7 +1079,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     return editor;
 }
 
-internal void execute_editor(GameState* game_state, EditorState* editor, GameInput* input, DebugFrameTimeHistory* frame_history) {
+internal void execute_editor(GameState* game_state, EditorState* editor, GameInput* input) {
     u32 width = editor->render_context.commands->width;
     u32 height = editor->render_context.commands->height;
 
@@ -1131,6 +1131,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     UILayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
 
     if (editor->shown || editor->show_statistics) {
+        DebugFrameTimeHistory* frame_history = &global_debug_info.frame_history;
         f32 average_frame_time = 0.0f;
         // @TODO: be a good statistician and don't use a stupid average for this, but some cool gaussian or something
         for (u32 frame_index = 0; frame_index < frame_history->valid_entry_count; frame_index++) {

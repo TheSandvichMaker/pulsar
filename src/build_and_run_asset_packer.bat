@@ -1,6 +1,8 @@
 @echo off
 
 call "build_asset_packer.bat"
-echo %LAST_ERROR%
-REM TODO: Make this only run if LAST_ERROR is 0
-build\pulsar_asset_packer.exe
+if %LAST_ERROR% equ 0 (
+    build\pulsar_asset_packer.exe
+) else (
+    echo Compiler exited with errors. Asset packer didn't run.
+)

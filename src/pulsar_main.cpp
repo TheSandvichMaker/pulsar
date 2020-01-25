@@ -889,7 +889,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             editor->show_statistics = !editor->show_statistics;
         }
 
-        execute_editor(game_state, editor, input, memory->debug_info.frame_history);
+        execute_editor(game_state, editor, input);
 
         u32 render_entity_count = 0;
         Entity* render_entities = 0;

@@ -788,9 +788,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.platform_api.get_most_recent_log_message = win32_get_most_recent_log_message;
             game_memory.platform_api.get_unread_log_messages = win32_get_unread_log_messages;
 
-            PlatformDebugInfo* debug_info = &game_memory.debug_info;
-            debug_info->frame_history = push_struct(&win32_state.platform_arena, DebugFrameTimeHistory);
-
             GameInput old_input_ = {};
             GameInput new_input_ = {};
             GameInput* old_input = &old_input_;
@@ -807,7 +804,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             win32_state.running = true;
             while (win32_state.running) {
                 if (last_frame_time_is_valid) {
-                    DebugFrameTimeHistory* frame_history = game_memory.debug_info.frame_history;
+                    DebugFrameTimeHistory* frame_history = &global_debug_info.frame_history;
                     u32 frame_index = 0;
                     if (frame_history->valid_entry_count < ARRAY_COUNT(frame_history->history)) {
                         frame_index = frame_history->first_valid_entry + frame_history->valid_entry_count++;

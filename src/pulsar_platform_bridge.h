@@ -64,7 +64,6 @@ struct PlatformAPI {
     PlatformGetUnreadLogMessages* get_unread_log_messages;
 };
 
-#if PULSAR_DEBUG
 #define FRAME_TIME_HISTORY_LENGTH 120
 struct DebugFrameTimeHistory {
     f32 history[FRAME_TIME_HISTORY_LENGTH];
@@ -78,9 +77,10 @@ struct DebugProfilingEvent {
 };
 
 struct PlatformDebugInfo {
-    DebugFrameTimeHistory* frame_history;
+    DebugFrameTimeHistory frame_history;
 };
-#endif
+
+global PlatformDebugInfo global_debug_info;
 
 introspect() struct GameConfig {
     // Startup
