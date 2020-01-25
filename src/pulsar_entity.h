@@ -73,8 +73,6 @@ struct Entity {
 
             v2 ballistic_dp;
             v2 contact_move;
-
-            v2 death_p;
         };
 
         struct /* Wall */ {
@@ -109,7 +107,7 @@ struct Entity {
 
         struct /* Checkpoint */ {
             v2 checkpoint_zone;
-            v2 most_recent_player_position;
+            v2 respawn_p;
         };
     };
 };

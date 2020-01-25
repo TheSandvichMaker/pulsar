@@ -155,10 +155,6 @@ struct GameMemory {
 
     GameConfig config;
     PlatformAPI platform_api;
-
-#if PULSAR_DEBUG
-    PlatformDebugInfo debug_info;
-#endif
 };
 
 struct GameSoundOutputBuffer {

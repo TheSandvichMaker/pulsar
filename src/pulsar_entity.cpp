@@ -67,7 +67,6 @@ inline b32 on_ground(Entity* entity) {
 inline void kill_player(GameState* game_state) {
     Entity* player = game_state->player;
     if (player && !player->dead) {
-        player->death_p = player->p;
         player->killed_this_frame = true;
         game_state->player_respawn_timer = 1.0f;
     }
@@ -297,6 +296,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 Entity* camera_target = game_state->camera_target;
                 if (camera_target && game_state->active_camera_zone != entity) {
                     if (is_in_region(entity->active_region, camera_target->p - entity->p)) {
+                        ADD_DEBUG_BREAK(camera_zone_switch);
                         game_state->previous_camera_zone = game_state->active_camera_zone;
                         game_state->active_camera_zone = entity;
                         // @TODO: camera_transition_t doesn't follow the convention of timers in the rest of the codebase
@@ -312,7 +312,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 if (player) {
                     if (is_in_region(entity->checkpoint_zone - player->collision, entity->p - player->p)) {
                         game_state->last_activated_checkpoint = entity;
-                        entity->most_recent_player_position = player->p;
+                        // @TODO: I'd rather do a trace here to find the ground but let's do that later
+                        entity->respawn_p = entity->p + vec2(0.0f, -0.5f*entity->checkpoint_zone.y + player->collision.y*0.5f + 1.0e-3f);
                     }
                 }
             } break;

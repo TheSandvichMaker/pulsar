@@ -795,7 +795,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
         editable->type = Editable_EntityFlag;
         add_viewable(editables, Entity, p);
         add_viewable(editables, Entity, checkpoint_zone);
-        add_viewable(editables, Entity, most_recent_player_position);
+        add_viewable(editables, Entity, respawn_p);
     }
     end_editables(editor, editables);
 

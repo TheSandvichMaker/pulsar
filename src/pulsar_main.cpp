@@ -117,7 +117,7 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_CameraZone, camera_rotation_arm),
     // @Note: Checkpoint
     SERIALIZABLE(Entity, EntityType_Checkpoint, checkpoint_zone),
-    SERIALIZABLE(Entity, EntityType_Checkpoint, most_recent_player_position),
+    // SERIALIZABLE(Entity, EntityType_Checkpoint, respawn_p), // @TODO: Why was this here in the first place?
 };
 
 /* Lev file layout:
@@ -284,12 +284,12 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
                     assert(member_name_length);
                     char* member_name = cast(char*) read_stream(member_name_length);
 
+                    u32 data_size = *(cast(u32*) read_stream(sizeof(u32)));
+                    void* data_source = read_stream(data_size);
+
                     Serializable* ser = find_serializable_by_name(ARRAY_COUNT(entity_serializables), entity_serializables, member_name_length, member_name);
                     if (ser) {
                         void** data_dest = cast(void**) (cast(u8*) entity + ser->offset);
-                        u32 data_size = *(cast(u32*) read_stream(sizeof(u32)));
-
-                        void* data_source = read_stream(data_size);
 
                         SerializeResult ser_data;
                         if (ser->callback) {
@@ -463,7 +463,7 @@ internal void play_level(GameState* game_state, Level* level) {
             if (distance_sq < best_checkpoint_distance_sq) {
                 best_checkpoint_distance_sq = distance_sq;
                 game_state->last_activated_checkpoint = entity;
-                game_state->last_activated_checkpoint->most_recent_player_position = entity->p;
+                game_state->last_activated_checkpoint->respawn_p = entity->p;
             }
         } else if (entity->type == EntityType_CameraZone) {
             if (entity->primary_camera_zone) {
@@ -538,20 +538,14 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
     game_state->game_mode = game_mode;
 }
 
-struct CameraView {
-    v2 camera_p;
-    v2 camera_rotation_arm;
-    f32 vfov;
-};
-
-inline CameraView get_camera_view(RenderContext* render_context, Entity* camera_zone, Entity* camera_target) {
+inline CameraView get_camera_view(GameState* game_state, Entity* camera_zone, v2 camera_target) {
     CameraView result;
 
     ADD_DEBUG_BREAK(camera_view);
 
-    f32 aspect_ratio = get_aspect_ratio(render_context);
+    f32 aspect_ratio = get_aspect_ratio(&game_state->render_context);
 
-    v2 rel_camera_p  = camera_target->p - camera_zone->p;
+    v2 rel_camera_p  = camera_target - camera_zone->p;
     v2 view_region   = vec2(aspect_ratio*camera_zone->view_region_height, camera_zone->view_region_height);
     v2 movement_zone = max(vec2(0, 0), camera_zone->active_region - view_region);
 
@@ -562,6 +556,20 @@ inline CameraView get_camera_view(RenderContext* render_context, Entity* camera_
     result.vfov                = view_region.y;
 
     return result;
+}
+
+inline CameraView lerp_camera_views(CameraView view1, CameraView view2, f32 t) {
+    CameraView lerped_view;
+    lerped_view.camera_p = lerp(view1.camera_p, view2.camera_p, t);
+    lerped_view.camera_rotation_arm = lerp(view1.camera_rotation_arm, view2.camera_rotation_arm, t); // @TODO: This is obviously not how rotation goes.
+    lerped_view.vfov = lerp(view1.vfov, view2.vfov, t);
+    return lerped_view;
+}
+
+inline void set_camera_view(RenderContext* rc, CameraView view) {
+    rc->camera_p = view.camera_p;
+    rc->camera_rotation_arm = view.camera_rotation_arm;
+    render_worldspace(rc, view.vfov);
 }
 
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -775,7 +783,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             if (player && player->dead) {
                 Entity* checkpoint = game_state->last_activated_checkpoint;
                 assert(checkpoint);
-                player->p = lerp(checkpoint->p, player->death_p, smoothstep(clamp01(game_state->player_respawn_timer*1.4f - 0.2f)));
                 if (game_state->player_respawn_timer > 0.0f) {
                     game_state->player_respawn_timer -= frame_dt / game_config->player_respawn_speed;
                     if (game_state->player_respawn_timer < 0.0f) {
@@ -783,7 +790,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     }
                 } else {
                     player->dead = false;
-                    player->p    = checkpoint->most_recent_player_position;
+                    player->p    = checkpoint->respawn_p;
                     player->dp   = player->ddp = vec2(0, 0);
                 }
             }
@@ -824,35 +831,49 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
 #endif
 
-            if (camera_target) {
-                render_context->camera_p = camera_target->p;
+            if (camera_zone && camera_target) {
+                CameraView view = get_camera_view(game_state, camera_zone, camera_target->p);
 
-                if (camera_zone) {
+                b32 in_death_cam = false;
+                Entity* player = game_state->player;
+                if (camera_target == player) {
+                    if (player->killed_this_frame) {
+                        Entity* checkpoint = game_state->last_activated_checkpoint;
+                        assert(checkpoint);
+
+                        game_state->death_cam_start = get_camera_view(game_state, camera_zone, player->p);
+
+                        Entity* end_camera_zone = camera_zone;
+                        // @TODO: I would like to start being able to iterate through certain entity types
+                        for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
+                            Entity* entity = game_state->entities + entity_index;
+                            if (entity->type == EntityType_CameraZone) {
+                                if (is_in_region(entity->active_region, checkpoint->p - entity->p)) {
+                                    end_camera_zone = entity;
+                                    break;
+                                }
+                            }
+                        }
+
+                        game_state->death_cam_end = get_camera_view(game_state, end_camera_zone, checkpoint->respawn_p);
+                    } else if (player->dead) {
+                        f32 t = smootherstep(1.0f - game_state->player_respawn_timer);
+                        view = lerp_camera_views(game_state->death_cam_start, game_state->death_cam_end, t);
+                        player->p = view.camera_p;
+                        in_death_cam = true;
+                    }
+                }
+
+                if (!in_death_cam) {
                     Entity* prev_camera_zone = game_state->previous_camera_zone;
                     if (prev_camera_zone && game_state->camera_transition_t < 1.0f) {
                         game_state->mid_camera_transition = true;
 
-                        CameraView prev_view = get_camera_view(render_context, prev_camera_zone, camera_target);
-                        CameraView view = get_camera_view(render_context, camera_zone, camera_target);
+                        CameraView prev_view = get_camera_view(game_state, prev_camera_zone, camera_target->p);
+                        CameraView next_view = get_camera_view(game_state, camera_zone, camera_target->p);
 
                         f32 t = smootherstep(game_state->camera_transition_t);
-
-                        CameraView lerped_view;
-                        lerped_view.camera_p = lerp(prev_view.camera_p, view.camera_p, t);
-                        lerped_view.camera_rotation_arm = lerp(prev_view.camera_rotation_arm, view.camera_rotation_arm, t); // @TODO: This is obviously not how rotation goes.
-                        lerped_view.vfov = lerp(prev_view.vfov, view.vfov, t);
-
-#if 0
-                        log_print(LogLevel_Info, "lerped view", lerped_view.camera_p.x, lerped_view.camera_p.y);
-                        log_print(LogLevel_Info, "lerped_view.camera_p = { %f, %f }", lerped_view.camera_p.x, lerped_view.camera_p.y);
-                        log_print(LogLevel_Info, "lerped_view.camera_rotation_arm = { %f, %f }", lerped_view.camera_rotation_arm.x, lerped_view.camera_rotation_arm.y);
-                        log_print(LogLevel_Info, "lerped_view.vfov = %f", lerped_view.vfov);
-#endif
-
-                        render_context->camera_p = lerped_view.camera_p;
-                        render_context->camera_rotation_arm = lerped_view.camera_rotation_arm;
-
-                        render_worldspace(render_context, lerped_view.vfov);
+                        view = lerp_camera_views(prev_view, next_view, t);
 
                         game_state->camera_transition_t += frame_dt / game_config->camera_transition_speed;
                         if (game_state->camera_transition_t > 1.0f) {
@@ -860,22 +881,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         }
                     } else {
                         game_state->mid_camera_transition = false;
-
-                        CameraView view = get_camera_view(render_context, camera_zone, camera_target);
-
-#if 0
-                        log_print(LogLevel_Info, "single view", view.camera_p.x, view.camera_p.y);
-                        log_print(LogLevel_Info, "view.camera_p = { %f, %f }", view.camera_p.x, view.camera_p.y);
-                        log_print(LogLevel_Info, "view.camera_rotation_arm = { %f, %f }", view.camera_rotation_arm.x, view.camera_rotation_arm.y);
-                        log_print(LogLevel_Info, "view.vfov = %f", view.vfov);
-#endif
-
-                        render_context->camera_p = view.camera_p;
-                        render_context->camera_rotation_arm = view.camera_rotation_arm;
-
-                        render_worldspace(render_context, view.vfov);
+                        view = get_camera_view(game_state, camera_zone, camera_target->p);
                     }
                 }
+
+                set_camera_view(render_context, view);
             }
         }
 

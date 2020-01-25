@@ -145,6 +145,12 @@ struct ActiveMidiEvent {
     f32 dt_left;
 };
 
+struct CameraView {
+    v2 camera_p;
+    v2 camera_rotation_arm;
+    f32 vfov;
+};
+
 struct MenuState {
     GameMode source_gamemode;
 
@@ -206,6 +212,9 @@ struct GameState {
 
     b32 mid_camera_transition;
     f32 camera_transition_t;
+
+    CameraView death_cam_start;
+    CameraView death_cam_end;
 
     String desired_level;
 
