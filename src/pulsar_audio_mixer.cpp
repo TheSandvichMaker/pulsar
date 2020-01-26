@@ -22,7 +22,7 @@ inline void initialize_audio_group(AudioGroup* group, AudioMixer* mixer) {
     mixer->first_audio_group = group;
 }
 
-inline PlayingSound* play_sound_internal(AudioGroup* group, u32 flags = 0) {
+inline PlayingSound* play_sound_internal(AudioGroup* group, v2 starting_volume, u32 flags = 0) {
     AudioMixer* mixer = group->mixer;
 
     if (!mixer->first_free_playing_sound) {
@@ -35,8 +35,8 @@ inline PlayingSound* play_sound_internal(AudioGroup* group, u32 flags = 0) {
 
     *playing_sound = {};
     playing_sound->playback_rate = 1.0f;
-    playing_sound->volume.current_volume[0] = 0.5f;
-    playing_sound->volume.current_volume[1] = 0.5f;
+    playing_sound->volume.current_volume[0] = starting_volume.x;
+    playing_sound->volume.current_volume[1] = starting_volume.y;
     playing_sound->flags = flags;
 
     playing_sound->next = group->first_playing_sound;
@@ -45,15 +45,15 @@ inline PlayingSound* play_sound_internal(AudioGroup* group, u32 flags = 0) {
     return playing_sound;
 }
 
-inline PlayingSound* play_sound(AudioGroup* group, Sound* sound, u32 flags = 0) {
-    PlayingSound* playing_sound = play_sound_internal(group, flags);
+inline PlayingSound* play_sound(AudioGroup* group, Sound* sound, v2 starting_volume = vec2(0.5f, 0.5f), u32 flags = 0) {
+    PlayingSound* playing_sound = play_sound_internal(group, starting_volume, flags);
     playing_sound->source_type = SoundSource_Sound;
     playing_sound->sound = sound;
     return playing_sound;
 }
 
-inline PlayingSound* play_synth(AudioGroup* group, Synth* synth, u32 flags = 0) {
-    PlayingSound* playing_sound = play_sound_internal(group, flags);
+inline PlayingSound* play_synth(AudioGroup* group, Synth* synth, v2 starting_volume = vec2(0.5f, 0.5f), u32 flags = 0) {
+    PlayingSound* playing_sound = play_sound_internal(group, starting_volume, flags);
     playing_sound->source_type = SoundSource_Synth;
     playing_sound->synth = synth;
     return playing_sound;

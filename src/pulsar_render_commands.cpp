@@ -115,13 +115,23 @@ inline RenderCommandShape* push_shape(RenderContext* render_context, Transform2D
     return result;
 }
 
-inline RenderCommandShape* push_quick_rect(RenderContext* render_context, v2 p, v2 dim, v4 color = vec4(1, 1, 1, 1), ShapeRenderMode render_mode = ShapeRenderMode_Fill, f32 sort_key = 0.0f) {
-    RenderCommandShape* result = push_shape(render_context, transform2d(p), rectangle(aab_center_dim(vec2(0, 0), dim)), color, render_mode, sort_key);
+inline RenderCommandShape* push_rect(RenderContext* render_context, AxisAlignedBox2 aab, v4 color = vec4(1, 1, 1, 1), ShapeRenderMode render_mode = ShapeRenderMode_Fill, f32 sort_key = 0.0f) {
+    v2 p = get_center(aab);
+    RenderCommandShape* result = push_shape(render_context, transform2d(p), rectangle(offset(aab, -p)), color, render_mode, sort_key);
     return result;
 }
 
 
 inline RenderCommandShape* push_line(RenderContext* render_context, v2 start_p, v2 end_p, v4 color = vec4(1, 1, 1, 1), f32 sort_key = 0.0f) {
     RenderCommandShape* result = push_shape(render_context, transform2d(start_p), line(end_p - start_p), color, ShapeRenderMode_Outline, sort_key);
+    return result;
+}
+
+inline RenderCommandParticleSystem* push_particle_system(RenderContext* rc, Transform2D world_transform, ParticleSystem* system, f32 sort_key = 0.0f) {
+    RenderCommandParticleSystem* result = push_render_command(rc->commands, ParticleSystem, rc->sort_key_bias + sort_key);
+    if (result) {
+        result->transform = world_to_screen(rc, world_transform);
+        result->system = system;
+    }
     return result;
 }

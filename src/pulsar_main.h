@@ -115,6 +115,8 @@ struct MenuState {
     Sound* select_sound;
     Sound* confirm_sound;
 
+    PlayingSound* music;
+
     u32 selected_item;
     f32 bob_t;
 
@@ -146,6 +148,8 @@ struct GameState {
     v4 background_color;
     f32 background_pulse_t;
     f32 background_pulse_dt;
+
+    ParticleSystem background_particles;
 
     f32 player_respawn_timer;
 

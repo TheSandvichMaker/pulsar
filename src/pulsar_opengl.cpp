@@ -289,6 +289,46 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 opengl_texture(cast(GLuint) image->handle, min_p, x_axis*cast(f32) image->w, y_axis*cast(f32) image->h, command->color);
             } break;
 
+            case RenderCommand_ParticleSystem: {
+                RenderCommandParticleSystem* command = cast(RenderCommandParticleSystem*) at;
+                at += sizeof(*command);
+
+                Transform2D t = command->transform;
+                ParticleSystem* system = command->system;
+
+                v2 x_axis = t.rotation_arm*t.scale;
+                v2 y_axis = perp(x_axis);
+
+                for (u32 particle_index = 0; particle_index < system->count; particle_index++) {
+                    Particle particle = system->particles[particle_index];
+                    v2 transformed = t.offset + x_axis*particle.p.x + y_axis*particle.p.y;
+
+                    v2 min_p = transformed + t.scale*vec2(-0.1f, -0.1f);
+                    v2 max_p = transformed + t.scale*vec2( 0.1f,  0.1f);
+
+                    v4 color = vec4(1, 1, 1, 1)*particle.alpha;
+
+                    glBegin(GL_TRIANGLES);
+                    glColor4fv(color.e);
+                    // NOTE: Lower triangle
+                    // glTexCoord2f(min_uv.x, min_uv.y);
+                    glVertex2f(min_p.x, min_p.y);
+                    // glTexCoord2f(max_uv.x, min_uv.y);
+                    glVertex2f(max_p.x, min_p.y);
+                    // glTexCoord2f(max_uv.x, max_uv.y);
+                    glVertex2f(max_p.x, max_p.y);
+
+                    // NOTE: Upper triangle
+                    // glTexCoord2f(min_uv.x, min_uv.y);
+                    glVertex2f(min_p.x, min_p.y);
+                    // glTexCoord2f(max_uv.x, max_uv.y);
+                    glVertex2f(max_p.x, max_p.y);
+                    // glTexCoord2f(min_uv.x, max_uv.y);
+                    glVertex2f(min_p.x, max_p.y);
+                    glEnd();
+                }
+            } break;
+
             INVALID_DEFAULT_CASE;
         }
     }

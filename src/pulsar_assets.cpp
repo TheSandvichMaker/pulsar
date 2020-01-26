@@ -84,7 +84,6 @@ inline AssetID get_asset_id_by_name(Assets* assets, String name, AssetType asset
     }
 
     if (!result.value) {
-        __debugbreak();
         // @TODO: Check if the asset was present, but there was a type mismatch
         log_print(LogLevel_Error, "Could not find asset '%.*s'", PRINTF_STRING(name));
     }

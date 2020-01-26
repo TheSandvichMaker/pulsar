@@ -1,6 +1,11 @@
 #include "pulsar_main.h"
 #include "pulsar_generated_post_headers.h"
 
+#define RND_IMPLEMENTATION
+#define RND_U32 u32
+#define RND_U64 u64
+#include "external/rnd.h"
+
 #include "pulsar_assets.cpp"
 #include "pulsar_audio_mixer.cpp"
 #include "pulsar_render_commands.cpp"
@@ -400,7 +405,7 @@ inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtr
     if (soundtrack) {
         Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
         if (sound) {
-            result = play_sound(&game_state->game_audio, sound, flags);
+            result = play_sound(&game_state->game_audio, sound, vec2(0.5f, 0.5f), flags);
             for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
                 MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
                 PlayingMidi* playing_midi = play_midi(game_state, track, flags, result, soundtrack_id);
@@ -454,7 +459,7 @@ internal void play_level(GameState* game_state, Level* level) {
 
         if (dest->type != current_type) {
             game_state->entity_type_counts[current_type] = current_type_count;
-            log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
+            // log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
             current_type_count = 0;
             current_type       = dest->type;
             game_state->entity_type_offsets[current_type] = entity_index;
@@ -473,7 +478,13 @@ internal void play_level(GameState* game_state, Level* level) {
         }
     }
     game_state->entity_type_counts[current_type] = current_type_count;
-    log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
+    // log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
+
+    if (!game_state->entity_type_counts[EntityType_Checkpoint]) {
+        log_print(LogLevel_Error, "Level '%.*s' has no checkpoints! This is not good! Fix it!! Now!!! Unless you're not in a position to fix it, in which case I'm sorry.",
+            PRINTF_STRING(level_name(level))
+        );
+    }
 
     end_temporary_memory(temp);
 
@@ -516,9 +527,13 @@ internal void play_level(GameState* game_state, Level* level) {
 }
 
 inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
-    if (game_state->game_mode == GameMode_Editor && game_mode != game_state->game_mode) {
-        EditorState* editor = game_state->editor_state;
-        editor->camera_p_on_exit = game_state->render_context.camera_p;
+    if (game_mode != game_state->game_mode) {
+        if (game_state->game_mode == GameMode_Editor) {
+            EditorState* editor = game_state->editor_state;
+            editor->camera_p_on_exit = game_state->render_context.camera_p;
+        } else if (game_state->game_mode == GameMode_Menu) {
+            pause_group(&game_state->ui_audio, 2.0f);
+        }
     }
 
     MenuState* menu = game_state->menu_state;
@@ -526,6 +541,13 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
     switch (game_mode) {
         case GameMode_Menu: {
             menu->source_gamemode = game_state->game_mode;
+
+            if (!menu->music) {
+                menu->music = play_sound(&game_state->ui_audio, get_sound_by_name(&game_state->assets, string_literal("menu_ambient")), vec2(0.0f, 0.0f), Playback_Looping);
+                change_volume(menu->music, 2.0f*game_config->menu_fade_in_speed, vec2(1.0f, 1.0f));
+            }
+
+            unpause_group(&game_state->ui_audio, 2.0f);
 
             if (menu->source_gamemode == GameMode_Menu) {
                 menu->fade_in_timer = 1.0f;
@@ -610,6 +632,13 @@ inline void set_camera_view(RenderContext* rc, CameraView view) {
     render_worldspace(rc, view.vfov);
 }
 
+inline ParticleSystem create_particle_system(MemoryArena* arena, u32 count) {
+    ParticleSystem result;
+    result.count = count;
+    result.particles = push_array(arena, count, Particle);
+    return result;
+}
+
 internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     assert(memory->permanent_storage_size >= sizeof(GameState));
 
@@ -660,6 +689,21 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         game_state->background_color = vec4(0.3f, 0.2f, 0.4f, 1.0f);
 
         game_state->editor_state = allocate_editor(game_state, render_commands);
+
+        {
+            rnd_pcg_t pcg;
+            rnd_pcg_seed(&pcg, 0);
+
+            f32 aspect_ratio = get_aspect_ratio(&game_state->render_context);
+            game_state->background_particles = create_particle_system(&game_state->transient_arena, 1024);
+            ParticleSystem* bg_particles = &game_state->background_particles;
+            for (u32 particle_index = 0; particle_index < bg_particles->count; particle_index++) {
+                Particle particle;
+                particle.p = vec2(rnd_pcg_nextf(&pcg) - 0.5f, rnd_pcg_nextf(&pcg) - 0.5f)*vec2(30.0f*aspect_ratio, 30.0f);
+                particle.alpha = rnd_pcg_nextf(&pcg);
+                game_state->background_particles.particles[particle_index] = particle;
+            }
+        }
 
         switch_gamemode(game_state, GameMode_Menu);
 
@@ -785,6 +829,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 if (menu->asking_for_quit_confirmation) {
                     if (menu->quit_timer <= 0.0f) {
                         menu->quit_timer = 1.0f;
+                        change_volume(menu->music, game_config->menu_quit_speed, vec2(0.0f, 0.0f));
                         play_the_sound = true;
                     }
                 } else {
@@ -809,7 +854,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             if (menu->quit_timer <= 0.0f) {
                 input->quit_requested = true;
             }
-            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, 1.0f - 1.3f*menu->quit_timer + 0.3f));
+            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, 1.0f - menu->quit_timer));
         } else if (menu->fade_in_timer > 0.0f) {
             menu->fade_in_timer -= frame_dt / game_config->menu_fade_in_speed;
             push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, smoothstep(clamp01(1.1f*menu->fade_in_timer))));
@@ -961,6 +1006,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             render_entities = game_state->active_level->entities;
         }
 
+        push_particle_system(render_context, default_transform2d(), &game_state->background_particles, -1000.0f);
+
         for (u32 entity_index = 1; entity_index < render_entity_count; entity_index++) {
             Entity* entity = render_entities + entity_index;
             assert(entity->type != EntityType_Null);
@@ -1002,8 +1049,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                             INVALID_CODE_PATH;
                         }
                         if (editor->show_camera_zones) {
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline);
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.25f), ShapeRenderMode_Outline);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline, 1000.0f);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.25f), ShapeRenderMode_Outline, 1000.0f);
                         }
                     } break;
 
@@ -1015,7 +1062,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                             INVALID_CODE_PATH;
                         }
                         if (editor->show_checkpoint_zones) {
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->checkpoint_zone)), game_state->last_activated_checkpoint == entity ? COLOR_GREEN : COLOR_RED, ShapeRenderMode_Outline, 1000.0f);
                         }
                     } break;
 
@@ -1027,8 +1074,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                             INVALID_CODE_PATH;
                         }
                         if (editor->show_soundtrack_player_zones) {
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), vec4(COLOR_GREEN.rgb, 0.5f), ShapeRenderMode_Outline);
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), vec4(COLOR_GREEN.rgb, 0.5f), ShapeRenderMode_Outline, 1000.0f);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline, 1000.0f);
                         }
                     }
 
@@ -1065,7 +1112,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             // @TODO: AAAA!!!!!!!
             RenderContext rc_backup = *render_context;
             render_screenspace(render_context);
-            push_quick_rect(render_context, 0.5f*screen_dim, screen_dim, vec4(0, 0, 0, game_state->level_intro_timer));
+            push_rect(render_context, aab_min_dim(vec2(0, 0), screen_dim), vec4(0, 0, 0, game_state->level_intro_timer));
             *render_context = rc_backup;
         }
 

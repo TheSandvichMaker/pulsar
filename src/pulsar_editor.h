@@ -26,10 +26,16 @@ introspect() enum UndoType {
     Undo_DeleteEntity,
 };
 
+// @TODO: Stop two batches in a row from sticking to each other
+introspect(flags: true) enum UndoFlag {
+    UndoFlag_PartOfBatch = 0x1,
+};
+
 struct UndoFooter {
     UndoType type;
     char* description;
 
+    u32 batch_id;
     u32 data_size;
 
     union {
@@ -88,6 +94,7 @@ struct EntityData {
 
 introspect() enum EditorWidgetType {
     Widget_None = 0,
+    Widget_Generic,
     Widget_DragEditable,
     Widget_ManipulateEntity,
     Widget_DragRegion,
@@ -131,6 +138,13 @@ struct EditorWidget {
         EditorWidgetDragP drag_p;
     };
 };
+
+inline EditorWidget generic_widget(void* guid) {
+    EditorWidget result = {};
+    result.guid = guid;
+    result.type = Widget_Generic;
+    return result;
+}
 
 struct EntityHash {
     EntityID guid;
@@ -179,10 +193,7 @@ struct EditorState {
     b32 grid_snapping_enabled;
     v2 grid_size;
 
-    b32 panning;
-    v2 world_mouse_p_on_pan;
     v2 camera_p_on_pan;
-
     v2 camera_p_on_exit;
 
     f32 level_saved_timer;
@@ -203,11 +214,17 @@ struct EditorState {
 
     EntityID selected_entity;
 
+    u32 selected_entity_count;
+    EntityID selected_entities[32];
+    v2 drag_group_anchor;
+
     EntityType current_editable_type;
     LinearBuffer<EditableParameter>* editable_parameter_info[EntityType_Count];
 
     EntityHash entity_hash[MAX_ENTITY_COUNT];
 
+    u32 doing_undo_batch;
+    u32 current_batch_id;
     u32 undo_most_recent;
     u32 undo_oldest;
     u8 undo_buffer[UNDO_BUFFER_SIZE];

@@ -460,6 +460,7 @@ int main(int argument_count, char** arguments) {
     add_sound("test_sound", "assets/test_sound.wav");
     add_sound("test_music", "assets/test_music.wav");
 
+    add_sound("menu_ambient", "assets/menu_ambient.wav");
     add_sound("menu_select", "assets/menu_select.wav");
     add_sound("menu_confirm", "assets/menu_confirm.wav");
 
@@ -598,11 +599,10 @@ int main(int argument_count, char** arguments) {
                         packed->font.oversample_amount = oversample_amount;
 
                         // @Note: The glyphs are stored in the asset catalog immediately after the font.
-                        u32 first_glyph_index = asset_desc->asset_index + 1;
                         u32 glyph_count = packed->font.one_past_last_codepoint - packed->font.first_codepoint;
                         ImageID* glyph_table = push_array(&global_arena, glyph_count, ImageID);
                         for (u32 glyph_index = 0; glyph_index < glyph_count; glyph_index++) {
-                            glyph_table[glyph_index] = { first_glyph_index + glyph_index };
+                            glyph_table[glyph_index] = { asset_catalog_index++ };
                         }
 
                         fwrite(glyph_table, sizeof(ImageID), glyph_count, out);

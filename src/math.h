@@ -664,6 +664,19 @@ inline AxisAlignedBox2 inverted_infinity_aab2() {
     return result;
 }
 
+inline AxisAlignedBox2 correct_aab_winding(AxisAlignedBox2 aab) {
+    AxisAlignedBox2 result = aab;
+    if (aab.min.x > aab.max.x) {
+        result.min.x = aab.max.x;
+        result.max.x = aab.min.x;
+    }
+    if (aab.min.y > aab.max.y) {
+        result.min.y = aab.max.y;
+        result.max.y = aab.min.y;
+    }
+    return result;
+}
+
 //
 // NOTE: AxisAlignedBox2i
 //

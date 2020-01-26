@@ -18,6 +18,16 @@ struct Image {
     void* handle;
 };
 
+struct Particle {
+    v2 p;
+    f32 alpha;
+};
+
+struct ParticleSystem {
+    u32 count;
+    Particle* particles;
+};
+
 inline AxisAlignedBox2 get_aligned_image_aab(Image* image) {
     v2 dim = image->scale*vec2(image->w, image->h);
     AxisAlignedBox2 result = aab_min_dim(-image->align*dim, dim);
@@ -28,6 +38,7 @@ enum RenderCommandType {
     RenderCommand_Clear,
     RenderCommand_Shape,
     RenderCommand_Image,
+    RenderCommand_ParticleSystem,
 };
 
 struct RenderCommandHeader {
@@ -55,6 +66,11 @@ struct RenderCommandImage {
     Transform2D transform;
     Image* image;
     v4 color;
+};
+
+struct RenderCommandParticleSystem {
+    Transform2D transform;
+    ParticleSystem* system;
 };
 
 #endif /* RENDER_COMMANDS_H */
