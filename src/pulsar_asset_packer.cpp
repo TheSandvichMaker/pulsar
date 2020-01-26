@@ -457,6 +457,14 @@ int main(int argument_count, char** arguments) {
         add_soundtrack("pulsar_kicktrack_1", "assets/pulsar_kicktrack_1.wav", ARRAY_COUNT(midi_files), midi_files, 95);
     }
 
+    {
+        char* midi_files[] = { "assets/demo_level_loop_1.mid" };
+        add_soundtrack("demo_level_loop_1", "assets/demo_level_loop_1_drums.wav", ARRAY_COUNT(midi_files), midi_files, 95);
+        add_soundtrack("demo_level_loop_1_pad", "assets/demo_level_loop_1_pad.wav", 0, 0, 95);
+        char* bells_midi_files[] = { "assets/demo_level_loop_1_bells.mid" };
+        add_soundtrack("demo_level_loop_1_bells", "assets/demo_level_loop_1_bells.wav", ARRAY_COUNT(bells_midi_files), bells_midi_files, 95);
+    }
+
     add_sound("test_sound", "assets/test_sound.wav");
     add_sound("test_music", "assets/test_music.wav");
 

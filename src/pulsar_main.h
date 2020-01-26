@@ -133,6 +133,7 @@ struct GameState {
     RenderContext render_context;
 
     Assets assets;
+    Sound* player_footstep_sound;
 
     AudioMixer audio_mixer;
     AudioGroup game_audio;

@@ -162,7 +162,7 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
         b32 all_channels_quiet = true;
         for (u32 channel = 0; channel < 2; channel++) {
             group->volume.current_volume[channel] = get_volume_for_sample_offset(group->volume, channel, sound_buffer->sample_rate, sound_buffer->samples_committed);
-            if (group->volume.current_volume[channel] >= 0.0f) {
+            if (group->volume.current_volume[channel] > 0.0f) {
                 all_channels_quiet = false;
             }
         }

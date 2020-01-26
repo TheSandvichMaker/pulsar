@@ -65,8 +65,13 @@ struct PlatformAPI {
 };
 
 #define FRAME_TIME_HISTORY_LENGTH 120
+struct DebugFrameInfo {
+    f32 time;
+    u32 render_commands;
+};
+
 struct DebugFrameTimeHistory {
-    f32 history[FRAME_TIME_HISTORY_LENGTH];
+    DebugFrameInfo history[FRAME_TIME_HISTORY_LENGTH];
     u32 first_valid_entry;
     u32 valid_entry_count;
 };
@@ -91,6 +96,9 @@ introspect() struct GameConfig {
     u32 command_buffer_size_mb    = 16;
     u32 permanent_storage_size_mb = 512;
     u32 transient_storage_size_mb = 1024;
+
+    // Graphics
+    u32 msaa_count = 8;
 
     // Sound
     f32 master_volume   = 1.0f;
@@ -125,6 +133,8 @@ introspect() struct GameConfig {
     f32 max_x_vel                   = 10.0f;
     f32 min_y_vel                   = -40.0f;
     f32 max_y_vel                   = 40.0f;
+    f32 max_ballistic_x_vel         = 20.0f;
+    f32 max_ballistic_y_vel         = 20.0f;
 
     f32 jump_force                  = 10.0f;
 
@@ -132,6 +142,8 @@ introspect() struct GameConfig {
     f32 late_jump_window            = 0.15f;
 
     f32 player_respawn_speed        = 2.0f;
+
+    f32 player_walk_cycle_length    = 2.0f;
 
     // Level
     f32 level_intro_speed                      = 1.0f;

@@ -73,6 +73,8 @@ struct Entity {
 
             v2 ballistic_dp;
             v2 contact_move;
+
+            f32 walk_cycle;
         };
 
         struct /* Wall */ {

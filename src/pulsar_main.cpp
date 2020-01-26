@@ -109,6 +109,7 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_Wall, midi_note),
     SERIALIZABLE(Entity, EntityType_Wall, end_p),
     SERIALIZABLE(Entity, EntityType_Wall, movement_speed_ms),
+    SERIALIZABLE(Entity, EntityType_Wall, listening_to, serialize_AssetID),
     // @Note: Soundtrack Player
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, soundtrack_id, serialize_AssetID),
     SERIALIZABLE(Entity, EntityType_SoundtrackPlayer, playback_flags),
@@ -379,9 +380,6 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     PlayingMidi* playing_midi = game_state->first_free_playing_midi;
     game_state->first_free_playing_midi = playing_midi->next_free;
 
-    playing_midi->next = game_state->first_playing_midi;
-    game_state->first_playing_midi = playing_midi;
-
     *playing_midi = {};
     playing_midi->track = track;
     playing_midi->flags = flags;
@@ -390,7 +388,23 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     playing_midi->sync_sound->synced_midi = playing_midi;
     playing_midi->playback_rate = 1.0f;
 
-    log_print(LogLevel_Info, "Playing midi track with %u events", track->event_count);
+    playing_midi->next = game_state->first_playing_midi;
+    game_state->first_playing_midi = playing_midi;
+
+    String track_name = {};
+
+    Asset* track_asset = cast(Asset*) track;
+    if (track_asset->name.len) {
+        track_name = track_asset->name;
+    } else if (source_soundtrack.value) {
+        Soundtrack* soundtrack = get_soundtrack(&game_state->assets, source_soundtrack);
+        if (soundtrack) {
+            Asset* soundtrack_asset = cast(Asset*) soundtrack;
+            track_name = soundtrack_asset->name;
+        }
+    }
+
+    log_print(LogLevel_Info, "Playing midi track %.*s with %u events", PRINTF_STRING(track_name), track->event_count);
 
     return playing_midi;
 }
@@ -658,6 +672,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
+        game_state->player_footstep_sound = get_sound_by_name(&game_state->assets, string_literal("menu_select"));
+
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
         initialize_audio_group(&game_state->game_audio, &game_state->audio_mixer);
         initialize_audio_group(&game_state->ui_audio, &game_state->audio_mixer);
@@ -701,6 +717,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 Particle particle;
                 particle.p = vec2(rnd_pcg_nextf(&pcg) - 0.5f, rnd_pcg_nextf(&pcg) - 0.5f)*vec2(30.0f*aspect_ratio, 30.0f);
                 particle.alpha = rnd_pcg_nextf(&pcg);
+                particle.depth = map_to_range(rnd_pcg_nextf(&pcg), 1.0f, 10.0f);
                 game_state->background_particles.particles[particle_index] = particle;
             }
         }
@@ -1006,7 +1023,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             render_entities = game_state->active_level->entities;
         }
 
-        push_particle_system(render_context, default_transform2d(), &game_state->background_particles, -1000.0f);
+        // push_particle_system(render_context, default_transform2d(), &game_state->background_particles, -1000.0f);
 
         for (u32 entity_index = 1; entity_index < render_entity_count; entity_index++) {
             Entity* entity = render_entities + entity_index;
@@ -1028,8 +1045,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             if (should_draw) {
                 Transform2D transform = transform2d(entity->p + vec2(0.0f, -game_config->background_pulse_world_shake_intensity*game_state->background_pulse_t));
                 if (entity->type == EntityType_Player) {
-                    // @Hack: Making the player just slightly sink into the ground to avoid seeing a tiny gap between it and its supporting entity
-                    transform.offset.y -= 1.0e-3f;
+                    // @Hack: Making the player just slightly oversized to avoid seeing a tiny gap between it and touching entities
+                    transform.scale *= 1.01f;
                 }
                 switch (entity->type) {
                     case EntityType_Wall: {
@@ -1118,7 +1135,13 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         if (game_state->player && game_state->player->killed_this_frame) {
             game_state->player->dead = true;
+            game_state->player->dp = {};
+            game_state->player->was_supported = false;
             game_state->player->support = 0;
+            game_state->player->support_dp = {};
+            game_state->player->retained_support_dp = {};
+            game_state->player->retained_support_dp_timer = 0.0f;
+            game_state->player->ballistic_dp = {};
             game_state->player->killed_this_frame = false;
         }
 

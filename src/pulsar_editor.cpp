@@ -852,7 +852,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
     end_linear_buffer(prefabs);
 }
 
-inline void print_editable(UILayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
+inline void print_editable(GameState* game_state, UILayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
     switch (editable->type) {
         case Editable_u32: {
             u32 value = *(cast(u32*) editable_ptr);
@@ -897,6 +897,13 @@ inline void print_editable(UILayout* layout, EditableParameter* editable, void**
         case Editable_SoundtrackID: {
             SoundtrackID id = *(cast(SoundtrackID*) editable_ptr);
             layout_print(layout, color, "SoundtrackID { %u }", id.value);
+            if (id.value) {
+                Soundtrack* soundtrack = get_soundtrack(&game_state->assets, id);
+                if (soundtrack) {
+                    Asset* asset = cast(Asset*) soundtrack;
+                    layout_print(layout, color, ": '%.*s'", PRINTF_STRING(asset->name));
+                }
+            }
         } break;
 
         case Editable_EntityFlag: {
@@ -1160,7 +1167,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (is_hot(editor, pan_widget)) {
         editor->camera_p_on_pan = game_state->render_context.camera_p;
-        set_active(editor, editor->hot_widget);
+        set_active(editor, editor->hot_widget); // @WidgetSetActiveHackery
     }
 
     if (is_active(editor, pan_widget)) {
@@ -1177,18 +1184,28 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     if (editor->shown || editor->show_statistics) {
         DebugFrameTimeHistory* frame_history = &global_debug_info.frame_history;
         f32 average_frame_time = 0.0f;
+        f32 peak_frame_time = 0.0f;
+        u32 average_render_commands = 0;
+        u32 peak_render_commands = 0;
         // @TODO: be a good statistician and don't use a stupid average for this, but some cool gaussian or something
         for (u32 frame_index = 0; frame_index < frame_history->valid_entry_count; frame_index++) {
-            average_frame_time += frame_history->history[(frame_history->first_valid_entry + frame_index) % ARRAY_COUNT(frame_history->history)];
+            DebugFrameInfo* frame = frame_history->history + ((frame_history->first_valid_entry + frame_index) % ARRAY_COUNT(frame_history->history));
+            average_frame_time += frame->time;
+            peak_frame_time = max(peak_frame_time, frame->time);
+            average_render_commands += frame->render_commands;
+            peak_render_commands = MAX(peak_render_commands, frame->render_commands);
         }
         average_frame_time /= frame_history->valid_entry_count;
+        average_render_commands /= frame_history->valid_entry_count;
 
         f32 adjusted_frame_dt = input->frame_dt / game_config->simulation_rate; // @Note: This way the frame time counter won't go bright red if you lower the simulation rate
 
         f32 average_frame_time_in_ms = 1000.0f*average_frame_time;
-        f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(average_frame_time - adjusted_frame_dt));
+        f32 frame_target_miss_amount_in_ms = clamp01(1000.0f*(peak_frame_time - adjusted_frame_dt));
         v4 timer_color = vec4(1.0f, 1.0f-frame_target_miss_amount_in_ms, 1.0f-frame_target_miss_amount_in_ms, 1.0f);
-        layout_print_line(&layout, timer_color, "Average Frame Time: %fms (target update rate: %ghz)\n", average_frame_time_in_ms, input->update_rate);
+        layout_print_line(&layout, COLOR_WHITE, "Target Update Rate: %ghz, %fms/f", input->update_rate, 1000.0f / input->update_rate);
+        layout_print_line(&layout, timer_color, "Average Frame Time: %fms, Peak: %fms", average_frame_time_in_ms, 1000.0f*peak_frame_time);
+        layout_print_line(&layout, COLOR_WHITE, "Average Render Commands: %u, Peak: %u\n", average_render_commands, peak_render_commands);
     }
 
     if (!editor->shown) {
@@ -1199,7 +1216,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
 #if 0
     layout_print_line(&layout, COLOR_WHITE, "Mouse P: { %f, %f }, World Mouse P: { %f, %f }", mouse_p.x, mouse_p.y, world_mouse_p.x, world_mouse_p.y);
-#endif
     layout_print_line(&layout, COLOR_WHITE, "Camera Target: EntityID { %u }", checked_access(game_state->camera_target, guid.value));
     layout_print_line(&layout, COLOR_WHITE, "Camera Position: { %f, %f }", game_state->render_context.camera_p.x, game_state->render_context.camera_p.y);
     layout_print_line(&layout, COLOR_WHITE, "Camera Transition: %f", game_state->camera_transition_t);
@@ -1211,6 +1227,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     layout_print_line(&layout, COLOR_WHITE, "");
+#endif
 
     layout_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
     if (editor->level_saved_timer > 0.0f) {
@@ -1315,12 +1332,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     sound_log.depth++;
     for (AudioGroup* group = game_state->audio_mixer.first_audio_group; group; group = group->next_audio_group) {
         if (group->first_playing_sound) {
-            layout_print_line(&sound_log, COLOR_WHITE, "Audio Group:");
+            layout_print_line(&sound_log, COLOR_WHITE, "Audio Group%s, volume { %g, %g }:", group->paused ? " (paused)" : "", group->volume.current_volume[0], group->volume.current_volume[1]);
         }
         sound_log.depth++;
         for (PlayingSound* playing_sound = group->first_playing_sound; playing_sound; playing_sound = playing_sound->next) {
             Sound* sound = playing_sound->sound;
-            layout_print_line(&sound_log, COLOR_WHITE, "Sound: Samples played: %u, Volume: { %g, %g }", playing_sound->samples_played, playing_sound->volume.current_volume[0], playing_sound->volume.current_volume[1]);
+            Asset* asset = cast(Asset*) sound;
+            layout_print_line(&sound_log, COLOR_WHITE, "Sound %.*s: Samples played: %u, Volume: { %g, %g }", PRINTF_STRING(asset->name), playing_sound->samples_played, playing_sound->volume.current_volume[0], playing_sound->volume.current_volume[1]);
         }
         sound_log.depth--;
     }
@@ -1339,7 +1357,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
             Entity* entity = game_state->entities + entity_index;
 
-            if (!(entity->flags & EntityFlag_Invisible) || editor->shown) {
+            if (editor->shown || !(entity->flags & EntityFlag_Invisible)) {
                 if (is_in_region(entity->collision, world_mouse_p - entity->p)) {
                     moused_over = entity;
                 }
@@ -1365,26 +1383,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    EditorWidget manipulate_entity = {};
-    manipulate_entity.guid = &manipulate_entity;
-    manipulate_entity.type = Widget_ManipulateEntity;
-
     EditorWidget group_select = generic_widget(&group_select);
-
-    if (moused_over) {
-        manipulate_entity.manipulate.guid = moused_over->guid;
-        editor->next_hot_widget = manipulate_entity;
-    } else if (!input->space.is_down && was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+    if (!input->space.is_down && was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
         // @TODO: I really need to get widget priority sorted out so that I don't need to put these random checks for things like input->space.is_down just
         // so I don't stomp on the pan widget
         editor->next_hot_widget = group_select;
-    }
-
-    if (is_hot(editor, group_select)) {
-        if (input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-            editor->selected_entity_count = 0;
-            set_active(editor, editor->hot_widget);
-        }
     }
 
     if (is_active(editor, group_select)) {
@@ -1564,56 +1567,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     layout_print_line(&layout, COLOR_WHITE, "");
 
-    EditorWidget drag_group = generic_widget(&drag_group);
-    if (is_active(editor, drag_group)) {
-        v2 relative_world_mouse_p = world_mouse_p - editor->drag_group_anchor;
-        v2 delta = snap_to_grid(editor, relative_world_mouse_p);
-        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-            Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-            entity->p += delta;
-        }
-        editor->drag_group_anchor += delta;
-
-        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-            clear_active(editor);
-        }
-    } else if (editor->selected_entity_count > 1) {
-        layout_print_line(&layout, COLOR_WHITE, "%u entities selected", editor->selected_entity_count);
-
-        if (was_pressed(input->del)) {
-            begin_undo_batch(editor);
-            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                delete_entity(editor, editor->selected_entities[selected_index], true);
-            }
-            end_undo_batch(editor);
-            editor->selected_entity_count = 0;
-        }
-
-        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-            Entity* manipulated = 0;
-            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                if (moused_over->guid.value == editor->selected_entities[selected_index].value) {
-                    manipulated = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-                    if (manipulated) {
-                        break;
-                    }
-                }
-            }
-            if (manipulated) {
-                // @TODO: More inconsistent UI stuff, this time not using a widget to store data again
-                editor->drag_group_anchor = world_mouse_p;
-                begin_undo_batch(editor);
-                for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                    Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-                    add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Group Move");
-                }
-                end_undo_batch(editor);
-                set_active(editor, drag_group); // @WidgetSetActiveHackery
-            } else {
-                editor->selected_entity_count = 0;
-            }
-        }
-    } else if (moused_over || editor->selected_entity_count) {
+    if (moused_over || editor->selected_entity_count == 1) {
+        b32 is_selected = editor->selected_entity_count;
         Entity* selected = editor->selected_entity_count ? get_entity_from_guid(editor, editor->selected_entities[0]) : moused_over;
 #if 0
         Entity* full_entity = 0;
@@ -1622,13 +1577,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 #endif
 
         if (game_state->game_mode == GameMode_Editor) {
-            if (selected->type == EntityType_CameraZone) {
+            if (editor->show_camera_zones && selected->type == EntityType_CameraZone) {
                 drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->active_region));
-            } else if (selected->type == EntityType_Checkpoint) {
+            } else if (editor->show_checkpoint_zones && selected->type == EntityType_Checkpoint) {
                 drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->checkpoint_zone));
             } else if (selected->type == EntityType_Wall) {
                 drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
-            } else if (selected->type == EntityType_SoundtrackPlayer) {
+            } else if (editor->show_soundtrack_player_zones && selected->type == EntityType_SoundtrackPlayer) {
                 drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->audible_zone));
             }
         }
@@ -1658,7 +1613,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 }
 
                 layout_print(&layout, color, "%s: ", editable->name);
-                print_editable(&layout, editable, editable_ptr, color, &widget);
+                print_editable(game_state, &layout, editable, editable_ptr, color, &widget);
 
                 if (is_active(editor, widget)) {
                     v2 start_mouse_p = editor->mouse_p_on_active;
@@ -1737,10 +1692,74 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 layout_finish_print(&layout);
             }
         }
+    }
+
+    EditorWidget drag_group = generic_widget(&drag_group);
+    if (is_active(editor, drag_group)) {
+        v2 relative_world_mouse_p = world_mouse_p - editor->drag_group_anchor;
+        v2 delta = snap_to_grid(editor, relative_world_mouse_p);
+        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+            Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+            entity->p += delta;
+        }
+        editor->drag_group_anchor += delta;
+
+        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+            clear_active(editor);
+        }
+    } else if (editor->selected_entity_count && !editor->active_widget.type) {
+        layout_print_line(&layout, COLOR_WHITE, "%u entities selected", editor->selected_entity_count);
 
         if (was_pressed(input->del)) {
-            delete_entity(editor, selected->guid);
-            selected = 0;
+            begin_undo_batch(editor);
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                delete_entity(editor, editor->selected_entities[selected_index], true);
+            }
+            end_undo_batch(editor);
+            editor->selected_entity_count = 0;
+        }
+
+        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            Entity* manipulated = 0;
+            if (moused_over) {
+                for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                    if (moused_over->guid.value == editor->selected_entities[selected_index].value) {
+                        manipulated = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                        if (manipulated) {
+                            break;
+                        }
+                    }
+                }
+            }
+            if (manipulated) {
+                // @TODO: More inconsistent UI stuff, this time not using a widget to store data again
+                editor->drag_group_anchor = world_mouse_p;
+                begin_undo_batch(editor);
+                for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                    Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                    add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Group Move");
+                }
+                end_undo_batch(editor);
+                set_active(editor, drag_group); // @WidgetSetActiveHackery
+            } else {
+                editor->selected_entity_count = 0;
+            }
+        }
+
+        if (input->ctrl.is_down && was_pressed(get_key(input, 'D'))) {
+            begin_undo_batch(editor);
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                Entity* source_entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                if (source_entity) {
+                    AddEntityResult duplicate = add_entity(editor, EntityType_Null);
+                    copy(sizeof(*duplicate.ptr), source_entity, duplicate.ptr);
+                    duplicate.ptr->guid = duplicate.guid;
+                    editor->selected_entities[selected_index] = duplicate.guid;
+
+                    add_undo_history(editor, Undo_CreateEntity, sizeof(*duplicate.ptr), duplicate.ptr);
+                }
+            }
+            end_undo_batch(editor);
         }
     }
 
@@ -1796,6 +1815,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
                     case Manipulate_DeleteEntity: {
                         delete_entity(editor, widget->manipulate.guid);
+                        editor->selected_entity_count = 0;
                         clear_active(editor);
                     } break;
                 }
@@ -1842,6 +1862,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     set_active(editor, editor->hot_widget);
                 }
             } break;
+        }
+    }
+
+    if (is_hot(editor, group_select)) {
+        if (input->mouse_buttons[PlatformMouseButton_Left].is_down) {
+            editor->selected_entity_count = 0;
+            set_active(editor, editor->hot_widget);
         }
     }
 

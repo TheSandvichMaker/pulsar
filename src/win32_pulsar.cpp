@@ -724,7 +724,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             ShowWindow(window, show_code);
 
             HDC window_dc = GetDC(window);
-            HGLRC glrc = wgl_opengl_init(window_dc, &wgl_info, &opengl_info);
+            HGLRC glrc = wgl_opengl_init(window_dc, &wgl_info, &opengl_info, win32_state.config.msaa_count);
 
             u32 monitor_refresh_rate = GetDeviceCaps(window_dc, VREFRESH);
             if (monitor_refresh_rate <= 1) {
@@ -740,8 +740,12 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             sound_output.buffer_size = sound_output.sample_rate*sound_output.bytes_per_sample;
 
             // @Note: sound_latency_ms defines how long game_get_sound can take without producing any audio glitches.
-            f32 sound_latency_ms = 6.0f;
+            f32 sound_latency_ms = 3.0f;
             sound_output.safety_bytes = cast(u32) (sound_output.sample_rate*sound_output.bytes_per_sample*sound_latency_ms*0.001f);
+
+            // @Note: max_sound_overdraw_ms defines the largest frame time miss the game can endure without noticable audio glitches
+            f32 sound_overdraw_frames = 4;
+            u32 max_byte_overdraw = sound_output.bytes_per_sample*cast(u32) (sound_output.sample_rate*((1 + sound_overdraw_frames)*(1.0f / game_update_rate)));
 
             sound_output.buffer = win32_init_dsound(window, sound_output.sample_rate, sound_output.buffer_size);
 
@@ -793,6 +797,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
             LARGE_INTEGER start_counter = win32_get_clock();
             f32 last_frame_time = 0.0f;
+            u32 last_render_commands = 0;
             b32 last_frame_time_is_valid = false;
 
             DWORD previous_padded_write_cursor = 0;
@@ -811,7 +816,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     }
                     frame_history->first_valid_entry %= ARRAY_COUNT(frame_history->history);
                     frame_index %= ARRAY_COUNT(frame_history->history);
-                    frame_history->history[frame_index] = last_frame_time;
+                    DebugFrameInfo* frame = frame_history->history + frame_index;
+                    frame->time = last_frame_time;
+                    frame->render_commands = last_render_commands;
                 }
 
                 handle_config_file(config_file_name);
@@ -925,7 +932,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                             // @TODO: Currently, we're always asking the game for enough samples to fill the entire buffer as much as possible, regardless of buffer size.
                             // To reduce pressure on game_get_sound, this could be limited to something more considered.
-                            bytes_to_write = unwrapped_play_cursor - padded_write_cursor;
+                            bytes_to_write = MIN(unwrapped_play_cursor - padded_write_cursor, max_byte_overdraw);
                         }
 
                         DWORD samples_committed;
@@ -962,6 +969,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
                 // @Note: Preserve changes the game made to the config
                 win32_state.config = game_memory.config;
+
+                last_render_commands = render_commands.sort_entry_count;
 
                 LARGE_INTEGER end_counter = win32_get_clock();
                 last_frame_time = win32_get_seconds_elapsed(start_counter, end_counter);

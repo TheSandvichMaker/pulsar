@@ -26,8 +26,6 @@ struct Soundtrack {
 };
 
 struct Asset {
-    String name;
-    AssetType type;
     union {
         Sound sound;
         Image image;
@@ -35,6 +33,8 @@ struct Asset {
         MidiTrack midi_track;
         Soundtrack soundtrack;
     };
+    String name;
+    AssetType type;
 };
 
 struct Assets {

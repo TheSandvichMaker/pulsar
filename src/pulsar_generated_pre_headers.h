@@ -84,6 +84,7 @@ enum MetaType {
     u32 command_buffer_size_mb; \
     u32 permanent_storage_size_mb; \
     u32 transient_storage_size_mb; \
+    u32 msaa_count; \
     f32 master_volume; \
     f32 gameplay_volume; \
     f32 ui_volume; \
@@ -108,10 +109,13 @@ enum MetaType {
     f32 max_x_vel; \
     f32 min_y_vel; \
     f32 max_y_vel; \
+    f32 max_ballistic_x_vel; \
+    f32 max_ballistic_y_vel; \
     f32 jump_force; \
     f32 early_jump_window; \
     f32 late_jump_window; \
     f32 player_respawn_speed; \
+    f32 player_walk_cycle_length; \
     f32 level_intro_speed; \
     f32 background_pulse_intensity; \
     f32 background_pulse_world_shake_intensity; \

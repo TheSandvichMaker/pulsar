@@ -21,6 +21,7 @@ struct Image {
 struct Particle {
     v2 p;
     f32 alpha;
+    f32 depth;
 };
 
 struct ParticleSystem {

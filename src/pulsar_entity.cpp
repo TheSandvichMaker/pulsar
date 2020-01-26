@@ -5,9 +5,9 @@
 inline b32 player_can_move(GameState* game_state) {
     Entity* player = game_state->player;
 
-    if (player->dead)                         return false;
-    if (game_state->mid_camera_transition)    return false;
-    if (game_state->level_intro_timer > 0.0f) return false;
+    if (player->dead || player->killed_this_frame) return false;
+    if (game_state->mid_camera_transition)         return false;
+    if (game_state->level_intro_timer > 0.0f)      return false;
 
     return true;
 }
@@ -238,6 +238,11 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 if (!controller->jump.is_down || entity->dp.y < 0.0f) {
                     entity->gravity *= game_config->downward_gravity_multiplier;
                 }
+
+                if (entity->walk_cycle > game_config->player_walk_cycle_length) {
+                    entity->walk_cycle -= game_config->player_walk_cycle_length;
+                    // play_sound(&game_state->game_audio, game_state->player_footstep_sound);
+                }
             } break;
 
             case EntityType_Wall: {
@@ -322,8 +327,12 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                     for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
                         ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
-                        if (event.type == MidiEvent_NoteOn) {
-                            game_state->background_pulse_t += (volume.x + volume.y)*game_config->background_pulse_intensity;
+                        if (event.source_soundtrack.value == entity->soundtrack_id.value) {
+                            if (event.type == MidiEvent_NoteOn) {
+                                game_state->background_pulse_t += (volume.x + volume.y)*game_config->background_pulse_intensity;
+                            } else if (event.type == MidiEvent_NoteOff) {
+                                game_state->background_pulse_t += 0.25f*(volume.x + volume.y)*game_config->background_pulse_intensity;
+                            }
                         }
                     }
 
@@ -364,11 +373,9 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
     Entity* player = game_state->player;
 
     if (player && player_can_move(game_state)) {
-        v2 start_player_p = player->p;
-        f32 force_applied_to_player = 0.0f;
-
         f32 t = 1.0f;
 
+        u32 unstuck_count = 0;
         u32 max_iterations = game_config->max_collision_iterations;
         u32 iteration_count = 0;
 
@@ -376,7 +383,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
         v2 gravity = vec2(0.0f, player->gravity);
 
-        while (iteration_count < max_iterations) {
+        while (player_can_move(game_state) && iteration_count < max_iterations) {
             f32 dt = t*frame_dt;
 
             v2 ddp = player->ddp;
@@ -415,8 +422,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         player->support_dp = player->retained_support_dp;
                         player->retained_support_dp = vec2(0, 0);
                     }
-                    player->ballistic_dp.x += player->support_dp.x;
-                    player->dp.y += player->support_dp.y;
+                    player->ballistic_dp.x = clamp(player->ballistic_dp.x + player->support_dp.x, -game_config->max_ballistic_x_vel, game_config->max_ballistic_x_vel);
+                    player->dp.y += clamp(player->support_dp.y, -game_config->max_ballistic_y_vel, game_config->max_ballistic_y_vel);
                     if (length_sq(player->support_dp) > 0.0f) {
                         log_print(LogLevel_Info, "Added { %f, %f } support_dp to player->dp", player->support_dp.x, player->support_dp.y);
                     }
@@ -437,6 +444,15 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             player->contact_move = {};
 
             v2 delta = 0.5f*ddp*square(dt) + (transient_dp + player->dp)*dt;
+
+            if (player->support) {
+                f32 player_horizontal_move = abs(0.5f*ddp.x*square(dt) + player->dp.x*dt);
+                if (player_horizontal_move < 0.05f) {
+                    player->walk_cycle = 0.5f*game_config->player_walk_cycle_length;
+                } else {
+                    player->walk_cycle += player_horizontal_move;
+                }
+            }
 
             b32 did_an_unstuck = false;
             b32 did_collide = false;
@@ -490,6 +506,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         process_collision_logic(game_state, player, test_entity);
 
                         did_an_unstuck = true;
+                        unstuck_count++;
 
                         break; // breaks out of the for, not the while
                     } else if (test_entity != player->support) {
@@ -555,16 +572,19 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 t = 0.0f;
             }
 
-            force_applied_to_player += length_sq(delta);
             player->p += delta;
 
             Entity* support = player->support;
             if (support) {
-                v2 adjusted_support_p = player->support->p + player->support->dp*dt;
+                if (support->flags & EntityFlag_Collides) {
+                    v2 adjusted_support_p = player->support->p + player->support->dp*dt;
 
-                v2 test_region = player->collision + support->collision;
-                v2 rel_p = player->p - adjusted_support_p;
-                if (rel_p.x < -0.5f*test_region.x || rel_p.x > 0.5f*test_region.x) {
+                    v2 test_region = player->collision + support->collision;
+                    v2 rel_p = player->p - adjusted_support_p;
+                    if (rel_p.x < -0.5f*test_region.x || rel_p.x > 0.5f*test_region.x) {
+                        player->support = 0;
+                    }
+                } else {
                     player->support = 0;
                 }
             }
@@ -579,19 +599,11 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
         if (iteration_count >= max_iterations) {
             assert(iteration_count == max_iterations);
             log_print(LogLevel_Warn, "Player move reached %u iterations", max_iterations);
+            if (unstuck_count >= max_iterations) {
+                kill_player(game_state);
+                log_print(LogLevel_Warn, "Player died by crushing");
+            }
         }
-
-        force_applied_to_player = square_root(force_applied_to_player);
-        f32 length_of_player_move = length(player->p - start_player_p);
-
-#if 0
-        // @Note: This is not a good way to do death by crushing
-        f32 unused_force = force_applied_to_player - length_of_player_move;
-        if (unused_force > game_config->death_by_crushing_threshold) {
-            log_print(LogLevel_Info, "Death by crushing.");
-            kill_player(game_state);
-        }
-#endif
     }
 
     for (u32 entity_index = 0; entity_index < game_state->entity_count; entity_index++) {

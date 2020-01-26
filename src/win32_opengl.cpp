@@ -140,7 +140,7 @@ int wgl_opengl_attribs[] = {
     0,
 };
 
-internal HGLRC wgl_opengl_init(HDC window_dc, WglInfo* wgl_info, OpenGLInfo* opengl_info) {
+internal HGLRC wgl_opengl_init(HDC window_dc, WglInfo* wgl_info, OpenGLInfo* opengl_info, u32 msaa_count) {
     if (!wgl_info) {
         WglInfo local_wgl_info;
         wgl_info = &local_wgl_info;
@@ -152,7 +152,7 @@ internal HGLRC wgl_opengl_init(HDC window_dc, WglInfo* wgl_info, OpenGLInfo* ope
     }
 
     wgl_load_extensions(wgl_info);
-    wgl_set_pixel_format(window_dc, wgl_info, 8);
+    wgl_set_pixel_format(window_dc, wgl_info, msaa_count);
 
     b32 modern_context = true;
 
