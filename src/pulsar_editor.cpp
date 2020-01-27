@@ -467,7 +467,7 @@ inline void create_debug_level(EditorState* editor) {
 
     add_player(editor, vec2(-8.0f, 1.5f));
 
-    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, string_literal("test_soundtrack"));
+    SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, string_literal("pulsar_kicktrack_1"));
     add_soundtrack_player(editor, aab_center_dim(vec2(-2.0f, 4.0f), vec2(20.0f, 10.0f)), soundtrack_id);
 
     add_wall(editor, aab_min_max(vec2(-35.0f, -1.0f), vec2(2.0f, 1.0f)));
@@ -1013,7 +1013,7 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     {
         v2 corner = 0.5f*vec2(-zone.x, -zone.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
-        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
             drag_region->scaling = vec2(-1.0f, -1.0f);
@@ -1024,7 +1024,7 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     {
         v2 corner = 0.5f*vec2(zone.x, -zone.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
-        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
             drag_region->scaling = vec2(1.0f, -1.0f);
@@ -1035,7 +1035,7 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     {
         v2 corner = 0.5f*vec2(zone.x, zone.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
-        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
             drag_region->scaling = vec2(1.0f, 1.0f);
@@ -1046,7 +1046,7 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     {
         v2 corner = 0.5f*vec2(-zone.x, zone.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
-        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 1000.0f);
+        push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
             drag_region->scaling = vec2(-1.0f, 1.0f);
@@ -1119,9 +1119,9 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     set_up_editable_parameters(editor);
 
-    if (game_state->active_level->entity_count <= 1) {
-        create_debug_level(editor);
-    }
+    // if (game_state->active_level->entity_count <= 1) {
+    //     create_debug_level(editor);
+    // }
 
     return editor;
 }
@@ -1856,9 +1856,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 EditorWidgetDragRegion* drag_region = &editor->hot_widget.drag_region;
                 if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
                     Entity* entity = get_entity_from_guid(editor, drag_region->target.guid); // @WidgetEntityData
-                    // @TODO: Enable grouping of undo history
+                    begin_undo_batch(editor);
                     add_entity_data_undo_history(editor, drag_region->target);
                     add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p));
+                    end_undo_batch(editor);
                     set_active(editor, editor->hot_widget);
                 }
             } break;

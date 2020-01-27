@@ -546,7 +546,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             EditorState* editor = game_state->editor_state;
             editor->camera_p_on_exit = game_state->render_context.camera_p;
         } else if (game_state->game_mode == GameMode_Menu) {
-            pause_group(&game_state->ui_audio, 2.0f);
+            pause_group(&game_state->ui_audio, 1.0f);
         }
     }
 
@@ -558,10 +558,10 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 
             if (!menu->music) {
                 menu->music = play_sound(&game_state->ui_audio, get_sound_by_name(&game_state->assets, string_literal("menu_ambient")), vec2(0.0f, 0.0f), Playback_Looping);
-                change_volume(menu->music, 2.0f*game_config->menu_fade_in_speed, vec2(1.0f, 1.0f));
+                change_volume(menu->music, 2.0f*game_config->menu_fade_in_speed, vec2(0.5f, 0.5f));
             }
 
-            unpause_group(&game_state->ui_audio, 2.0f);
+            unpause_group(&game_state->ui_audio, 1.0f);
 
             if (menu->source_gamemode == GameMode_Menu) {
                 menu->fade_in_timer = 1.0f;
@@ -570,7 +570,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             }
 
             if (game_state->game_mode == GameMode_Ingame) {
-                pause_group(&game_state->game_audio, 0.1f);
+                pause_group(&game_state->game_audio, 1.0f);
                 game_state->midi_paused = true;
             }
         } break;
@@ -582,7 +582,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             } else if (menu->source_gamemode != GameMode_Ingame || game_state->game_mode == GameMode_Editor) {
                 play_level(game_state, game_state->active_level);
             }
-            unpause_group(&game_state->game_audio, 0.25f);
+            unpause_group(&game_state->game_audio, 1.0f);
             game_state->midi_paused = false;
         } break;
 
@@ -735,6 +735,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     game_state->ui_audio.mix_volume[0] = game_config->ui_volume;
     game_state->ui_audio.mix_volume[1] = game_config->ui_volume;
+
+    input->show_cursor = (game_state->game_mode == GameMode_Editor);
 
     f32 frame_dt = input->frame_dt;
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
@@ -1046,7 +1048,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 Transform2D transform = transform2d(entity->p + vec2(0.0f, -game_config->background_pulse_world_shake_intensity*game_state->background_pulse_t));
                 if (entity->type == EntityType_Player) {
                     // @Hack: Making the player just slightly oversized to avoid seeing a tiny gap between it and touching entities
-                    transform.scale *= 1.01f;
+                    transform.scale *= 1.05f;
                 }
                 switch (entity->type) {
                     case EntityType_Wall: {
@@ -1126,7 +1128,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             if (game_state->level_intro_timer < 0.0f) {
                 game_state->level_intro_timer = 0.0f;
             }
-            // @TODO: AAAA!!!!!!!
+            // @TODO: AAAA!!!!!!! (Translation: Because setting render_screenspace sets the render context's camera p, this breaks some stuff where the editor restores your camera
+            // position, or something. Bummer.)
             RenderContext rc_backup = *render_context;
             render_screenspace(render_context);
             push_rect(render_context, aab_min_dim(vec2(0, 0), screen_dim), vec4(0, 0, 0, game_state->level_intro_timer));

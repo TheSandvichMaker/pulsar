@@ -53,7 +53,7 @@ struct Entity {
     ImageID sprite;
     v4 color;
 
-    // @TODO: Eventually make this more safe by giving these structs names
+    // @TODO: Maybe eventually make this more safe by giving these structs names
     // P.S. that doesn't mean they have to have a type, you can use auto in C++
     // to refer to the type of whatever these otherwise anonymous struct types
     // might be.

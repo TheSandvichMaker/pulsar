@@ -90,7 +90,7 @@ global PlatformDebugInfo global_debug_info;
 introspect() struct GameConfig {
     // Startup
     b32 start_fullscreen = false;
-    String startup_level = string_literal("levels/debug_level.lev");
+    String startup_level = string_literal("levels/demo_level.plv");
 
     // Memory
     u32 command_buffer_size_mb    = 16;
@@ -104,6 +104,10 @@ introspect() struct GameConfig {
     f32 master_volume   = 1.0f;
     f32 gameplay_volume = 1.0f;
     f32 ui_volume       = 1.0f;
+
+    // DirectSound
+    f32 directsound_latency_ms    = 3.0f;
+    u32 directsound_safety_frames = 4;
 
     // Key Binds
     u8 up       = 'W';
@@ -126,7 +130,7 @@ introspect() struct GameConfig {
 
     f32 gravity                     = -20.0f;
     f32 downward_gravity_multiplier = 2.0f;
-    f32 death_by_crushing_threshold = 0.5f;
+    f32 death_by_crushing_threshold = 0.5f; // @Unused
     f32 support_dp_retention_time   = 0.15f;
 
     f32 movement_speed              = 30.0f;
@@ -363,6 +367,7 @@ struct GameInput {
     // @Note: quit_requested is from the game to the platform, not the other way around.
     // @TODO: Make the platform API a bit more unified
     b32 quit_requested;
+    b32 show_cursor;
 
     GameController controller;
 

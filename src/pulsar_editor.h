@@ -26,11 +26,6 @@ introspect() enum UndoType {
     Undo_DeleteEntity,
 };
 
-// @TODO: Stop two batches in a row from sticking to each other
-introspect(flags: true) enum UndoFlag {
-    UndoFlag_PartOfBatch = 0x1,
-};
-
 struct UndoFooter {
     UndoType type;
     char* description;

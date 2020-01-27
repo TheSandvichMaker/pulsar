@@ -2,13 +2,11 @@
 #define PULSAR_MAIN_H
 
 /* RESOURCES:
- * Audio and Music:
- *     test_sound: Handmade Hero
- *     test_music: Glenn Gould: Golberg Variations (1983) - 01 Aria
- *     Everything else: Composed by me
+ * Sounds and Music:
+ *     all created by me
  * Images:
- *     camera icon: Google images (@Copyright!)
- *     speaker icon: Google images (@Copyright!)
+ *     camera icon: Google images
+ *     speaker icon: Google images
  *
  * REFERENCES:
  * Handmade Hero (@TODO: List the stuff directly used from handmade hero):

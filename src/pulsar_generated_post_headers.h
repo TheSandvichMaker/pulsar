@@ -186,6 +186,8 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 13, "master_volume", (unsigned int)&((GameConfig*)0)->master_volume, sizeof(f32) },
     { 0, MetaType_f32, 15, "gameplay_volume", (unsigned int)&((GameConfig*)0)->gameplay_volume, sizeof(f32) },
     { 0, MetaType_f32, 9, "ui_volume", (unsigned int)&((GameConfig*)0)->ui_volume, sizeof(f32) },
+    { 0, MetaType_f32, 22, "directsound_latency_ms", (unsigned int)&((GameConfig*)0)->directsound_latency_ms, sizeof(f32) },
+    { 0, MetaType_u32, 25, "directsound_safety_frames", (unsigned int)&((GameConfig*)0)->directsound_safety_frames, sizeof(u32) },
     { 0, MetaType_u8, 2, "up", (unsigned int)&((GameConfig*)0)->up, sizeof(u8) },
     { 0, MetaType_u8, 4, "left", (unsigned int)&((GameConfig*)0)->left, sizeof(u8) },
     { 0, MetaType_u8, 4, "down", (unsigned int)&((GameConfig*)0)->down, sizeof(u8) },

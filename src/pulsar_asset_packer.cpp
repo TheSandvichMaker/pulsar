@@ -438,21 +438,6 @@ int main(int argument_count, char** arguments) {
     allocate_array(&asset_descriptions, 64, allocator(arena_allocator, &global_arena));
 
     {
-        char* midi_files[] = { "assets/ugly_loop.mid" };
-        add_soundtrack("ugly_loop", "assets/ugly_loop.wav", ARRAY_COUNT(midi_files), midi_files, 120);
-    }
-
-    {
-        char* midi_files[] = { "assets/test_soundtrack.mid" };
-        add_soundtrack("test_soundtrack", "assets/test_soundtrack.wav", ARRAY_COUNT(midi_files), midi_files, 120);
-    }
-
-    {
-        char* midi_files[] = { "assets/track1_1.mid" };
-        add_soundtrack("track1_1", "assets/track1_1.wav", ARRAY_COUNT(midi_files), midi_files, 118);
-    }
-
-    {
         char* midi_files[] = { "assets/pulsar_kicktrack_1.mid" };
         add_soundtrack("pulsar_kicktrack_1", "assets/pulsar_kicktrack_1.wav", ARRAY_COUNT(midi_files), midi_files, 95);
     }
@@ -461,12 +446,10 @@ int main(int argument_count, char** arguments) {
         char* midi_files[] = { "assets/demo_level_loop_1.mid" };
         add_soundtrack("demo_level_loop_1", "assets/demo_level_loop_1_drums.wav", ARRAY_COUNT(midi_files), midi_files, 95);
         add_soundtrack("demo_level_loop_1_pad", "assets/demo_level_loop_1_pad.wav", 0, 0, 95);
+
         char* bells_midi_files[] = { "assets/demo_level_loop_1_bells.mid" };
         add_soundtrack("demo_level_loop_1_bells", "assets/demo_level_loop_1_bells.wav", ARRAY_COUNT(bells_midi_files), bells_midi_files, 95);
     }
-
-    add_sound("test_sound", "assets/test_sound.wav");
-    add_sound("test_music", "assets/test_music.wav");
 
     add_sound("menu_ambient", "assets/menu_ambient.wav");
     add_sound("menu_select", "assets/menu_select.wav");

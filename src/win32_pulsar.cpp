@@ -47,6 +47,8 @@ struct Win32State {
     b32 running;
     b32 in_focus;
     b32 focus_changed;
+    b32 cursor_shown;
+    b32 cursor_is_in_window;
 
     MemoryArena platform_arena;
 
@@ -683,24 +685,30 @@ inline void handle_config_file(char* config_file_name) {
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_code) {
     win32_initialize_perf_counter();
 
+    win32_state.cursor_shown = true;
+
     size_t platform_storage_size = MEGABYTES(32);
     void* platform_storage = win32_allocate_memory(platform_storage_size);
 
     initialize_arena(&win32_state.platform_arena, platform_storage_size, platform_storage);
 
+#if 0
     win32_state.log_file = CreateFileA("test_log.txt", GENERIC_WRITE, NULL, NULL, CREATE_ALWAYS, NULL, NULL);
     if (win32_state.log_file != INVALID_HANDLE_VALUE) {
         win32_state.log_file_valid = true;
     }
+#endif
 
-    char* config_file_name = "pulsar_config";
+    char* config_file_name = "pulsar_config.pcf";
     handle_config_file(config_file_name);
+
+    HCURSOR arrow_cursor = LoadCursorA(NULL, IDC_ARROW);
 
     WNDCLASSA window_class = {};
     window_class.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
     window_class.lpfnWndProc = win32_window_proc;
     window_class.hInstance = instance;
-    window_class.hCursor = LoadCursorA(NULL, IDC_ARROW);
+    window_class.hCursor = NULL;
     window_class.hbrBackground = cast(HBRUSH) GetStockObject(BLACK_BRUSH);
     window_class.lpszClassName = "PulsarWindowClass";
 
@@ -738,14 +746,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             sound_output.bytes_per_sample = 16;
             sound_output.bytes_per_sample = sizeof(s16)*2;
             sound_output.buffer_size = sound_output.sample_rate*sound_output.bytes_per_sample;
-
-            // @Note: sound_latency_ms defines how long game_get_sound can take without producing any audio glitches.
-            f32 sound_latency_ms = 3.0f;
-            sound_output.safety_bytes = cast(u32) (sound_output.sample_rate*sound_output.bytes_per_sample*sound_latency_ms*0.001f);
-
-            // @Note: max_sound_overdraw_ms defines the largest frame time miss the game can endure without noticable audio glitches
-            f32 sound_overdraw_frames = 4;
-            u32 max_byte_overdraw = sound_output.bytes_per_sample*cast(u32) (sound_output.sample_rate*((1 + sound_overdraw_frames)*(1.0f / game_update_rate)));
 
             sound_output.buffer = win32_init_dsound(window, sound_output.sample_rate, sound_output.buffer_size);
 
@@ -825,6 +825,19 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 game_memory.config = win32_state.config;
 
                 //
+                // DirectSound settings that can be tweaked while the game is running
+                //
+
+                // @Note: sound_latency_ms defines how long game_get_sound can take without producing any audio glitches (and is your audio latency, of course)
+                f32 sound_latency_ms = win32_state.config.directsound_latency_ms;
+                sound_output.safety_bytes = cast(u32) (sound_output.sample_rate*sound_output.bytes_per_sample*sound_latency_ms*0.001f);
+
+                // @Note: sound_overdraw_frames defines (@TODO: should define - I haven't tested it properly) the number of frames you can miss before the game starts having audible
+                // audio glitches.
+                u32 sound_safety_frames = win32_state.config.directsound_safety_frames;
+                u32 max_directsound_byte_overdraw = sound_output.bytes_per_sample*cast(u32) (sound_output.sample_rate*((1 + cast(f32) sound_safety_frames)*(1.0f / game_update_rate)));
+
+                //
                 // Rendering setup
                 //
 
@@ -854,6 +867,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 new_input->frame_dt = (1.0f / new_input->update_rate)*win32_state.config.simulation_rate;
                 new_input->in_focus = win32_state.in_focus;
                 new_input->focus_changed = win32_state.focus_changed;
+                new_input->show_cursor = old_input->show_cursor;
 
                 GameController* old_controller = &old_input->controller;
                 GameController* new_controller = &new_input->controller;
@@ -930,9 +944,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                                 unwrapped_play_cursor += sound_output.buffer_size;
                             }
 
-                            // @TODO: Currently, we're always asking the game for enough samples to fill the entire buffer as much as possible, regardless of buffer size.
-                            // To reduce pressure on game_get_sound, this could be limited to something more considered.
-                            bytes_to_write = MIN(unwrapped_play_cursor - padded_write_cursor, max_byte_overdraw);
+                            bytes_to_write = MIN(unwrapped_play_cursor - padded_write_cursor, max_directsound_byte_overdraw);
                         }
 
                         DWORD samples_committed;
@@ -964,11 +976,24 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 //
 
                 win32_output_image(&render_commands, window_dc);
-
                 game_post_render(&game_memory, new_input, &render_commands);
 
-                // @Note: Preserve changes the game made to the config
                 win32_state.config = game_memory.config;
+
+                b32 cursor_state_changed = (new_input->show_cursor != win32_state.cursor_shown);
+                b32 cursor_is_in_window  = (mouse_position.x >= window_rect.left && mouse_position.x < window_rect.right ) &&
+                                           (mouse_position.y >= window_rect.top  && mouse_position.y < window_rect.bottom);
+                cursor_state_changed |= (cursor_is_in_window != win32_state.cursor_is_in_window);
+
+                if (cursor_state_changed) {
+                    if (new_input->show_cursor) {
+                        SetCursor(arrow_cursor);
+                    } else {
+                        SetCursor(NULL);
+                    }
+                    win32_state.cursor_shown        = new_input->show_cursor;
+                    win32_state.cursor_is_in_window = cursor_is_in_window;
+                }
 
                 last_render_commands = render_commands.sort_entry_count;
 

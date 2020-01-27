@@ -88,6 +88,8 @@ enum MetaType {
     f32 master_volume; \
     f32 gameplay_volume; \
     f32 ui_volume; \
+    f32 directsound_latency_ms; \
+    u32 directsound_safety_frames; \
     u8 up; \
     u8 left; \
     u8 down; \

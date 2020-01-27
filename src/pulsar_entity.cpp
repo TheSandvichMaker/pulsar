@@ -265,9 +265,6 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                     f32 t = smootherstep(entity->movement_t);
 
-                    // @TODO: Maybe make it so that moving platforms don't spaz out if the note off comes before the note on movement is done.
-                    // Or just make sure that never happens. But ideally it would just reverse direction midway through.
-
                     v2 target = lerp(start_p, end_p, t);
                     entity->dp = (target - entity->p) / frame_dt;
 
@@ -417,7 +414,6 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             } else {
                 if (player->was_supported) {
                     player->was_supported = false;
-                    // @TODO: Clamp maximum dp you can gain from a support
                     if (length_sq(player->retained_support_dp) > length_sq(player->support_dp)) {
                         player->support_dp = player->retained_support_dp;
                         player->retained_support_dp = vec2(0, 0);
@@ -562,7 +558,6 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     // @TODO: Unfry brain, un-shitty hack collision handling
                     v2 what_the_fuck_is_this = collision.hit_normal*dot(collision_entity->dp, collision.hit_normal);
                     player->contact_move = what_the_fuck_is_this;
-                    // log_print(LogLevel_Warn, "the fuck: { %f, %f }", what_the_fuck_is_this.x, what_the_fuck_is_this.y);
                     // player->contact_move = -collision_rel_delta*(collision.t_max - collision.t_min)*collision.hit_normal;
                 }
 
@@ -619,43 +614,43 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 //
 
 #if 0
-                    //
-                    // Old GJK path
-                    //
+//
+// Old GJK path
+//
 
-                    v2 relative_delta = delta - test_delta;
+v2 relative_delta = delta - test_delta;
 
-                    Transform2D t = transform2d(entity->p, vec2(1.0f, 1.0f), relative_delta);
-                    Transform2D test_t = transform2d(test_entity->p);
+Transform2D t = transform2d(entity->p, vec2(1.0f, 1.0f), relative_delta);
+Transform2D test_t = transform2d(test_entity->p);
 
-                    CollisionInfo collision;
-                    if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
-                        did_collide = true;
-                        result->colliding_entity = test_entity;
-                        entity->friction_of_last_touched_surface = test_entity->surface_friction;
+CollisionInfo collision;
+if (gjk_intersect(t, entity->collision, test_t, test_entity->collision, &collision, &game_state->transient_arena)) {
+    did_collide = true;
+    result->colliding_entity = test_entity;
+    entity->friction_of_last_touched_surface = test_entity->surface_friction;
 
-                        f32 theta_times_length_of_delta = dot(collision.vector, relative_delta);
+    f32 theta_times_length_of_delta = dot(collision.vector, relative_delta);
 
-                        collision.depth += epsilon;
+    collision.depth += epsilon;
 
-                        if (theta_times_length_of_delta > theta_times_length_of_delta) {
-                            f32 t_penetration = collision.depth / theta_times_length_of_delta;
-                            delta = delta*t_penetration;
-                            result->simulated_dt = dt*(1.0f-t_penetration);
-                        } else {
-                            // @TODO: Think about this case
-                            delta -= collision.depth*collision.vector;
-                        }
+    if (theta_times_length_of_delta > theta_times_length_of_delta) {
+        f32 t_penetration = collision.depth / theta_times_length_of_delta;
+        delta = delta*t_penetration;
+        result->simulated_dt = dt*(1.0f-t_penetration);
+    } else {
+        // @TODO: Think about this case
+        delta -= collision.depth*collision.vector;
+    }
 
-                        if (collision.vector.y < -0.707f) {
-                            if (!on_ground(entity)) {
-                                entity->flags |= EntityFlag_OnGround;
-                            }
-                            entity->off_ground_timer = 0.0f;
-                            entity->support = test_entity;
-                            test_entity->sticking_entity = entity;
-                        }
+    if (collision.vector.y < -0.707f) {
+        if (!on_ground(entity)) {
+            entity->flags |= EntityFlag_OnGround;
+        }
+        entity->off_ground_timer = 0.0f;
+        entity->support = test_entity;
+        test_entity->sticking_entity = entity;
+    }
 
-                        result->dp -= collision.vector*dot(result->dp, collision.vector);
-                    }
+    result->dp -= collision.vector*dot(result->dp, collision.vector);
+}
 #endif

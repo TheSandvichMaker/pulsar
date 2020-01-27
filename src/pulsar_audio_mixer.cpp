@@ -142,7 +142,6 @@ inline f32 get_volume_for_sample_offset(SoundVolume volume, u32 channel, u32 sam
 
 internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* sound_buffer, MemoryArena* temp_arena) {
     // @TODO: Formalize the handling of channels in the mixer.
-    // @TODO: Restore Handmade Hero functionality (smooth volume fade, variable playback rate).
     // @TODO: I think the having to output speculative audio versus making canonical changes has a risk of spiraling
     // into error prone complexity. It would be nice to use the same code paths wherever possible.
     // @TODO: Linear interpolation for varyin playback rates
