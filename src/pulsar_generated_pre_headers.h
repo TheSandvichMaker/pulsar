@@ -19,7 +19,6 @@ enum MetaType {
     MetaType_MidiEvent,
     MetaType_u8,
     MetaType_UndoType,
-    MetaType_UndoFlag,
     MetaType_EditorWidgetType,
     MetaType_EntityPrefab,
     MetaType_EntityFlag,

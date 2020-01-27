@@ -18,7 +18,6 @@ char* GetMetaTypeName(MetaType value) {
         case MetaType_MidiEvent: return "MidiEvent";
         case MetaType_u8: return "u8";
         case MetaType_UndoType: return "UndoType";
-        case MetaType_UndoFlag: return "UndoFlag";
         case MetaType_EditorWidgetType: return "EditorWidgetType";
         case MetaType_EntityPrefab: return "EntityPrefab";
         case MetaType_EntityFlag: return "EntityFlag";
@@ -61,11 +60,6 @@ char* GetEnumNameOf_UndoType(int value) {
         case Undo_DeleteEntity: return "Undo_DeleteEntity";
         default: return 0;
     }
-}
-
-int GetNextEnumFlagNameOf_UndoFlag(unsigned int* value, char** name) {
-    if (*value & UndoFlag_PartOfBatch) { *name = "UndoFlag_PartOfBatch"; *value &= ~UndoFlag_PartOfBatch; return 1; }
-    else { *name = 0; return 0; }
 }
 
 char* GetEnumNameOf_EditorWidgetType(int value) {

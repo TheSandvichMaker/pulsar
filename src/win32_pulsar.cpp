@@ -3,10 +3,10 @@
 #define ASSERT_ON_LOG_ERROR 0
 
 #include <windows.h>
+#include <xinput.h>
 #include <dsound.h>
-// #include <mmdeviceapi.h>
-// #include <audioclient.h>
 #include <gl/gl.h>
+
 #include <stdio.h>
 
 #define STB_SPRINTF_STATIC 1
@@ -56,6 +56,7 @@ struct Win32State {
     String config_file;
     GameConfig config;
 
+    b32 xinput_valid;
     b32 directsound_valid;
 
     b32 log_file_valid;
@@ -251,14 +252,81 @@ inline f32 win32_get_seconds_elapsed(LARGE_INTEGER start, LARGE_INTEGER end) {
     return result;
 }
 
-typedef HRESULT WINAPI TYPEDEF_DirectSoundCreate(LPCGUID pcGuidDevice, LPDIRECTSOUND* ppDS, LPUNKNOWN pUnkOuter);
+#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE* pState)
+#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration)
+typedef X_INPUT_GET_STATE(XInputGetState_t); // @TODO: I really don't know what my convention is for types of functions, because different casing makes my usual style not work
+typedef X_INPUT_SET_STATE(XInputSetState_t);
+
+X_INPUT_GET_STATE(XInputGetStateStub) {
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+X_INPUT_SET_STATE(XInputSetStateStub) {
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+enum XInputVersion {
+    XInput1_4,
+    XInput1_3,
+    XInput9_1_0,
+};
+
+struct XInputState {
+    XInputVersion version;
+    XInputGetState_t* GetState;
+    XInputSetState_t* SetState;
+};
+
+internal b32 win32_init_xinput(XInputState* xinput_state) {
+    b32 result = false;
+
+    xinput_state->GetState = XInputGetStateStub;
+    xinput_state->SetState = XInputSetStateStub;
+
+    HMODULE xinput_lib = LoadLibraryA("xinput1_4.dll");
+    if (xinput_lib) {
+        xinput_state->version = XInput1_4;
+    }
+
+    if (!xinput_lib) {
+        xinput_lib = LoadLibraryA("xinput1_3.dll");
+        if (xinput_lib) {
+            xinput_state->version = XInput1_3;
+        }
+    }
+
+    if (!xinput_lib) {
+        xinput_lib = LoadLibraryA("xinput9_1_0.dll");
+        if (xinput_lib) {
+            xinput_state->version = XInput9_1_0;
+        }
+    }
+
+    if (xinput_lib) {
+        result = true;
+        xinput_state->GetState = cast(XInputGetState_t*) GetProcAddress(xinput_lib, "XInputGetState");
+        xinput_state->SetState = cast(XInputSetState_t*) GetProcAddress(xinput_lib, "XInputSetState");
+        win32_log_print(LogLevel_Info, "Successfully loaded XInput %s",
+            xinput_state->version == XInput1_4 ? "1.4" :
+            xinput_state->version == XInput1_3 ? "1.3" :
+            xinput_state->version == XInput9_1_0 ? "9.1.0" :
+            "(unknown version)"
+        );
+    } else {
+        win32_log_print(LogLevel_Error, "Failed to load XInput");
+    }
+
+    return result;
+}
+
+typedef HRESULT WINAPI DirectSoundCreate_t(LPCGUID pcGuidDevice, LPDIRECTSOUND* ppDS, LPUNKNOWN pUnkOuter);
 
 internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32 buffer_size) {
     HMODULE dsound_lib = LoadLibraryA("dsound.dll");
 
     LPDIRECTSOUNDBUFFER secondary_buffer = 0;
     if (dsound_lib) {
-        TYPEDEF_DirectSoundCreate* dsound_create = (TYPEDEF_DirectSoundCreate*)GetProcAddress(dsound_lib, "DirectSoundCreate");
+        DirectSoundCreate_t* dsound_create = cast(DirectSoundCreate_t*) GetProcAddress(dsound_lib, "DirectSoundCreate");
 
         LPDIRECTSOUND dsound;
         if (dsound_create && SUCCEEDED(dsound_create(NULL, &dsound, NULL))) {
@@ -277,15 +345,15 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
                 LPDIRECTSOUNDBUFFER primary_buffer;
                 if (SUCCEEDED(dsound->CreateSoundBuffer(&buffer_description, &primary_buffer, NULL))) {
                     if (SUCCEEDED(primary_buffer->SetFormat(&wave_format))) {
-                        // @Note: Success
+                        /* Success */
                     } else {
-                        // @TODO: Logging
+                        win32_log_print(LogLevel_Error, "DirectSound: Failed to set requested wave format");
                     }
                 } else {
-                    // @TODO: Logging
+                    win32_log_print(LogLevel_Error, "DirectSound: Failed to create primary buffer");
                 }
             } else {
-                // @TODO: Logging
+                win32_log_print(LogLevel_Error, "DirectSound: Failed to set cooperative level to DSSCL_PRIORITY");
             }
 
             DSBUFFERDESC buffer_description = { sizeof(buffer_description) };
@@ -295,16 +363,19 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
 
             if (SUCCEEDED(dsound->CreateSoundBuffer(&buffer_description, &secondary_buffer, NULL))) {
                 win32_state.directsound_valid = true;
+                win32_log_print(LogLevel_Info, "DirectSound: Successfully initialized");
+            } else {
+                win32_log_print(LogLevel_Error, "DirectSound: Failed to create secondary buffer");
             }
         } else {
-            // @TODO: Logging
+            win32_log_print(LogLevel_Error, "DirectSound: Failed to load DirectSoundCreate");
         }
     } else {
-        // @TODO: Logging
+        win32_log_print(LogLevel_Error, "DirectSound: Failed to load library");
     }
 
     if (!win32_state.directsound_valid) {
-        win32_log_print(LogLevel_Error, "Failed to initialize DirectSound");
+        win32_log_print(LogLevel_Error, "DirectSound: Failed to load DirectSound. Sound playback unavailable");
     }
 
     return secondary_buffer;
@@ -392,11 +463,27 @@ internal void win32_toggle_fullscreen(HWND window) {
 }
 
 internal void win32_process_keyboard_message(GameButtonState* new_state, b32 is_down) {
-    if (win32_state.in_focus) {
-        if (new_state->is_down != is_down) {
-            new_state->is_down = is_down;
-            new_state->half_transition_count++;
-        }
+    if (is_down != new_state->is_down) {
+        new_state->is_down = is_down;
+        new_state->half_transition_count++;
+    }
+}
+
+internal f32 win32_process_stick_axis(SHORT raw, SHORT deadzone) {
+    f32 magnitude = 0.0f;
+    if (raw > deadzone) {
+        magnitude = cast(f32) (raw - deadzone) / cast(f32) (32767 - deadzone);
+    } else if (raw < -deadzone) {
+        magnitude = cast(f32) (raw + deadzone) / cast(f32) (32768 - deadzone);
+    }
+    return magnitude;
+}
+
+internal void win32_process_xinput_digital_button(GameButtonState* old_state, GameButtonState* new_state, WORD button_state, DWORD button_bit) {
+    b32 is_down = (button_bit == (button_state & button_bit)) ? 1 : 0;
+    if (is_down != new_state->is_down) {
+        new_state->is_down = is_down;
+        new_state->half_transition_count++;
     }
 }
 
@@ -488,19 +575,18 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
 
                     if (was_down == is_down) break;
 
+                    GameController* keyboard_controller = &input->controllers[0];
+
                     GameConfig* config = &win32_state.config;
-                    if (vk_code == config->up       || vk_code == config->alternate_up      ) win32_process_keyboard_message(&input->controller.move_up,    is_down);
-                    if (vk_code == config->left     || vk_code == config->alternate_left    ) win32_process_keyboard_message(&input->controller.move_left,  is_down);
-                    if (vk_code == config->down     || vk_code == config->alternate_down    ) win32_process_keyboard_message(&input->controller.move_down,  is_down);
-                    if (vk_code == config->right    || vk_code == config->alternate_right   ) win32_process_keyboard_message(&input->controller.move_right, is_down);
-                    if (vk_code == config->jump     || vk_code == config->alternate_jump    ) win32_process_keyboard_message(&input->controller.jump,       is_down);
-                    if (vk_code == config->interact || vk_code == config->alternate_interact) win32_process_keyboard_message(&input->controller.interact,   is_down);
+                    if (vk_code == config->up       || vk_code == config->alternate_up      ) win32_process_keyboard_message(&keyboard_controller->move_up,    is_down);
+                    if (vk_code == config->left     || vk_code == config->alternate_left    ) win32_process_keyboard_message(&keyboard_controller->move_left,  is_down);
+                    if (vk_code == config->down     || vk_code == config->alternate_down    ) win32_process_keyboard_message(&keyboard_controller->move_down,  is_down);
+                    if (vk_code == config->right    || vk_code == config->alternate_right   ) win32_process_keyboard_message(&keyboard_controller->move_right, is_down);
+                    if (vk_code == config->jump     || vk_code == config->alternate_jump    ) win32_process_keyboard_message(&keyboard_controller->jump,       is_down);
+                    if (vk_code == config->interact || vk_code == config->alternate_interact) win32_process_keyboard_message(&keyboard_controller->interact,   is_down);
 
                     switch (vk_code) {
-                        case VK_ESCAPE: {
-                            win32_process_keyboard_message(&input->escape, is_down);
-                        } break;
-
+                        case VK_ESCAPE:  { win32_process_keyboard_message(&keyboard_controller->start, is_down); } break;
                         case VK_SPACE:   { win32_process_keyboard_message(&input->space, is_down); } break;
                         case VK_MENU:    { win32_process_keyboard_message(&input->alt,   is_down); } break;
                         case VK_SHIFT:   { win32_process_keyboard_message(&input->shift, is_down); } break;
@@ -741,6 +827,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
 
             f32 game_update_rate = cast(f32) monitor_refresh_rate;
 
+            XInputState xinput_state;
+            win32_state.xinput_valid = win32_init_xinput(&xinput_state);
+
             Win32SoundOutput sound_output = {};
             sound_output.sample_rate = 48000;
             sound_output.bytes_per_sample = 16;
@@ -869,11 +958,13 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 new_input->focus_changed = win32_state.focus_changed;
                 new_input->show_cursor = old_input->show_cursor;
 
-                GameController* old_controller = &old_input->controller;
-                GameController* new_controller = &new_input->controller;
-                for (u32 button_index = 0; button_index < ARRAY_COUNT(new_controller->buttons); button_index++) {
-                    new_controller->buttons[button_index].is_down = old_controller->buttons[button_index].is_down;
-                    new_controller->buttons[button_index].half_transition_count = 0;
+                for (u32 controller_index = 0; controller_index < ARRAY_COUNT(new_input->controllers); controller_index++) {
+                    GameController* old_controller = &old_input->controllers[controller_index];
+                    GameController* new_controller = &new_input->controllers[controller_index];
+                    for (u32 button_index = 0; button_index < ARRAY_COUNT(new_controller->buttons); button_index++) {
+                        new_controller->buttons[button_index].is_down = old_controller->buttons[button_index].is_down;
+                        new_controller->buttons[button_index].half_transition_count = 0;
+                    }
                 }
 
                 for (u32 fkey_index = 0; fkey_index < ARRAY_COUNT(new_input->debug_fkeys); fkey_index++) {
@@ -916,6 +1007,52 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 new_input->event_count = 0;
                 GetKeyboardState(keyboard_state);
                 win32_handle_remaining_messages(new_input, keyboard_state);
+
+                GameController* keyboard_controller = &new_input->controllers[0];
+
+                if (win32_state.xinput_valid) {
+                    for (u32 controller_index = 0; controller_index < XUSER_MAX_COUNT; controller_index++) {
+                        GameController* old_controller = &old_input->controllers[1 + controller_index];
+                        GameController* new_controller = &new_input->controllers[1 + controller_index];
+                        XINPUT_STATE controller_state;
+                        if (ERROR_SUCCESS == xinput_state.GetState(controller_index, &controller_state)) {
+                            XINPUT_GAMEPAD* pad = &controller_state.Gamepad;
+                            f32 stick_x = win32_process_stick_axis(pad->sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+                            f32 stick_y = win32_process_stick_axis(pad->sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+
+                            f32 stick_threshold = 0.5f;
+
+                            WORD move_left  = ((pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT ) ? 1 : 0) || stick_x < -stick_threshold;
+                            WORD move_right = ((pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT) ? 1 : 0) || stick_x >  stick_threshold;
+                            WORD move_up    = ((pad->wButtons & XINPUT_GAMEPAD_DPAD_UP   ) ? 1 : 0) || stick_y >  stick_threshold;
+                            WORD move_down  = ((pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN ) ? 1 : 0) || stick_y < -stick_threshold;
+
+                            win32_process_xinput_digital_button(&old_controller->move_left,  &new_controller->move_left,  move_left,  1);
+                            win32_process_xinput_digital_button(&old_controller->move_right, &new_controller->move_right, move_right, 1);
+                            win32_process_xinput_digital_button(&old_controller->move_up,    &new_controller->move_up,    move_up,    1);
+                            win32_process_xinput_digital_button(&old_controller->move_down,  &new_controller->move_down,  move_down,  1);
+
+                            win32_process_xinput_digital_button(&old_controller->jump, &new_controller->jump, pad->wButtons, XINPUT_GAMEPAD_A);
+                            win32_process_xinput_digital_button(&old_controller->interact, &new_controller->interact, pad->wButtons, XINPUT_GAMEPAD_A);
+
+                            win32_process_xinput_digital_button(&old_controller->start, &new_controller->start, pad->wButtons, XINPUT_GAMEPAD_START);
+                            win32_process_xinput_digital_button(&old_controller->back, &new_controller->back, pad->wButtons, XINPUT_GAMEPAD_BACK);
+                        } else {
+                            // Not connected
+                        }
+                    }
+                }
+
+                GameController* aggregate_controller = &new_input->controller;
+                zero_struct(*aggregate_controller);
+
+                for (u32 controller_index = 0; controller_index < ARRAY_COUNT(new_input->controllers); controller_index++) {
+                    GameController* controller = &new_input->controllers[controller_index];
+                    for (u32 button_index = 0; button_index < ARRAY_COUNT(controller->buttons); button_index++) {
+                        aggregate_controller->buttons[button_index].is_down |= controller->buttons[button_index].is_down;
+                        aggregate_controller->buttons[button_index].half_transition_count += controller->buttons[button_index].half_transition_count;
+                    }
+                }
 
                 //
                 // Game Update and Render

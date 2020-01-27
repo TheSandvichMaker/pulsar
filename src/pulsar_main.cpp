@@ -473,11 +473,9 @@ internal void play_level(GameState* game_state, Level* level) {
 
         if (dest->type != current_type) {
             game_state->entity_type_counts[current_type] = current_type_count;
-            // log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
             current_type_count = 0;
             current_type       = dest->type;
             game_state->entity_type_offsets[current_type] = entity_index;
-            // log_print(LogLevel_Info, "Offset for %s: %u", enum_name_safe(EntityType, current_type), entity_index);
         }
 
         current_type_count++;
@@ -486,15 +484,15 @@ internal void play_level(GameState* game_state, Level* level) {
             if (!game_state->player) {
                 game_state->player = dest;
             } else {
-                // You can only have one player!
-                INVALID_CODE_PATH;
+                log_print(LogLevel_Error, "Level has more than one player!");
             }
         }
     }
     game_state->entity_type_counts[current_type] = current_type_count;
-    // log_print(LogLevel_Info, "Loaded %u entities of type %s", current_type_count, enum_name_safe(EntityType, current_type));
+    game_state->entity_count = level->entity_count;
 
     if (!game_state->entity_type_counts[EntityType_Checkpoint]) {
+        // @TODO: Handle invalid levels in some robust way
         log_print(LogLevel_Error, "Level '%.*s' has no checkpoints! This is not good! Fix it!! Now!!! Unless you're not in a position to fix it, in which case I'm sorry.",
             PRINTF_STRING(level_name(level))
         );
@@ -502,7 +500,7 @@ internal void play_level(GameState* game_state, Level* level) {
 
     end_temporary_memory(temp);
 
-    assert(game_state->player);
+    assert(game_state->player); // @TODO: Handle invalid levels in some robust way
 
     Entity* player = game_state->player;
 
@@ -511,7 +509,7 @@ internal void play_level(GameState* game_state, Level* level) {
 
     game_state->active_camera_zone = 0;
 
-    for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
+    for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
         Entity* entity = game_state->entities + entity_index;
 
         if (entity->type == EntityType_Wall) {
@@ -534,7 +532,6 @@ internal void play_level(GameState* game_state, Level* level) {
         }
     }
 
-    game_state->entity_count = level->entity_count;
     game_state->level_intro_timer = 1.0f;
     game_state->background_pulse_t = 0.0f;
     game_state->background_pulse_dt = 0.0f;
@@ -592,10 +589,8 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
                 // play_level(game_state, game_state->active_level);
             }
 
-            if (game_state->game_mode == GameMode_Ingame && game_mode != GameMode_Ingame) {
-                stop_all_sounds(&game_state->game_audio);
-                stop_all_midi_tracks(game_state);
-            }
+            stop_all_sounds(&game_state->game_audio);
+            stop_all_midi_tracks(game_state);
 
             EditorState* editor = game_state->editor_state;
             game_state->render_context.camera_p = editor->camera_p_on_exit;
@@ -862,7 +857,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        if (was_pressed(input->escape)) {
+        if (was_pressed(input->controller.start)) {
             if (menu->source_gamemode != GameMode_Menu) {
                 switch_gamemode(game_state, menu->source_gamemode);
             }
@@ -1148,7 +1143,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             game_state->player->killed_this_frame = false;
         }
 
-        if (was_pressed(input->escape)) {
+        if (was_pressed(input->controller.start)) {
             switch_gamemode(game_state, GameMode_Menu);
         }
     }
@@ -1164,6 +1159,10 @@ internal GAME_GET_SOUND(game_get_sound) {
 internal GAME_POST_RENDER(game_post_render) {
     assert(memory->initialized);
     GameState* game_state = cast(GameState*) memory->permanent_storage;
+
+    // @Note: One day I'll use this... Or not. The idea of this function was to be able to purge temporary memory
+    // and such that I might want to use to send polygons generated during the frame to the renderer, but that
+    // temporary memory could also just be purged next time we enter game_update_and_render.
 
     check_arena(&game_state->permanent_arena);
     check_arena(&game_state->transient_arena);

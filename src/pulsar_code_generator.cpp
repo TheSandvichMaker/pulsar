@@ -553,10 +553,12 @@ internal void parse_enum(Tokenizer* tokenizer, IntrospectionParams params) {
 
     add_meta_type_if_unique(&meta_type_array, meta.name);
 
+#if 0
     if (match(tokenizer, ':')) {
         /* Maybe do something with the type */
         Token enum_type = get_token(tokenizer);
     }
+#endif
 
     if (match(tokenizer, '{')) {
         for (;;) {
@@ -622,6 +624,8 @@ int main(int argument_count, char** arguments) {
     allocate_array(&meta_type_array, 8, general_allocator);
     allocate_array(&meta_enum_array, 8, general_allocator);
     allocate_array(&meta_struct_array, 8, general_allocator);
+
+    b32 finding_source = false;
 
     WIN32_FIND_DATAA find_data;
     HANDLE find_handle = FindFirstFileA("*.h", &find_data);
@@ -698,7 +702,18 @@ int main(int argument_count, char** arguments) {
             file_count++;
             file_name = find_data.cFileName;
         } else {
-            file_name = 0;
+            if (!finding_source) {
+#if 0
+                // @Note: There's no meaning to introspecting source files unless we start reordering declarations
+                find_handle = FindFirstFileA("*.cpp", &find_data);
+                file_name = find_data.cFileName;
+                finding_source = true;
+#else
+                file_name = 0;
+#endif
+            } else {
+                file_name = 0;
+            }
         }
     }
 

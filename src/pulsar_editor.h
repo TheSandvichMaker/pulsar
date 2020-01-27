@@ -2,7 +2,7 @@
 #define PULSAR_EDITOR_H
 
 #define UNDO_BUFFER_SIZE MEGABYTES(2)
-#define MAX_ENTITY_COUNT 8192
+#define MAX_ENTITY_COUNT 256
 
 struct Level {
     u32 name_length;

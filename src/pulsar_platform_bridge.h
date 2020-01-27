@@ -225,7 +225,7 @@ enum GameInputMouseButton {
 
 struct GameController {
     union {
-        GameButtonState buttons[6];
+        GameButtonState buttons[8];
         struct {
             GameButtonState move_up;
             GameButtonState move_down;
@@ -233,6 +233,9 @@ struct GameController {
             GameButtonState move_right;
             GameButtonState jump;
             GameButtonState interact;
+
+            GameButtonState start;
+            GameButtonState back;
         };
     };
 };
@@ -369,7 +372,8 @@ struct GameInput {
     b32 quit_requested;
     b32 show_cursor;
 
-    GameController controller;
+    GameController controllers[5];
+    GameController controller; // @Note: Aggregate of the controllers above
 
     u32 mouse_x, mouse_y, mouse_z;
     GameButtonState mouse_buttons[PlatformMouseButton_Count];
@@ -381,9 +385,9 @@ struct GameInput {
     // @Note: All these keys are just for dev purposes
     GameButtonState debug_fkeys[13];
     union {
-        GameButtonState editor_keys[7];
+        GameButtonState editor_keys[6];
         struct {
-            GameButtonState ctrl, shift, alt, space, del, escape, tilde;
+            GameButtonState ctrl, shift, alt, space, del, tilde;
         };
     };
     GameButtonState keys[26];

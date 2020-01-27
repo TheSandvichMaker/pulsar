@@ -1,6 +1,31 @@
-//
-// @TODO: Take a more intelligent approach to dead entities so I don't have to put in error-prone checks for it
-//
+/* This file contains functions related to simulating entities.
+ *
+ * It is structured around four phases: Midi handling, pre-player simulation, player simulation, post-player simulation
+ *
+ * To start, all playing midi tracks put midi events that are played this frame into the midi event buffer,
+ * so entities can subsequently read from this buffer to make decisions based on midi events.
+ *
+ * Then, in the pre-player simulation phase every entity (including the player) decides on their course of action
+ * for the current frame, so that the player can then be simulated once all those decisions have been made.
+ * This is important for things like colliding against platforms that have decided to move this frame.
+ *
+ * The player simulation phase goes through a fairly messy mostly framerate independent loop that's also
+ * got a three phase structure:
+ *  Decide the player's delta position for the given timestep based on factors like player velocity,
+ *   acceleration, whether the player's supported by an entity, and whether the player has added
+ *   velocity from external factors like when they jump off a moving platform.
+ *  Then there's a collision loop which goes through and checks the player's move against all the EntityType_Wall
+ *   entities in the level, checking whether the player is stuck inside one (and getting them unstuck), or otherwise
+ *   checking for the nearest collision.
+ *  Finally, if there's a collision the collision is handled and the player's
+ *   position, velocity, and acceleration is updated to reflect this, and the frame time left to simulate is updated
+ *   based on when the collision happened. If there was a collision or unstuck, the loop continues so long as the
+ *   player can still move (so hasn't been killed, for example) and the max iteration count hasn't been reached.
+ *
+ * In the post-player simulation phase, currently only non-physical (anything that's not the player for now) entities that
+ * have velocity will get moved. This is so that all positions are up to date for the next time we enter the simulation
+ * again.
+ */
 
 inline b32 player_can_move(GameState* game_state) {
     Entity* player = game_state->player;
@@ -444,7 +469,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             if (player->support) {
                 f32 player_horizontal_move = abs(0.5f*ddp.x*square(dt) + player->dp.x*dt);
                 if (player_horizontal_move < 0.05f) {
-                    player->walk_cycle = 0.5f*game_config->player_walk_cycle_length;
+                    // @Note: The player's walk cycle resets to being some way through so that when you get started, you don't have to walk a full cycle to trigger the first step
+                    player->walk_cycle = 0.75f*game_config->player_walk_cycle_length;
                 } else {
                     player->walk_cycle += player_horizontal_move;
                 }
@@ -472,9 +498,11 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         f32 best_distance = F32_MAX;
                         v2 best_move = vec2(0, 0);
 
+                        f32 unstuck_epsilon = (1 + unstuck_count)*epsilon; // @Hack: More stupid hacking
+
                         f32 test_distance = rel_p.x - test_aab.min.x;
                         if (test_distance < best_distance) {
-                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
+                            best_distance = test_distance + unstuck_epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
                             best_move = vec2(-1, 0);
                         }
 
@@ -486,7 +514,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                         test_distance = rel_p.y - test_aab.min.y;
                         if (test_distance < best_distance) {
-                            best_distance = test_distance + epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
+                            best_distance = test_distance + unstuck_epsilon; // @TODO: The epsilon is to deal with the whole inclusive/exclusive bounds for the AABB, but is a hack, not good
                             best_move = vec2(0, -1);
                         }
 
@@ -534,20 +562,19 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                 delta *= collision.t_min;
 
-                // @Note: I assume this is redundant given the unstuckerizer above
-                // if (t == 0.0f) {
-                //     delta += collision.hit_normal*epsilon;
-                // }
+                if (t == 0.0f) {
+                    delta += collision.hit_normal*epsilon; // @TODO: More epsilonism. I don't like it.
+                }
 
                 player->ddp = grazing_reflect(player->ddp, collision.hit_normal);
-                player->dp = grazing_reflect(player->dp, collision.hit_normal);
+                player->dp  = grazing_reflect(player->dp, collision.hit_normal);
 
                 if (dot(collision.hit_normal, gravity) < 0) {
                     // if (dot(delta, gravity) >= 0.0f) {
                         player->support = collision_entity;
                         player->support_normal = collision.hit_normal;
                     // } else {
-                    //     // @Hack: This tricks the support velocity ordeal up above into letting you get smacked around from below if you've got upward speed (it doesn't work btw)
+                    //     // @Hack: This tricks the support velocity ordeal up above into letting you get smacked around from below if you've got upward speed (it doesn't work properly btw)
                     //     player->was_supported = true;
                     //     player->support = 0;
                     //     player->support_normal = collision.hit_normal;
@@ -556,9 +583,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 } else {
                     // Shitty @Hack: Not accounting for penetration vector or relative motion or basically anything because my brain is fried
                     // @TODO: Unfry brain, un-shitty hack collision handling
-                    v2 what_the_fuck_is_this = collision.hit_normal*dot(collision_entity->dp, collision.hit_normal);
-                    player->contact_move = what_the_fuck_is_this;
-                    // player->contact_move = -collision_rel_delta*(collision.t_max - collision.t_min)*collision.hit_normal;
+                    v2 bad_not_good_thing = collision.hit_normal*dot(collision_entity->dp, collision.hit_normal);
+                    player->contact_move = bad_not_good_thing;
                 }
 
                 process_collision_logic(game_state, player, collision_entity);
