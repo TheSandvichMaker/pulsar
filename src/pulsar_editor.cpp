@@ -1290,19 +1290,29 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     sound_log.depth++;
     for (AudioGroup* group = game_state->audio_mixer.first_audio_group; group; group = group->next_audio_group) {
         if (group->first_playing_sound) {
-            layout_print_line(&sound_log, COLOR_WHITE, "Audio Group%s, volume { %g, %g }:", group->paused ? " (paused)" : "", group->volume.current_volume[0], group->volume.current_volume[1]);
+            layout_print_line(&sound_log, COLOR_WHITE, "Audio Group%s, volume { %g, %g }:",
+                group->paused ? " (paused)" : "",
+                group->volume.current_volume[0], group->volume.current_volume[1]
+            );
         }
         sound_log.depth++;
         for (PlayingSound* playing_sound = group->first_playing_sound; playing_sound; playing_sound = playing_sound->next) {
             Sound* sound = playing_sound->sound;
             Asset* asset = cast(Asset*) sound;
+
             f32 volume_left  = playing_sound->volume.current_volume[0];
             f32 volume_right = playing_sound->volume.current_volume[1];
+
             v4 color = COLOR_WHITE;
             if (volume_left < 1.0e-4f && volume_right < 1.0e-4f) {
                 color = COLOR_GREY;
             }
-            layout_print_line(&sound_log, color, "Sound %.*s: Samples played: %u, Volume: { %g, %g }", PRINTF_STRING(asset->name), playing_sound->samples_played, volume_left, volume_right);
+
+            layout_print_line(&sound_log, color, "Sound %.*s: Samples played: %u, Volume: { %g, %g }",
+                PRINTF_STRING(asset->name),
+                playing_sound->samples_played,
+                volume_left, volume_right
+            );
         }
         sound_log.depth--;
     }
@@ -1312,8 +1322,16 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     sound_log.depth++;
     for (PlayingMidi* playing_midi = game_state->first_playing_midi; playing_midi; playing_midi = playing_midi->next) {
         MidiTrack* track = playing_midi->track;
+
         v4 color = playing_midi->source_soundtrack_player->can_be_heard_by_player ? COLOR_WHITE : COLOR_GREY;
-        layout_print_line(&sound_log, color, "Track from SoundtrackID { %u }: bpm: %g, %u events, tick timer: %u, event_index: %u", playing_midi->source_soundtrack_player->soundtrack_id.value, track->beats_per_minute, track->event_count, playing_midi->tick_timer, playing_midi->event_index);
+
+        layout_print_line(&sound_log, color, "Track from SoundtrackID { %u }: bpm: %g, %u events, tick timer: %u, event_index: %u",
+            playing_midi->source_soundtrack_player->soundtrack_id.value,
+            track->beats_per_minute,
+            track->event_count,
+            playing_midi->tick_timer,
+            playing_midi->event_index
+        );
     }
     sound_log.depth--;
 

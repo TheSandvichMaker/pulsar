@@ -122,47 +122,32 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 f32 ticks_for_frame = cast(f32) track->ticks_per_second*frame_dt;
 
                 // @Note: I moved the sync to output_playing_sounds, which means that if the midi track has a sync sound
-                // playing_midi->tick_timer will be synced to it at the end of every frame, meaning this addition here
-                // will be overwritten. It's here to account for midi events that would happen during the frame, and to
-                // advance the tick timer if the midi track has no sync sound - 16/01/2020
+                // playing_midi->tick_timer will be synced to it at the end of every frame
                 u32 tick_timer_for_frame = playing_midi->tick_timer + cast(u32) (game_config->simulation_rate*(ticks_for_frame*playing_midi->playback_rate));
-                // P.S: This is the kind of comment I don't want to have, because it is extremely vulnerable to going out
-                // of date, but I thought it was relevant to note because it's not clear from this code here that this
-                // behaviour is happening.
 
-                MidiEvent event = track->events[playing_midi->event_index];
-                while (event.absolute_time_in_ticks <= tick_timer_for_frame && playing_midi->event_index < track->event_count) {
-                    playing_midi->event_index++;
-
-                    b32 should_use_event = true;
+                for (MidiEvent event = track->events[playing_midi->event_index];
+                     playing_midi->event_index < track->event_count && event.absolute_time_in_ticks <= tick_timer_for_frame;
+                     event = track->events[++playing_midi->event_index]
+                ) {
                     if (track->flags & MidiFlag_IgnoreExtremes) {
-                        if (playing_midi->event_index == 1 || playing_midi->event_index == track->event_count) {
-                            should_use_event = false;
+                        if (playing_midi->event_index == 0 || playing_midi->event_index + 1 >= track->event_count) {
+                            continue;
                         }
                     }
 
+                    // @TODO: This a suboptimal way to do it, because the entities won't start responding to midi until after the player has heard the soundtrack.
+                    // That means entities can be in a different state than they would ever be for the rest of the level when the player first arrives.
                     if (playing_midi->source_soundtrack_player && !playing_midi->source_soundtrack_player->can_be_heard_by_player) {
-                        should_use_event = false;
+                        continue;
                     }
 
-                    if (should_use_event) {
-                        ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
-                        active_event->source_soundtrack = playing_midi->source_soundtrack_player->soundtrack_id;
-                        active_event->midi_event = event;
-                        f32 timing_into_frame = cast(f32) (tick_timer_for_frame - event.absolute_time_in_ticks) / ticks_for_frame;
-                        active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
+                    assert(game_state->midi_event_buffer_count + 1 < ARRAY_COUNT(game_state->midi_event_buffer));
 
-                        assert(game_state->midi_event_buffer_count < ARRAY_COUNT(game_state->midi_event_buffer));
-
-#if 0
-                        char* midi_note_name = midi_note_names[event.note_value % 12];
-                        s32 midi_note_octave = (cast(s32) event.note_value / 12) - 2;
-
-                        log_print(LogLevel_Info, "Pushed %s %s %d midi event with timing: %u (tick_timer: %u, event_index: %u)", event.type == MidiEvent_NoteOn ? "note on" : "note off", midi_note_name, midi_note_octave, event.absolute_time_in_ticks, playing_midi->tick_timer, playing_midi->event_index - 1);
-#endif
-                    }
-
-                    event = track->events[playing_midi->event_index];
+                    ActiveMidiEvent* active_event = game_state->midi_event_buffer + game_state->midi_event_buffer_count++;
+                    active_event->source_soundtrack = playing_midi->source_soundtrack_player->soundtrack_id;
+                    active_event->midi_event = event;
+                    f32 timing_into_frame = cast(f32) (tick_timer_for_frame - event.absolute_time_in_ticks) / ticks_for_frame;
+                    active_event->dt_left = frame_dt*(1.0f - timing_into_frame);
                 }
             }
 
