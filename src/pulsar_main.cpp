@@ -597,7 +597,6 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
         case GameMode_Editor: {
             if (!strings_are_equal(game_state->desired_level, level_name(game_state->active_level))) {
                 load_level(game_state, game_state->desired_level);
-                // play_level(game_state, game_state->active_level);
             }
 
             stop_all_sounds(&game_state->game_audio);
@@ -712,6 +711,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         game_state->editor_state = allocate_editor(game_state, render_commands);
 
+#if 0
         {
             rnd_pcg_t pcg;
             rnd_pcg_seed(&pcg, 0);
@@ -727,6 +727,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 game_state->background_particles.particles[particle_index] = particle;
             }
         }
+#endif
 
         switch_gamemode(game_state, GameMode_Menu);
 
@@ -808,16 +809,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        UILayout layout = make_layout(layout_context, menu->big_font, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.5f*(cast(f32) num_items*row_height)));
+        UILayout layout = make_layout(layout_context, menu->big_font, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.5f*(cast(f32) num_items*row_height)), Layout_CenterAlign);
         set_spacing(&layout, spacing);
 
-        {
-            char* title_text = "P U L S A R";
-            v2 text_dim = get_dim(layout_text_bounds(&layout, title_text));
-            layout.offset_p = vec2(-text_dim.x*0.5f, 0.0f);
-            layout_print_line(&layout, COLOR_WHITE, title_text);
-            layout.offset_p = vec2(0, 0);
-        }
+        layout_print_line(&layout, COLOR_WHITE, "P U L S A R");
 
         set_font(&layout, menu->font);
 
@@ -828,38 +823,30 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 color.rgb = COLOR_YELLOW.rgb;
             }
 
-            char* menu_item = menu_items[item];
-
-            v2 text_dim = get_dim(layout_text_bounds(&layout, menu_item));
-
-            // @TODO: Some non-hacky way to do centered text
-            layout.offset_p.x -= text_dim.x*0.5f;
-            layout_print_line(&layout, color, menu_item);
+            layout_print_line(&layout, color, menu_items[item]);
             layout.offset_p = vec2(0, 0);
         }
 
         if (was_pressed(controller->interact)) {
-            b32 play_the_sound = false;
+            b32 play_the_sound = true;
+
             if (menu->selected_item == start_game) {
                 game_state->editor_state->shown = false;
                 switch_gamemode(game_state, GameMode_Ingame);
-                play_the_sound = true;
             } else if (menu->selected_item == enter_editor) {
                 switch_gamemode(game_state, GameMode_Editor);
-                play_the_sound = true;
             } else if (menu->selected_item == options) {
                 /* there's no options for now */
-                play_the_sound = true;
             } else if (menu->selected_item == quit) {
                 if (menu->asking_for_quit_confirmation) {
                     if (menu->quit_timer <= 0.0f) {
                         menu->quit_timer = 1.0f;
                         change_volume(menu->music, game_config->menu_quit_speed, vec2(0.0f, 0.0f));
-                        play_the_sound = true;
+                    } else {
+                        play_the_sound = false;
                     }
                 } else {
                     menu->asking_for_quit_confirmation = true;
-                    play_the_sound = true;
                 }
             }
 
@@ -915,7 +902,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 } else {
                     player->dead = false;
                     player->p    = checkpoint->respawn_p;
-                    player->dp   = player->ddp = vec2(0, 0);
+
+                    player->dp                  = vec2(0, 0);
+                    player->ddp                 = vec2(0, 0);
+                    player->support_dp          = vec2(0, 0);
+                    player->retained_support_dp = vec2(0, 0);
+                    player->ballistic_dp        = vec2(0, 0);
+
+                    player->was_supported             = false;
+                    player->support                   = 0;
+                    player->retained_support_dp_timer = 0.0f;
                 }
             }
         }
@@ -1144,13 +1140,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         if (game_state->player && game_state->player->killed_this_frame) {
             game_state->player->dead = true;
-            game_state->player->dp = {};
-            game_state->player->was_supported = false;
-            game_state->player->support = 0;
-            game_state->player->support_dp = {};
-            game_state->player->retained_support_dp = {};
-            game_state->player->retained_support_dp_timer = 0.0f;
-            game_state->player->ballistic_dp = {};
             game_state->player->killed_this_frame = false;
         }
 

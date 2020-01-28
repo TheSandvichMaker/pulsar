@@ -199,9 +199,12 @@ inline Font* get_font_by_name(Assets* assets, String name) {
 }
 
 inline b32 in_font_range(Font* font, u32 codepoint) {
-    u32 glyph_table_index = codepoint - font->first_codepoint;
-    u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
-    b32 result = codepoint >= font->first_codepoint && glyph_table_index < glyph_count;
+    b32 result = false;
+    if (codepoint >= font->first_codepoint) {
+        u32 glyph_table_index = codepoint - font->first_codepoint;
+        u32 glyph_count = font->one_past_last_codepoint - font->first_codepoint;
+        result = glyph_table_index < glyph_count;
+    }
     return result;
 }
 

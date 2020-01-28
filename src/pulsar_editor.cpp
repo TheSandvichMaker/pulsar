@@ -1,6 +1,4 @@
 // @TODO: Ponder the desirableness of EntityData<T>
-// @WidgetEntityData: this is a mess, it sucks
-// @WidgetSetActiveHackery: weird pattern that I shouldn't need to do
 
 template <typename T>
 inline EntityData<T> wrap_entity_data(Entity* entity, T* member_ptr) {
@@ -605,12 +603,26 @@ enum LayoutTextOp {
     LayoutTextOp_Print,
 };
 
+inline AxisAlignedBox2 layout_text_bounds(UILayout* layout, char* format_string, ...);
 internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, char* format_string, va_list va_args) {
     TemporaryMemory temp = begin_temporary_memory(layout->context.temp_arena);
 
     String text = push_formatted_string_va(layout->context.temp_arena, format_string, va_args);
 
     Font* font = layout->font;
+
+    // @TODO: layout_text_bounds doesn't take align flags into account
+    v2 old_at_p = layout->at_p;
+    v2 old_offset_p = layout->offset_p;
+    if (op == LayoutTextOp_Print && (layout->flags & Layout_CenterAlign)) {
+        v2 dim = get_dim(layout_text_bounds(layout, text.data));
+        if (layout->flags & Layout_HorzCenterAlign) {
+            layout->offset_p.x -= 0.5f*dim.x;
+        }
+        if (layout->flags & Layout_VertCenterAlign) {
+            layout->offset_p.y -= 0.5f*dim.y;
+        }
+    }
 
     if (!layout->print_initialized) {
         layout->last_print_bounds = inverted_infinity_aab2();
@@ -621,8 +633,6 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
         }
     }
 
-    v2 old_at_p = layout->at_p;
-
     for (char* at = text.data; at[0]; at++) {
         layout->last_codepoint = at[0];
         if (at[0] == ' ') {
@@ -630,7 +640,7 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
         } else if (at[0] == '\n') {
             layout->at_p.x  = layout->origin.x;
             layout->at_p.y += layout->vertical_advance;
-        } else {
+        } else if (in_font_range(font, at[0])) {
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             if (glyph_id.value) {
                 Image* glyph = get_image(layout->context.assets, glyph_id);
@@ -653,18 +663,21 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
                 }
                 layout->last_print_bounds = aab_union(layout->last_print_bounds, glyph_aab);
 
-                if (at[1] && in_font_range(font, at[1])) {
+                if (in_font_range(font, at[1])) {
                     layout->at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
                 }
             }
+        } else {
+            // @TODO: Make it clear some unsupported characters showed up
         }
     }
 
+    layout->offset_p = old_offset_p;
     if (op == LayoutTextOp_GetBounds) {
         layout->at_p = old_at_p;
+    } else {
+        layout->total_bounds = aab_union(layout->total_bounds, layout->last_print_bounds);
     }
-
-    layout->total_bounds = aab_union(layout->total_bounds, layout->last_print_bounds);
 
     end_temporary_memory(temp);
 }
@@ -1147,12 +1160,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     editor->top_margin  = cast(f32) height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
 
-    v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
-    v2 world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
-
-    editor->mouse_p = mouse_p;
-    editor->world_mouse_p = world_mouse_p;
-
     UILayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
 
     if (editor->shown || editor->show_statistics) {
@@ -1206,6 +1213,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
         game_state->render_context.vertical_fov /= editor->zoom;
     }
+
+    v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
+    v2 world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
+
+    editor->mouse_p = mouse_p;
+    editor->world_mouse_p = world_mouse_p;
 
     if (was_pressed(get_key(input, 'S'))) {
         if (input->ctrl.is_down) {
