@@ -967,7 +967,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                         Entity* end_camera_zone = camera_zone;
                         for_entity_type (game_state, EntityType_CameraZone, entity) {
-                            if (is_in_region(entity->active_region, checkpoint->p - entity->respawn_p)) {
+                            if (is_in_region(entity->active_region, checkpoint->respawn_p - entity->p)) {
                                 end_camera_zone = entity;
                                 break;
                             }

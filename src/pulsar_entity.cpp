@@ -116,15 +116,15 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
     if (!game_state->midi_paused) {
         for (PlayingMidi** playing_midi_ptr = &game_state->first_playing_midi; *playing_midi_ptr;) {
             PlayingMidi* playing_midi = *playing_midi_ptr;
-
             MidiTrack* track = playing_midi->track;
+
+            f32 ticks_for_frame = cast(f32) track->ticks_per_second*frame_dt;
+
+            // @Note: I moved the sync to output_playing_sounds, which means that if the midi track has a sync sound
+            // playing_midi->tick_timer will be synced to it at the end of every frame
+            u32 tick_timer_for_frame = playing_midi->tick_timer + cast(u32) (game_config->simulation_rate*(ticks_for_frame*playing_midi->playback_rate));
+
             if (playing_midi->event_index < track->event_count) {
-                f32 ticks_for_frame = cast(f32) track->ticks_per_second*frame_dt;
-
-                // @Note: I moved the sync to output_playing_sounds, which means that if the midi track has a sync sound
-                // playing_midi->tick_timer will be synced to it at the end of every frame
-                u32 tick_timer_for_frame = playing_midi->tick_timer + cast(u32) (game_config->simulation_rate*(ticks_for_frame*playing_midi->playback_rate));
-
                 for (MidiEvent event = track->events[playing_midi->event_index];
                      playing_midi->event_index < track->event_count && event.absolute_time_in_ticks <= tick_timer_for_frame;
                      event = track->events[++playing_midi->event_index]
@@ -162,6 +162,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     }
                 }
             } else {
+                playing_midi->tick_timer = tick_timer_for_frame;
                 if (playing_midi->event_index >= track->event_count) {
                     assert(playing_midi->event_index == track->event_count);
                     if (playing_midi->flags & Playback_Looping) {
