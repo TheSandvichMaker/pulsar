@@ -130,6 +130,7 @@ introspect() struct GameConfig {
 
     f32 gravity                     = -20.0f;
     f32 downward_gravity_multiplier = 2.0f;
+    f32 moon_time_duration          = 1.0f;
     f32 death_by_crushing_threshold = 0.5f; // @Unused
     f32 support_dp_retention_time   = 0.15f;
 

@@ -40,6 +40,7 @@ max_collision_iterations       8
 
 gravity                       -20.0
 downward_gravity_multiplier    2.0
+moon_time_duration             0.5
 death_by_crushing_threshold    0.25
 support_dp_retention_time      0.15
 
@@ -48,7 +49,7 @@ max_x_vel                      10.0
 min_y_vel                     -40.0
 max_y_vel                      40.0
 max_ballistic_x_vel            20.0
-max_ballistic_y_vel            20.0
+max_ballistic_y_vel            10.0
 
 jump_force                     10.0
 

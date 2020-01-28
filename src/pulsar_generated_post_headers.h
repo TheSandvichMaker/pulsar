@@ -197,6 +197,7 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_u32, 24, "max_collision_iterations", (unsigned int)&((GameConfig*)0)->max_collision_iterations, sizeof(u32) },
     { 0, MetaType_f32, 7, "gravity", (unsigned int)&((GameConfig*)0)->gravity, sizeof(f32) },
     { 0, MetaType_f32, 27, "downward_gravity_multiplier", (unsigned int)&((GameConfig*)0)->downward_gravity_multiplier, sizeof(f32) },
+    { 0, MetaType_f32, 18, "moon_time_duration", (unsigned int)&((GameConfig*)0)->moon_time_duration, sizeof(f32) },
     { 0, MetaType_f32, 27, "death_by_crushing_threshold", (unsigned int)&((GameConfig*)0)->death_by_crushing_threshold, sizeof(f32) },
     { 0, MetaType_f32, 25, "support_dp_retention_time", (unsigned int)&((GameConfig*)0)->support_dp_retention_time, sizeof(f32) },
     { 0, MetaType_f32, 14, "movement_speed", (unsigned int)&((GameConfig*)0)->movement_speed, sizeof(f32) },

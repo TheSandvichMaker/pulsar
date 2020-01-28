@@ -185,8 +185,11 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
         assert(hash_slot->index < ARRAY_COUNT(level->entities));
         Entity* entity = level->entities + hash_slot->index;
 
-        if (editor->selected_entity.value && editor->selected_entity.value == guid.value) {
-            editor->selected_entity = { 0 };
+        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+            EntityID selected = editor->selected_entities[selected_index];
+            if (selected.value == guid.value) {
+                editor->selected_entities[selected_index] = editor->selected_entities[--editor->selected_entity_count];
+            }
         }
 
         if (with_undo_history) {
@@ -990,9 +993,10 @@ inline v2 snap_to_grid(EditorState* editor, v2 p) {
 }
 
 inline EditorWidget drag_region_widget(GameState* game_state, EditorState* editor, v2 p, EntityData<v2> target) {
-    EditorWidget widget;
+    EditorWidget widget = {};
     widget.type = Widget_DragRegion;
     widget.guid = &widget;
+    widget.description = "Drag Region";
 
     EditorWidgetDragRegion* drag_region = &widget.drag_region;
 
@@ -1057,12 +1061,27 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     return widget;
 }
 
+global EditorWidget pan_widget   = generic_widget(&pan_widget, "Pan");
+global EditorWidget group_select = generic_widget(&group_select, "Group Select");
+global EditorWidget drag_group   = generic_widget(&drag_group, "Drag Group");
+
+inline void activate_drag_group(EditorState* editor) {
+    editor->drag_group_anchor = editor->world_mouse_p;
+    begin_undo_batch(editor);
+    for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+        Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+        add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Group Move");
+    }
+    end_undo_batch(editor);
+    set_active(editor, drag_group);
+}
+
 // @TODO: I'm sick of passing around things like GameInput
 inline b32 editor_button(EditorState* editor, UILayout* layout, GameInput* input, char* title) {
     b32 result = false;
     v4 color = COLOR_WHITE;
 
-    EditorWidget button = generic_widget(title);
+    EditorWidget button = generic_widget(title, "Button");
     if (is_active(editor, button)) {
         color = COLOR_CYAN;
         if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
@@ -1159,26 +1178,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     editor->mouse_p = mouse_p;
     editor->world_mouse_p = world_mouse_p;
 
-    EditorWidget pan_widget = generic_widget(&pan_widget);
-
-    if (input->space.is_down && was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-        editor->next_hot_widget = pan_widget;
-    }
-
-    if (is_hot(editor, pan_widget)) {
-        editor->camera_p_on_pan = game_state->render_context.camera_p;
-        set_active(editor, editor->hot_widget); // @WidgetSetActiveHackery
-    }
-
-    if (is_active(editor, pan_widget)) {
-        game_state->render_context.camera_p = editor->camera_p_on_pan;
-        v2 pan_world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
-        game_state->render_context.camera_p += editor->world_mouse_p_on_active - pan_world_mouse_p;
-        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-            clear_active(editor);
-        }
-    }
-
     UILayout layout = make_layout(editor, vec2(4.0f, editor->top_margin));
 
     if (editor->shown || editor->show_statistics) {
@@ -1235,8 +1234,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
     layout_finish_print(&layout);
 
-    layout_print_line(&layout, COLOR_WHITE, "Hot Widget: %s", widget_name(editor->hot_widget));
-    layout_print_line(&layout, COLOR_WHITE, "Active Widget: %s", widget_name(editor->active_widget));
+    layout_print_line(&layout, COLOR_WHITE, "Hot Widget: %s, desc: %s", widget_name(editor->hot_widget), editor->hot_widget.description);
+    layout_print_line(&layout, COLOR_WHITE, "Active Widget: %s, desc: %s", widget_name(editor->active_widget), editor->active_widget.description);
     layout_print_line(&layout, COLOR_WHITE, "Last Activated Checkpoint: EntityID { %d }", game_state->last_activated_checkpoint ? game_state->last_activated_checkpoint->guid.value : 0);
 
     layout_print_line(&layout, COLOR_WHITE, "");
@@ -1383,38 +1382,144 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    EditorWidget group_select = generic_widget(&group_select);
-    if (!input->space.is_down && was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-        // @TODO: I really need to get widget priority sorted out so that I don't need to put these random checks for things like input->space.is_down just
-        // so I don't stomp on the pan widget
+    if (input->space.is_down) {
+        editor->next_hot_widget = pan_widget;
+    } else {
         editor->next_hot_widget = group_select;
     }
 
+    if (is_active(editor, pan_widget)) {
+        game_state->render_context.camera_p = editor->camera_p_on_pan;
+        v2 pan_world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
+        game_state->render_context.camera_p += editor->world_mouse_p_on_active - pan_world_mouse_p;
+        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+            clear_active(editor);
+        }
+    } else if (is_hot(editor, pan_widget)) {
+        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            editor->camera_p_on_pan = game_state->render_context.camera_p;
+            set_active(editor, editor->hot_widget);
+        }
+    }
+
     if (is_active(editor, group_select)) {
-        AxisAlignedBox2 selection_box = aab_min_max(editor->world_mouse_p_on_active, world_mouse_p);
-        push_rect(&game_state->render_context, selection_box, vec4(0.3f, 0.3f, 0.5f, 0.2f), ShapeRenderMode_Fill);
-        push_rect(&game_state->render_context, selection_box, vec4(0.5f, 0.5f, 0.8f, 0.8f), ShapeRenderMode_Outline);
+        AxisAlignedBox2 selection_box = correct_aab_winding(aab_min_max(editor->world_mouse_p_on_active, world_mouse_p));
+        v2 selection_dim = get_dim(selection_box);
+
+        b32 is_a_group_selection = false;
+        if (max(selection_dim.x, selection_dim.y) > 0.1f) {
+            is_a_group_selection = true;
+            push_rect(&game_state->render_context, selection_box, vec4(0.3f, 0.3f, 0.5f, 0.2f), ShapeRenderMode_Fill);
+            push_rect(&game_state->render_context, selection_box, vec4(0.5f, 0.5f, 0.8f, 0.8f), ShapeRenderMode_Outline);
+        }
 
         if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
             selection_box = correct_aab_winding(selection_box);
 
-            for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
-                Entity* entity = level->entities + entity_index;
-                AxisAlignedBox2 test_box = grow_by_diameter(selection_box, entity->collision);
-                if (is_in_aab(test_box, entity->p)) {
-                    editor->selected_entities[editor->selected_entity_count++] = entity->guid;
+            // @Note: If the area of the selection box is too small, we just treat this as a regular click and will select
+            // only one entity. This is important because otherwise it becomes impossible to separate two entities that overlap.
+            if (is_a_group_selection) {
+                for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
+                    Entity* entity = level->entities + entity_index;
+                    AxisAlignedBox2 test_box = grow_by_diameter(selection_box, entity->collision);
+                    if (is_in_aab(test_box, entity->p)) {
+                        editor->selected_entities[editor->selected_entity_count++] = entity->guid;
+                    }
+                }
+            } else {
+                if (moused_over) {
+                    editor->selected_entity_count = 1;
+                    editor->selected_entities[0] = moused_over->guid;
                 }
             }
 
             clear_active(editor);
-
-            if (editor->selected_entity_count > 1) {
-                // set_active(editor, manipulate_group);
-            } else if (editor->selected_entity_count) {
-                editor->selected_entity = editor->selected_entities[0];
+        }
+    } else if (is_hot(editor, group_select)) {
+        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            if (moused_over) {
+                editor->selected_entity_count = 1;
+                editor->selected_entities[0] = moused_over->guid;
+                activate_drag_group(editor);
             } else {
-                editor->selected_entity = { 0 };
+                editor->selected_entity_count = 0;
+                set_active(editor, editor->hot_widget);
             }
+        }
+    }
+
+    if (is_active(editor, drag_group)) {
+        v2 relative_world_mouse_p = world_mouse_p - editor->drag_group_anchor;
+        v2 delta = snap_to_grid(editor, relative_world_mouse_p);
+        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+            Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+            entity->p += delta;
+        }
+        editor->drag_group_anchor += delta;
+
+        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+            clear_active(editor);
+        }
+    } else if (is_hot(editor, drag_group)) {
+        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            Entity* manipulated = 0;
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                if (moused_over->guid.value == editor->selected_entities[selected_index].value) {
+                    manipulated = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                    if (manipulated) {
+                        break;
+                    }
+                }
+            }
+            if (manipulated) {
+                activate_drag_group(editor);
+            } else {
+                editor->selected_entity_count = 0;
+            }
+        }
+    }
+
+    if (editor->selected_entity_count) {
+        layout_print_line(&layout, COLOR_WHITE, "%u entities selected", editor->selected_entity_count);
+
+        if (was_pressed(input->del)) {
+            begin_undo_batch(editor);
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                delete_entity(editor, editor->selected_entities[selected_index], true);
+            }
+            end_undo_batch(editor);
+            editor->selected_entity_count = 0;
+        }
+
+        if (moused_over) {
+            Entity* manipulated = 0;
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                if (moused_over->guid.value == editor->selected_entities[selected_index].value) {
+                    manipulated = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                    if (manipulated) {
+                        break;
+                    }
+                }
+            }
+            if (manipulated) {
+                editor->next_hot_widget = drag_group;
+            }
+        }
+
+        if (input->ctrl.is_down && was_pressed(get_key(input, 'D'))) {
+            begin_undo_batch(editor);
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                Entity* source_entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                if (source_entity) {
+                    AddEntityResult duplicate = add_entity(editor, EntityType_Null);
+                    copy(sizeof(*duplicate.ptr), source_entity, duplicate.ptr);
+                    duplicate.ptr->guid = duplicate.guid;
+                    editor->selected_entities[selected_index] = duplicate.guid;
+
+                    add_undo_history(editor, Undo_CreateEntity, sizeof(*duplicate.ptr), duplicate.ptr);
+                }
+            }
+            end_undo_batch(editor);
         }
     }
 
@@ -1694,75 +1799,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    EditorWidget drag_group = generic_widget(&drag_group);
-    if (is_active(editor, drag_group)) {
-        v2 relative_world_mouse_p = world_mouse_p - editor->drag_group_anchor;
-        v2 delta = snap_to_grid(editor, relative_world_mouse_p);
-        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-            Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-            entity->p += delta;
-        }
-        editor->drag_group_anchor += delta;
-
-        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-            clear_active(editor);
-        }
-    } else if (editor->selected_entity_count && !editor->active_widget.type) {
-        layout_print_line(&layout, COLOR_WHITE, "%u entities selected", editor->selected_entity_count);
-
-        if (was_pressed(input->del)) {
-            begin_undo_batch(editor);
-            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                delete_entity(editor, editor->selected_entities[selected_index], true);
-            }
-            end_undo_batch(editor);
-            editor->selected_entity_count = 0;
-        }
-
-        if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-            Entity* manipulated = 0;
-            if (moused_over) {
-                for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                    if (moused_over->guid.value == editor->selected_entities[selected_index].value) {
-                        manipulated = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-                        if (manipulated) {
-                            break;
-                        }
-                    }
-                }
-            }
-            if (manipulated) {
-                // @TODO: More inconsistent UI stuff, this time not using a widget to store data again
-                editor->drag_group_anchor = world_mouse_p;
-                begin_undo_batch(editor);
-                for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                    Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-                    add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Group Move");
-                }
-                end_undo_batch(editor);
-                set_active(editor, drag_group); // @WidgetSetActiveHackery
-            } else {
-                editor->selected_entity_count = 0;
-            }
-        }
-
-        if (input->ctrl.is_down && was_pressed(get_key(input, 'D'))) {
-            begin_undo_batch(editor);
-            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                Entity* source_entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-                if (source_entity) {
-                    AddEntityResult duplicate = add_entity(editor, EntityType_Null);
-                    copy(sizeof(*duplicate.ptr), source_entity, duplicate.ptr);
-                    duplicate.ptr->guid = duplicate.guid;
-                    editor->selected_entities[selected_index] = duplicate.guid;
-
-                    add_undo_history(editor, Undo_CreateEntity, sizeof(*duplicate.ptr), duplicate.ptr);
-                }
-            }
-            end_undo_batch(editor);
-        }
-    }
-
     if (game_state->game_mode == GameMode_Editor) {
         if (moused_over) {
             push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), COLOR_PINK, ShapeRenderMode_Outline, 100.0f);
@@ -1780,6 +1816,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (editor->active_widget.type) {
         switch (editor->active_widget.type) {
+#if 0
             case Widget_ManipulateEntity: {
                 EditorWidget* widget = &editor->active_widget;
                 Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
@@ -1820,6 +1857,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     } break;
                 }
             } break;
+#endif
 
             case Widget_DragRegion: {
                 EditorWidgetDragRegion* drag_region = &editor->active_widget.drag_region;
@@ -1840,6 +1878,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     } else if (editor->hot_widget.type) {
         switch (editor->hot_widget.type) {
+#if 0
             case Widget_ManipulateEntity: {
                 EditorWidget widget = editor->hot_widget;
                 if (input->del.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
@@ -1851,6 +1890,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     set_active(editor, widget);
                 }
             } break;
+#endif
 
             case Widget_DragRegion: {
                 EditorWidgetDragRegion* drag_region = &editor->hot_widget.drag_region;
@@ -1866,12 +1906,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (is_hot(editor, group_select)) {
-        if (input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-            editor->selected_entity_count = 0;
-            set_active(editor, editor->hot_widget);
-        }
-    }
+    layout_print_line(&layout, COLOR_WHITE, "Next Hot Widget: %s, guid: 0x%x, desc: %s", widget_name(editor->next_hot_widget), cast(uintptr_t) editor->next_hot_widget.guid, editor->next_hot_widget.description);
 
     editor->hot_widget = editor->next_hot_widget;
     editor->next_hot_widget = {};

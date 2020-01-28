@@ -677,6 +677,11 @@ inline AxisAlignedBox2 correct_aab_winding(AxisAlignedBox2 aab) {
     return result;
 }
 
+inline f32 get_area(AxisAlignedBox2 box) {
+    v2 dim = get_dim(box);
+    return dim.x*dim.y;
+}
+
 //
 // NOTE: AxisAlignedBox2i
 //

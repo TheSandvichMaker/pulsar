@@ -74,7 +74,8 @@ internal CONSOLE_COMMAND(cc_find_entity) {
         EntityID entity_id = { cast(u32) target_id };
         Entity* entity = get_entity_from_guid(editor, entity_id);
         if (entity) {
-            editor->selected_entity = entity_id;
+            editor->selected_entity_count = 1;
+            editor->selected_entities[0] = entity_id;
             game_state->render_context.camera_p = entity->p;
         } else {
             log_print(LogLevel_Error, "Could not find an entity with the guid %u", target_id);

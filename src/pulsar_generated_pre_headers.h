@@ -104,6 +104,7 @@ enum MetaType {
     u32 max_collision_iterations; \
     f32 gravity; \
     f32 downward_gravity_multiplier; \
+    f32 moon_time_duration; \
     f32 death_by_crushing_threshold; \
     f32 support_dp_retention_time; \
     f32 movement_speed; \

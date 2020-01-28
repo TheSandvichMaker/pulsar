@@ -253,6 +253,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     // out the frame dt to make it frame-rate independent.
                     entity->ddp.y += game_config->jump_force / frame_dt;
                     entity->support = 0;
+                    entity->moon_time = 1.0f;
                 }
 
                 if (entity->early_jump_timer > 0.0f) entity->early_jump_timer -= frame_dt;
@@ -260,8 +261,15 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                 entity->gravity = game_config->gravity;
 
-                if (!controller->jump.is_down || entity->dp.y < 0.0f) {
+                if (!controller->jump.is_down || entity->dp.y < 0.0f || entity->moon_time <= 0.0f) {
                     entity->gravity *= game_config->downward_gravity_multiplier;
+                }
+
+                if (entity->moon_time > 0.0f) {
+                    entity->moon_time -= frame_dt / game_config->moon_time_duration;
+                    if (entity->moon_time < 0.0f) {
+                        entity->moon_time = 0.0f;
+                    }
                 }
 
                 if (entity->walk_cycle > game_config->player_walk_cycle_length) {

@@ -63,6 +63,7 @@ struct Entity {
             f32 late_jump_timer;
 
             f32 gravity;
+            f32 moon_time;
 
             b32 was_supported;
             Entity* support;

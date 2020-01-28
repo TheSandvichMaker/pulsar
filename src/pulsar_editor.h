@@ -124,6 +124,7 @@ struct EditorWidgetDragRegion {
 
 struct EditorWidget {
     void* guid;
+    char* description;
 
     EditorWidgetType type;
     union {
@@ -134,10 +135,11 @@ struct EditorWidget {
     };
 };
 
-inline EditorWidget generic_widget(void* guid) {
+inline EditorWidget generic_widget(void* guid, char* description) {
     EditorWidget result = {};
     result.guid = guid;
     result.type = Widget_Generic;
+    result.description = description;
     return result;
 }
 
@@ -207,7 +209,7 @@ struct EditorState {
     EditorWidget hot_widget;
     EditorWidget active_widget;
 
-    EntityID selected_entity;
+    // EntityID selected_entity;
 
     u32 selected_entity_count;
     EntityID selected_entities[32];
