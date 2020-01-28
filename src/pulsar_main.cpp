@@ -142,7 +142,7 @@ struct LevFileHeader {
     struct {
         char magic[4];
 
-#define LEV_VERSION 0
+#define LEV_VERSION 1
         u32 version;
 
         u32 header_size;
@@ -322,7 +322,7 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
                         } else {
                             level_load_error = true;
                             log_print(LogLevel_Error, "Level Load Error: Member size mismatch: %u in file, expected %u", data_size, ser->size);
-                            goto level_load_end;
+                            break;
                         }
                     } else {
                         log_print(LogLevel_Warn, "Level Load Warning: Could not find matching member '%.*s'", member_name_length, member_name);
@@ -332,16 +332,27 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
         } else {
             level_load_error = true;
             log_print(LogLevel_Error, "Level Load Error: Header did not start with magic value 'levl'");
-            goto level_load_end;
         }
 #undef read_stream
+
+        if (!level_load_error) {
+            // @Note: Upgrade outdated entity data
+            if (header->prelude.version == 0) {
+                for (u32 entity_index = 0; entity_index < level->entity_count; entity_index++) {
+                    Entity* entity = level->entities + entity_index;
+                    switch (entity->type) {
+                        case EntityType_Wall: {
+                            entity->end_p -= entity->p; // @Note: end_p used to be absolute, is now relative
+                        } break;
+                    }
+                }
+            }
+        }
     } else {
         level_load_error = true;
         log_print(LogLevel_Error, "Level Load Error: Could not open file '%.*s'", PRINTF_STRING(level_name));
-        goto level_load_end;
     }
 
-level_load_end:
     if (level_load_error) {
         level->entity_count = 1;
         level->first_available_guid = 1;

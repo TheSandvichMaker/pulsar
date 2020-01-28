@@ -110,8 +110,7 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, Soundt
 
     entity->p = get_center(aab);
     entity->color = vec4(1, 1, 1, 1);
-    entity->start_p = entity->p;
-    entity->end_p = entity->p + vec2(0, 5);
+    entity->end_p = vec2(0, 5);
     entity->movement_speed_ms = 200.0f;
     entity->movement_t = 1.0f;
     entity->listening_to = listening_to;
@@ -479,7 +478,7 @@ inline void create_debug_level(EditorState* editor) {
         Entity* wall = add_wall(editor, aab_center_dim(vec2(3.0f + 2.0f*i, 0.0f), vec2(2.0f, 2.0f))).ptr;
         wall->behaviour = WallBehaviour_Move;
         wall->midi_note = 60 + i;
-        wall->end_p = wall->start_p + vec2(0, 1 + i);
+        wall->end_p = vec2(0, 1 + i);
         if (i % 2 == 1) {
             wall->flags |= EntityFlag_Hazard;
         }
@@ -1059,19 +1058,19 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     return widget;
 }
 
-global EditorWidget pan_widget   = generic_widget(&pan_widget, "Pan");
-global EditorWidget group_select = generic_widget(&group_select, "Group Select");
-global EditorWidget drag_group   = generic_widget(&drag_group, "Drag Group");
+global EditorWidget pan_widget   = stateless_widget(&pan_widget, "Pan");
+global EditorWidget select_entities = stateless_widget(&select_entities, "Entity Select");
+global EditorWidget drag_entities   = stateless_widget(&drag_entities, "Entity Drag");
 
-inline void activate_drag_group(EditorState* editor) {
-    editor->drag_group_anchor = editor->world_mouse_p;
+inline void activate_drag_entities(EditorState* editor) {
+    editor->drag_entities_anchor = editor->world_mouse_p;
     begin_undo_batch(editor);
     for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
         Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-        add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Group Move");
+        add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Entity Drag");
     }
     end_undo_batch(editor);
-    set_active(editor, drag_group);
+    set_active(editor, drag_entities);
 }
 
 // @TODO: I'm sick of passing around things like GameInput
@@ -1079,7 +1078,8 @@ inline b32 editor_button(EditorState* editor, UILayout* layout, GameInput* input
     b32 result = false;
     v4 color = COLOR_WHITE;
 
-    EditorWidget button = generic_widget(title, "Button");
+    // @TODO: title isn't a very good guid for this widget, what if you want two buttons with the same name that do different things?
+    EditorWidget button = stateless_widget(title, "Button");
     if (is_active(editor, button)) {
         color = COLOR_RED;
         if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
@@ -1136,10 +1136,6 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
 
     set_up_editable_parameters(editor);
 
-    // if (game_state->active_level->entity_count <= 1) {
-    //     create_debug_level(editor);
-    // }
-
     return editor;
 }
 
@@ -1150,25 +1146,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     render_screenspace(&editor->render_context);
     editor->top_margin  = cast(f32) height - get_baseline_from_top(editor->font);
     editor->left_margin = 4.0f;
-
-    if (game_state->game_mode == GameMode_Editor) {
-        if (input->shift.is_down) {
-            if (was_pressed(get_key(input, 'W'))) {
-                editor->zoom *= 2.0f;
-            }
-            if (was_pressed(get_key(input, 'D'))) {
-                editor->zoom *= 0.5f;
-            }
-            if (was_pressed(get_key(input, 'Q'))) {
-                editor->grid_size *= 0.5f;
-            }
-            if (was_pressed(get_key(input, 'E'))) {
-                editor->grid_size *= 2.0f;
-            }
-        }
-
-        game_state->render_context.vertical_fov /= editor->zoom;
-    }
 
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
     v2 world_mouse_p = screen_to_world(&game_state->render_context, transform2d(mouse_p)).offset;
@@ -1211,11 +1188,39 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     Level* level = game_state->active_level;
 
+    if (game_state->game_mode == GameMode_Editor) {
+        if (input->shift.is_down) {
+            if (was_pressed(get_key(input, 'W'))) {
+                editor->zoom *= 2.0f;
+            }
+            if (was_pressed(get_key(input, 'D'))) {
+                editor->zoom *= 0.5f;
+            }
+            if (was_pressed(get_key(input, 'Q'))) {
+                editor->grid_size *= 0.5f;
+            }
+            if (was_pressed(get_key(input, 'E'))) {
+                editor->grid_size *= 2.0f;
+            }
+        }
+
+        game_state->render_context.vertical_fov /= editor->zoom;
+    }
+
+    if (was_pressed(get_key(input, 'S'))) {
+        if (input->ctrl.is_down) {
+            write_level_to_disk(game_state, game_state->active_level, wrap_string(game_state->active_level->name_length, game_state->active_level->name));
+            editor->level_saved_timer = 2.0f;
+        } else {
+            editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
+        }
+    }
+
     // @Note: It's important these come above any other widget, because any other widget should be able to override them.
     if (input->space.is_down) {
         editor->next_hot_widget = pan_widget;
     } else {
-        editor->next_hot_widget = group_select;
+        editor->next_hot_widget = select_entities;
     }
 
 #if 0
@@ -1257,17 +1262,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->show_checkpoint_zones = !editor->show_checkpoint_zones;
     }
 
-    if (editor->level_saved_timer > 0.0f) {
-        editor->level_saved_timer -= input->frame_dt;
+    if (editor_button(editor, &layout, input, editor->show_all_move_widgets ? "Hide Move Widgets" : "Show Move Widgets") || was_pressed(get_key(input, 'M'))) {
+        editor->show_all_move_widgets = !editor->show_all_move_widgets;
     }
 
-    if (was_pressed(get_key(input, 'S'))) {
-        if (input->ctrl.is_down) {
-            write_level_to_disk(game_state, game_state->active_level, wrap_string(game_state->active_level->name_length, game_state->active_level->name));
-            editor->level_saved_timer = 2.0f;
-        } else {
-            editor->grid_snapping_enabled = !editor->grid_snapping_enabled;
-        }
+    if (editor->level_saved_timer > 0.0f) {
+        editor->level_saved_timer -= input->frame_dt;
     }
 
     UILayout status_bar = make_layout(editor, vec2(4.0f, get_line_spacing(editor->font) + get_baseline(editor->font)), true);
@@ -1401,7 +1401,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (is_active(editor, group_select)) {
+    if (is_active(editor, select_entities)) {
         AxisAlignedBox2 selection_box = correct_aab_winding(aab_min_max(editor->world_mouse_p_on_active, world_mouse_p));
         v2 selection_dim = get_dim(selection_box);
 
@@ -1434,12 +1434,12 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
             clear_active(editor);
         }
-    } else if (is_hot(editor, group_select)) {
+    } else if (is_hot(editor, select_entities)) {
         if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
             if (moused_over) {
                 editor->selected_entity_count = 1;
                 editor->selected_entities[0] = moused_over->guid;
-                activate_drag_group(editor);
+                activate_drag_entities(editor);
             } else {
                 editor->selected_entity_count = 0;
                 set_active(editor, editor->hot_widget);
@@ -1447,19 +1447,19 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (is_active(editor, drag_group)) {
-        v2 relative_world_mouse_p = world_mouse_p - editor->drag_group_anchor;
+    if (is_active(editor, drag_entities)) {
+        v2 relative_world_mouse_p = world_mouse_p - editor->drag_entities_anchor;
         v2 delta = snap_to_grid(editor, relative_world_mouse_p);
         for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
             Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
             entity->p += delta;
         }
-        editor->drag_group_anchor += delta;
+        editor->drag_entities_anchor += delta;
 
         if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
             clear_active(editor);
         }
-    } else if (is_hot(editor, drag_group)) {
+    } else if (is_hot(editor, drag_entities)) {
         if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
             Entity* manipulated = 0;
             for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
@@ -1471,7 +1471,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 }
             }
             if (manipulated) {
-                activate_drag_group(editor);
+                activate_drag_entities(editor);
             } else {
                 editor->selected_entity_count = 0;
             }
@@ -1501,7 +1501,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 }
             }
             if (manipulated) {
-                editor->next_hot_widget = drag_group;
+                editor->next_hot_widget = drag_entities;
             }
         }
 
@@ -1607,17 +1607,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->type_to_spawn = EntityType_Null;
     }
 
-    // Entity* selected = 0;
-    // if (editor->selected_entity.value) {
-    //     selected = get_entity_from_guid(editor, editor->selected_entity);
-    // } else {
-    //     selected = moused_over;
-    // }
-
-    if (was_pressed(get_key(input, 'M'))) {
-        editor->show_all_move_widgets = !editor->show_all_move_widgets;
-    }
-
     if (editor->selected_entity_count || editor->show_all_move_widgets) {
         u32 entity_count = editor->selected_entity_count ? editor->selected_entity_count : level->entity_count;
 
@@ -1637,18 +1626,20 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 widget.type = Widget_DragP;
                 widget.description = "Drag Position";
 
+                v2 world_end_p = entity->p + entity->end_p;
+
                 widget.drag_p.original_p  = entity->end_p;
-                widget.drag_p.drag_offset = world_mouse_p - entity->end_p;
+                widget.drag_p.drag_offset = world_end_p - world_mouse_p;
                 widget.drag_p.target      = wrap_entity_data(entity, &entity->end_p);
 
                 v3 fill_color    = is_active(editor, widget) ? COLOR_RED.rgb : entity->color.rgb;
                 v3 outline_color = is_active(editor, widget) || is_hot(editor, widget) ? COLOR_RED.rgb : entity->color.rgb;
 
-                push_rect(&game_state->render_context, aab_center_dim(entity->end_p, entity->collision), vec4(fill_color, 0.25f));
-                push_rect(&game_state->render_context, aab_center_dim(entity->end_p, entity->collision), vec4(outline_color, 0.85f), ShapeRenderMode_Outline);
-                push_line(&game_state->render_context, entity->p, entity->end_p, vec4(outline_color, 0.85f));
+                push_rect(&game_state->render_context, aab_center_dim(world_end_p, entity->collision), vec4(fill_color, 0.25f));
+                push_rect(&game_state->render_context, aab_center_dim(world_end_p, entity->collision), vec4(outline_color, 0.85f), ShapeRenderMode_Outline);
+                push_line(&game_state->render_context, entity->p, world_end_p, vec4(outline_color, 0.85f));
 
-                if (is_in_region(entity->collision, world_mouse_p - entity->end_p)) {
+                if (is_in_region(entity->collision, world_mouse_p - world_end_p)) {
                     editor->next_hot_widget = widget;
                 }
             }
@@ -1660,11 +1651,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     if (moused_over || editor->selected_entity_count == 1) {
         b32 is_selected = editor->selected_entity_count;
         Entity* selected = editor->selected_entity_count ? get_entity_from_guid(editor, editor->selected_entities[0]) : moused_over;
-#if 0
-        Entity* full_entity = 0;
-        if (game_state->game_mode == GameMode_Ingame) {
-        }
-#endif
 
         if (game_state->game_mode == GameMode_Editor) {
             if (editor->show_camera_zones && selected->type == EntityType_CameraZone) {
@@ -1684,15 +1670,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
         LinearBuffer<EditableParameter>* editables = editor->editable_parameter_info[selected->type];
         if (editables) {
-            EditableParameter* highlighted_editable = 0;
-
             for (u32 editable_index = 0; editable_index < editables->count; editable_index++) {
                 EditableParameter* editable = editables->data + editable_index;
                 void** editable_ptr = cast(void**) (cast(u8*) selected + editable->offset);
 
-                EditorWidget widget;
+                EditorWidget widget = {};
                 widget.guid = editable_ptr;
-                widget.type = Widget_DragEditable;
+                widget.type = Widget_ManipulateEditable;
+                widget.description = "Manipulate Editable";
                 widget.start_value = cast(void*) *(cast(u64*) editable_ptr);
 
                 v4 color = vec4(0.95f, 0.95f, 0.95f, 1);
@@ -1771,13 +1756,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 if (is_in_aab(layout.last_print_bounds, mouse_p)) {
                     editor->next_hot_widget = widget;
                 }
-
-#if 0
-                if (respective_entity) {
-                    editable_ptr = cast(void**) (cast(u8*) respective_entity + editable->offset);
-                    print_editable(&layout, editable, editable_ptr, vec4(0.7f, 0.7f, 0.7f, 1.0f));
-                }
-#endif
 
                 layout_finish_print(&layout);
             }

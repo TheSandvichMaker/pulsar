@@ -83,8 +83,9 @@ struct Entity {
 
             u32 midi_note;
             SoundtrackID listening_to;
-            v2 end_p;
             f32 movement_speed_ms;
+
+            v2 end_p;
 
             v2 start_p;
             b32 moving_to_end;

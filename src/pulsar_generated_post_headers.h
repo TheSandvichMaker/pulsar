@@ -65,9 +65,8 @@ char* GetEnumNameOf_UndoType(int value) {
 char* GetEnumNameOf_EditorWidgetType(int value) {
     switch (value) {
         case Widget_None: return "Widget_None";
-        case Widget_Generic: return "Widget_Generic";
-        case Widget_DragEditable: return "Widget_DragEditable";
-        case Widget_ManipulateEntity: return "Widget_ManipulateEntity";
+        case Widget_Stateless: return "Widget_Stateless";
+        case Widget_ManipulateEditable: return "Widget_ManipulateEditable";
         case Widget_DragRegion: return "Widget_DragRegion";
         case Widget_DragP: return "Widget_DragP";
         default: return 0;

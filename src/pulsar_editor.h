@@ -89,9 +89,8 @@ struct EntityData {
 
 introspect() enum EditorWidgetType {
     Widget_None = 0,
-    Widget_Generic,
-    Widget_DragEditable,
-    Widget_ManipulateEntity,
+    Widget_Stateless,
+    Widget_ManipulateEditable,
     Widget_DragRegion,
     Widget_DragP,
 };
@@ -100,13 +99,6 @@ enum EntityManipulateType {
     Manipulate_Default,
     Manipulate_DragEntity,
     Manipulate_DeleteEntity,
-};
-
-struct EditorWidgetManipulateEntity {
-    EntityManipulateType type;
-    EntityID guid;
-    v2 original_p;
-    v2 drag_offset;
 };
 
 struct EditorWidgetDragP {
@@ -128,17 +120,16 @@ struct EditorWidget {
 
     EditorWidgetType type;
     union {
-        void* start_value;
-        EditorWidgetManipulateEntity manipulate;
+        void* start_value; // ManipulateEditable
         EditorWidgetDragRegion drag_region;
         EditorWidgetDragP drag_p;
     };
 };
 
-inline EditorWidget generic_widget(void* guid, char* description) {
+inline EditorWidget stateless_widget(void* guid, char* description) {
     EditorWidget result = {};
     result.guid = guid;
-    result.type = Widget_Generic;
+    result.type = Widget_Stateless;
     result.description = description;
     return result;
 }
@@ -209,11 +200,9 @@ struct EditorState {
     EditorWidget hot_widget;
     EditorWidget active_widget;
 
-    // EntityID selected_entity;
-
     u32 selected_entity_count;
     EntityID selected_entities[32];
-    v2 drag_group_anchor;
+    v2 drag_entities_anchor;
 
     EntityType current_editable_type;
     LinearBuffer<EditableParameter>* editable_parameter_info[EntityType_Count];

@@ -293,12 +293,9 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         }
                     }
 
-                    v2 start_p = entity->start_p;
-                    v2 end_p = entity->end_p;
-
                     f32 t = smootherstep(entity->movement_t);
 
-                    v2 target = lerp(start_p, end_p, t);
+                    v2 target = entity->start_p + t*entity->end_p;
                     entity->dp = (target - entity->p) / frame_dt;
 
                     if (entity->moving_to_end) {
