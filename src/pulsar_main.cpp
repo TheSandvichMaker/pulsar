@@ -382,7 +382,7 @@ inline String level_name(Level* level) {
     return result;
 }
 
-inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0, SoundtrackID source_soundtrack = { 0 }) {
+inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags = 0, PlayingSound* sync_sound = 0, Entity* source_soundtrack_player = 0) {
     if (!game_state->first_free_playing_midi) {
         game_state->first_free_playing_midi = push_struct(&game_state->permanent_arena, PlayingMidi);
         game_state->first_free_playing_midi->next_free = 0;
@@ -394,7 +394,7 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     *playing_midi = {};
     playing_midi->track = track;
     playing_midi->flags = flags;
-    playing_midi->source_soundtrack = source_soundtrack;
+    playing_midi->source_soundtrack_player = source_soundtrack_player;
     playing_midi->sync_sound = sync_sound;
     playing_midi->sync_sound->synced_midi = playing_midi;
     playing_midi->playback_rate = 1.0f;
@@ -407,8 +407,8 @@ inline PlayingMidi* play_midi(GameState* game_state, MidiTrack* track, u32 flags
     Asset* track_asset = cast(Asset*) track;
     if (track_asset->name.len) {
         track_name = track_asset->name;
-    } else if (source_soundtrack.value) {
-        Soundtrack* soundtrack = get_soundtrack(&game_state->assets, source_soundtrack);
+    } else if (source_soundtrack_player) {
+        Soundtrack* soundtrack = get_soundtrack(&game_state->assets, source_soundtrack_player->soundtrack_id);
         if (soundtrack) {
             Asset* soundtrack_asset = cast(Asset*) soundtrack;
             track_name = soundtrack_asset->name;
@@ -424,16 +424,16 @@ inline void change_playback_rate(PlayingMidi* midi, f32 playback_rate) {
     midi->playback_rate = clamp(playback_rate, 0.1f, 32.0f);
 }
 
-inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags) {
+inline PlayingSound* play_soundtrack(GameState* game_state, Entity* soundtrack_player, u32 flags) {
     PlayingSound* result = 0;
-    Soundtrack* soundtrack = get_soundtrack(&game_state->assets, soundtrack_id);
+    Soundtrack* soundtrack = get_soundtrack(&game_state->assets, soundtrack_player->soundtrack_id);
     if (soundtrack) {
         Sound* sound = get_sound(&game_state->assets, soundtrack->sound);
         if (sound) {
             result = play_sound(&game_state->game_audio, sound, vec2(0.5f, 0.5f), flags);
             for (u32 midi_index = 0; midi_index < soundtrack->midi_track_count; midi_index++) {
                 MidiTrack* track = get_midi(&game_state->assets, soundtrack->midi_tracks[midi_index]);
-                PlayingMidi* playing_midi = play_midi(game_state, track, flags, result, soundtrack_id);
+                PlayingMidi* playing_midi = play_midi(game_state, track, flags, result, soundtrack_player);
             }
         }
     }
@@ -590,6 +590,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             } else if (menu->source_gamemode != GameMode_Ingame || game_state->game_mode == GameMode_Editor) {
                 play_level(game_state, game_state->active_level);
             }
+
             unpause_group(&game_state->game_audio, 1.0f);
             game_state->midi_paused = false;
         } break;
@@ -743,7 +744,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     game_state->ui_audio.mix_volume[0] = game_config->ui_volume;
     game_state->ui_audio.mix_volume[1] = game_config->ui_volume;
 
-    input->show_cursor = (game_state->game_mode == GameMode_Editor);
+    input->show_cursor = (game_state->game_mode == GameMode_Editor) || game_state->console_state->open;
 
     f32 frame_dt = input->frame_dt;
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
@@ -775,7 +776,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         u32 options       = (menu_items[item_index] = "Options", item_index++);
         u32 quit          = (menu_items[item_index] = menu->asking_for_quit_confirmation ? "Really Quit?" : "Quit", item_index++);
 
-        f32 spacing = 12.0f;
+        f32 spacing = 48.0f;
 
         u32 num_items  = item_index;
         f32 row_height = menu->font->size + get_line_spacing(menu->font) + spacing;
@@ -809,7 +810,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        UILayout layout = make_layout(layout_context, menu->big_font, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.5f*(cast(f32) num_items*row_height)), Layout_CenterAlign);
+        // @TODO: 0.25f*(cast(f32) num_items*row_height) doesn't make sense. But spacing for fonts / layouts is somewhat broken, so 0.25f seems to center it pretty well.
+        UILayout layout = make_layout(layout_context, menu->big_font, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.25f*(cast(f32) num_items*row_height)), Layout_CenterAlign);
         set_spacing(&layout, spacing);
 
         layout_print_line(&layout, COLOR_WHITE, "P U L S A R");

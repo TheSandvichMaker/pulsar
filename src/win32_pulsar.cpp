@@ -57,7 +57,7 @@ struct Win32State {
     GameConfig config;
 
     b32 xinput_valid;
-    b32 directsound_valid;
+    b32 dsound_valid;
 
     b32 log_file_valid;
     b32 log_memory_valid;
@@ -124,15 +124,12 @@ internal PLATFORM_LOG_PRINT(win32_log_print_internal) {
             message->next = win32_state.most_recent_log_message;
             win32_state.most_recent_log_message = message;
 
-            message->file = file;
-            message->function = function;
-
-            message->text = text_location;
+            message->file        = file;
+            message->function    = function;
+            message->text        = text_location;
             message->text_length = text_size;
-
-            message->line = line;
-
-            message->level = log_level;
+            message->line        = line;
+            message->level       = log_level;
 
             win32_state.unread_log_messages++;
             switch (message->level) {
@@ -306,7 +303,7 @@ internal b32 win32_init_xinput(XInputState* xinput_state) {
         result = true;
         xinput_state->GetState = cast(XInputGetState_t*) GetProcAddress(xinput_lib, "XInputGetState");
         xinput_state->SetState = cast(XInputSetState_t*) GetProcAddress(xinput_lib, "XInputSetState");
-        win32_log_print(LogLevel_Info, "Successfully loaded XInput %s",
+        win32_log_print(LogLevel_Info, "XInput: Successfully loaded XInput %s",
             xinput_state->version == XInput1_4 ? "1.4" :
             xinput_state->version == XInput1_3 ? "1.3" :
             xinput_state->version == XInput9_1_0 ? "9.1.0" :
@@ -326,10 +323,10 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
 
     LPDIRECTSOUNDBUFFER secondary_buffer = 0;
     if (dsound_lib) {
-        DirectSoundCreate_t* dsound_create = cast(DirectSoundCreate_t*) GetProcAddress(dsound_lib, "DirectSoundCreate");
+        DirectSoundCreate_t* DirectSoundCreate = cast(DirectSoundCreate_t*) GetProcAddress(dsound_lib, "DirectSoundCreate");
 
         LPDIRECTSOUND dsound;
-        if (dsound_create && SUCCEEDED(dsound_create(NULL, &dsound, NULL))) {
+        if (DirectSoundCreate && SUCCEEDED(DirectSoundCreate(NULL, &dsound, NULL))) {
             WAVEFORMATEX wave_format = {};
             wave_format.wFormatTag = WAVE_FORMAT_PCM;
             wave_format.nChannels = 2;
@@ -362,7 +359,7 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
             buffer_description.lpwfxFormat = &wave_format;
 
             if (SUCCEEDED(dsound->CreateSoundBuffer(&buffer_description, &secondary_buffer, NULL))) {
-                win32_state.directsound_valid = true;
+                win32_state.dsound_valid = true;
                 win32_log_print(LogLevel_Info, "DirectSound: Successfully initialized");
             } else {
                 win32_log_print(LogLevel_Error, "DirectSound: Failed to create secondary buffer");
@@ -374,7 +371,7 @@ internal LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, u32 sample_rate, u32
         win32_log_print(LogLevel_Error, "DirectSound: Failed to load library");
     }
 
-    if (!win32_state.directsound_valid) {
+    if (!win32_state.dsound_valid) {
         win32_log_print(LogLevel_Error, "DirectSound: Failed to load DirectSound. Sound playback unavailable");
     }
 
@@ -843,7 +840,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             sound_buffer.sample_rate = sound_output.sample_rate;
             sound_buffer.samples = cast(s16*) win32_allocate_memory(sound_output.buffer_size);
 
-            if (win32_state.directsound_valid) {
+            if (win32_state.dsound_valid) {
                 win32_clear_sound_buffer(&sound_output);
                 sound_output.buffer->Play(0, 0, DSBPLAY_LOOPING);
             }
@@ -1064,7 +1061,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 // Game Sound
                 //
 
-                if (win32_state.directsound_valid) {
+                if (win32_state.dsound_valid) {
                     DWORD play_cursor, write_cursor;
                     if (SUCCEEDED(sound_output.buffer->GetCurrentPosition(&play_cursor, &write_cursor))) {
                         DWORD padded_write_cursor = (write_cursor + sound_output.safety_bytes) % sound_output.buffer_size;

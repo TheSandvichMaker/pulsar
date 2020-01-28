@@ -154,6 +154,7 @@ static MemberDefinition MembersOf_PackedMidi[] = {
     { 0, MetaType_u16, 24, "time_signature_numerator", (unsigned int)&((PackedMidi*)0)->time_signature_numerator, sizeof(u16) },
     { 0, MetaType_u16, 26, "time_signature_denominator", (unsigned int)&((PackedMidi*)0)->time_signature_denominator, sizeof(u16) },
     { 0, MetaType_u32, 11, "event_count", (unsigned int)&((PackedMidi*)0)->event_count, sizeof(u32) },
+    { 0, MetaType_u32, 5, "flags", (unsigned int)&((PackedMidi*)0)->flags, sizeof(u32) },
 };
 
 static MemberDefinition MembersOf_PackedSoundtrack[] = {

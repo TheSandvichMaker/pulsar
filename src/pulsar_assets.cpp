@@ -236,6 +236,7 @@ inline f32 get_baseline_from_top(Font* font) {
     return result;
 }
 
+// @TODO: This really seems to not get you the results you expect. Why?
 inline f32 get_line_spacing(Font* font) {
     f32 result = font->ascent + font->descent + font->line_gap;
     return result;

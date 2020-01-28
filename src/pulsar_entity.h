@@ -98,6 +98,7 @@ struct Entity {
             v2 audible_zone;
             f32 horz_fade_region;
             f32 vert_fade_region;
+            b32 can_be_heard_by_player;
 
             PlayingSound* playing;
         };

@@ -78,7 +78,7 @@ struct PlayingMidi {
         PlayingMidi* next_free;
     };
 
-    SoundtrackID source_soundtrack;
+    Entity* source_soundtrack_player;
 
     // @Note: Without a sync sound, midi timing is going to be pretty rubbish.
     // With a sync sound however, it will be very good.
@@ -200,13 +200,13 @@ inline Entity* get_entities_for_type(GameState* game_state, EntityType type, u32
     return result;
 }
 
-#define for_entity_type(game_state, type, it_identifier)                                                   \
-    for (Entity* it_identifier = get_entities_for_type(game_state, type);                                  \
-         it_identifier < get_entities_for_type(game_state, type) + (game_state)->entity_type_counts[type]; \
-         it_identifier++)
+#define for_entity_type(game_state, type, it)                                 \
+    for (Entity* it = get_entities_for_type(game_state, type),                \
+               * it##_loop_end = it + (game_state)->entity_type_counts[type]; \
+         it < it##_loop_end;                                                  \
+         it++)
 
-inline b32 gjk_intersect_point(Transform2D t, Shape2D s, v2 p);
-inline PlayingSound* play_soundtrack(GameState* game_state, SoundtrackID soundtrack_id, u32 flags = 0);
+inline PlayingSound* play_soundtrack(GameState* game_state, Entity* soundtrack_player, u32 flags = 0);
 
 inline void switch_gamemode(GameState* game_state, GameMode game_mode);
 internal void write_level_to_disk(GameState* game_state, Level* level, String level_name);

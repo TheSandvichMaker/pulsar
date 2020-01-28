@@ -63,6 +63,10 @@ introspect() struct PackedFont {
      */
 };
 
+enum MidiFlag {
+    MidiFlag_IgnoreExtremes = 0x1, // Ignore the very first and last message (for tracks that want to tie notes across loop points)
+};
+
 // @Note: A more complete implementation would allow time signature and bpm to vary across the track.
 introspect() struct PackedMidi {
     u32 ticks_per_second;
@@ -70,6 +74,7 @@ introspect() struct PackedMidi {
     u16 time_signature_numerator;
     u16 time_signature_denominator;
     u32 event_count;
+    u32 flags;
 
     /* Data:
      * MidiEvent events[event_count];

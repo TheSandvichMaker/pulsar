@@ -64,7 +64,8 @@ enum MetaType {
     f32 beats_per_minute; \
     u16 time_signature_numerator; \
     u16 time_signature_denominator; \
-    u32 event_count;
+    u32 event_count; \
+    u32 flags;
 
 #define BodyOf_PackedSoundtrack \
     SoundID sound; \

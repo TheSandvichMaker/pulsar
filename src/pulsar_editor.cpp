@@ -549,55 +549,6 @@ inline String push_formatted_string_va(MemoryArena* arena, char* format_string, 
     return result;
 }
 
-#if 0
-struct PrintTextResult {
-    AxisAlignedBox2 bounds;
-    v2 at_p;
-};
-
-inline PrintTextResult print_text_at(RenderContext* rc, Assets* assets, Font* font, v2 p, String text) {
-    PrintTextResult result;
-    result.bounds = inverted_infinity_aab2();
-    result.at_p = p;
-
-    f32 vertical_advance = get_line_spacing(font);
-
-    while (chars_left(text)) {
-        char c0 = peek(text);
-        char c1 = peek_by(text, 1);
-
-        if (c0 == ' ') {
-            result.at_p.x += font->whitespace_width;
-        } else if (c0 == '\n') {
-            result.at_p.x  = p.x;
-            result.at_p.y += vertical_advance;
-        } else {
-            ImageID glyph_id = get_glyph_id_for_codepoint(font, c0);
-            if (glyph_id.value) {
-                Image* glyph = get_image(assets, glyph_id);
-                v2 rounded_p = vec2(roundf(result.at_p.x), roundf(result.at_p.y));
-
-                if (op == LayoutTextOp_Print) {
-                    push_image(rc, transform2d(rounded_p + vec2(1.0f, -1.0f), vec2(glyph->w, glyph->h)), glyph, vec4(0, 0, 0, color.a));
-                    push_image(rc, transform2d(rounded_p, vec2(glyph->w, glyph->h)), glyph, color);
-                }
-
-                AxisAlignedBox2 glyph_aab = offset(get_aligned_image_aab(glyph), p);
-                result.bounds = aab_union(result.bounds, glyph_aab);
-
-                if (c1 && in_font_range(font, c1)) {
-                    result.at_p.x += get_advance_for_codepoint_pair(font, c0, c1);
-                }
-            }
-        }
-
-        advance(&text);
-    }
-
-    return result;
-}
-#endif
-
 enum LayoutTextOp {
     LayoutTextOp_GetBounds,
     LayoutTextOp_Print,
@@ -611,17 +562,12 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
 
     Font* font = layout->font;
 
-    // @TODO: layout_text_bounds doesn't take align flags into account
-    v2 old_at_p = layout->at_p;
-    v2 old_offset_p = layout->offset_p;
+    v2 at_p = layout->at_p;
+    v2 offset_p = layout->offset_p;
     if (op == LayoutTextOp_Print && (layout->flags & Layout_CenterAlign)) {
         v2 dim = get_dim(layout_text_bounds(layout, text.data));
-        if (layout->flags & Layout_HorzCenterAlign) {
-            layout->offset_p.x -= 0.5f*dim.x;
-        }
-        if (layout->flags & Layout_VertCenterAlign) {
-            layout->offset_p.y -= 0.5f*dim.y;
-        }
+        if (layout->flags & Layout_HorzCenterAlign) offset_p.x -= 0.5f*dim.x;
+        if (layout->flags & Layout_VertCenterAlign) offset_p.y -= 0.5f*dim.y;
     }
 
     if (!layout->print_initialized) {
@@ -629,22 +575,23 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
         layout->print_initialized = true;
     } else {
         if (layout->last_codepoint && text.data[0]) {
-            layout->at_p.x += get_advance_for_codepoint_pair(font, layout->last_codepoint, text.data[0]);
+            at_p.x += get_advance_for_codepoint_pair(font, layout->last_codepoint, text.data[0]);
         }
     }
 
+    u32 last_codepoint = layout->last_codepoint;
     for (char* at = text.data; at[0]; at++) {
-        layout->last_codepoint = at[0];
+        last_codepoint = at[0];
         if (at[0] == ' ') {
-            layout->at_p.x += font->whitespace_width;
+            at_p.x += font->whitespace_width;
         } else if (at[0] == '\n') {
-            layout->at_p.x  = layout->origin.x;
-            layout->at_p.y += layout->vertical_advance;
+            at_p.x  = layout->origin.x;
+            at_p.y += layout->vertical_advance;
         } else if (in_font_range(font, at[0])) {
             ImageID glyph_id = get_glyph_id_for_codepoint(font, at[0]);
             if (glyph_id.value) {
                 Image* glyph = get_image(layout->context.assets, glyph_id);
-                v2 p = vec2(roundf(layout->offset_p.x + layout->at_p.x), roundf(layout->offset_p.y + layout->at_p.y)) + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
+                v2 p = vec2(roundf(offset_p.x + at_p.x), roundf(offset_p.y + at_p.y)) + vec2(layout->depth*font->whitespace_width*4.0f, 0.0f);
 
                 if (op == LayoutTextOp_Print) {
                     if (glyph) {
@@ -661,10 +608,11 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
                 } else {
                     glyph_aab = aab_min_dim(vec2(0, 0), vec2(font->size, font->size));
                 }
+
                 layout->last_print_bounds = aab_union(layout->last_print_bounds, glyph_aab);
 
                 if (in_font_range(font, at[1])) {
-                    layout->at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
+                    at_p.x += get_advance_for_codepoint_pair(font, at[0], at[1]);
                 }
             }
         } else {
@@ -672,10 +620,17 @@ internal void layout_text_op_va(UILayout* layout, LayoutTextOp op, v4 color, cha
         }
     }
 
-    layout->offset_p = old_offset_p;
     if (op == LayoutTextOp_GetBounds) {
-        layout->at_p = old_at_p;
+        if (layout->flags & Layout_CenterAlign) {
+            v2 dim = get_dim(layout->last_print_bounds);
+            v2 the_offset = vec2(0, 0);
+            if (layout->flags & Layout_HorzCenterAlign) the_offset.x -= 0.5f*dim.x;
+            if (layout->flags & Layout_VertCenterAlign) the_offset.y -= 0.5f*dim.y;
+            layout->last_print_bounds = offset(layout->last_print_bounds, the_offset);
+        }
     } else {
+        layout->at_p = at_p;
+        layout->last_codepoint = last_codepoint;
         layout->total_bounds = aab_union(layout->total_bounds, layout->last_print_bounds);
     }
 
@@ -708,7 +663,8 @@ internal AxisAlignedBox2 layout_finish_print(UILayout* layout) {
 
 inline AxisAlignedBox2 layout_text_bounds_va(UILayout* layout, char* format_string, va_list va_args) {
     layout_text_op_va(layout, LayoutTextOp_GetBounds, COLOR_WHITE, format_string, va_args);
-    AxisAlignedBox2 result = layout_finish_print(layout);
+    AxisAlignedBox2 result = layout->last_print_bounds;
+    layout->print_initialized = false;
     return result;
 }
 
@@ -1236,21 +1192,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->next_hot_widget = select_entities;
     }
 
-#if 0
-    layout_print_line(&layout, COLOR_WHITE, "Mouse P: { %f, %f }, World Mouse P: { %f, %f }", mouse_p.x, mouse_p.y, world_mouse_p.x, world_mouse_p.y);
-    layout_print_line(&layout, COLOR_WHITE, "Camera Target: EntityID { %u }", checked_access(game_state->camera_target, guid.value));
-    layout_print_line(&layout, COLOR_WHITE, "Camera Position: { %f, %f }", game_state->render_context.camera_p.x, game_state->render_context.camera_p.y);
-    layout_print_line(&layout, COLOR_WHITE, "Camera Transition: %f", game_state->camera_transition_t);
-    layout_print_line(&layout, COLOR_WHITE, "Active Camera Zone: EntityID { %u }", checked_access(game_state->active_camera_zone, guid.value));
-    layout_print_line(&layout, COLOR_WHITE, "Previous Camera Zone: EntityID { %u }", checked_access(game_state->previous_camera_zone, guid.value));
-    layout_print_line(&layout, COLOR_WHITE, "Player Respawn Timer: %f", game_state->player_respawn_timer);
-    if (game_state->player) {
-        layout_print_line(&layout, COLOR_WHITE, "Player Position: { %f, %f }", game_state->player->p.x, game_state->player->p.y);
-    }
-
-    layout_print_line(&layout, COLOR_WHITE, "");
-#endif
-
     layout_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
     if (editor->level_saved_timer > 0.0f) {
         layout_print(&layout, vec4(1.0f, 1.0f, 1.0f, clamp01(editor->level_saved_timer)), "  (Saved...)");
@@ -1330,7 +1271,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     } break;
                 }
                 if (footer->batch_id) {
-                    layout_print(&undo_log, color, " batch id: %u", footer->batch_id);
+                    // layout_print(&undo_log, color, " batch id: %u", footer->batch_id);
                     last_seen_batch_id = footer->batch_id;
                 }
                 layout_finish_print(&undo_log);
@@ -1355,7 +1296,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         for (PlayingSound* playing_sound = group->first_playing_sound; playing_sound; playing_sound = playing_sound->next) {
             Sound* sound = playing_sound->sound;
             Asset* asset = cast(Asset*) sound;
-            layout_print_line(&sound_log, COLOR_WHITE, "Sound %.*s: Samples played: %u, Volume: { %g, %g }", PRINTF_STRING(asset->name), playing_sound->samples_played, playing_sound->volume.current_volume[0], playing_sound->volume.current_volume[1]);
+            f32 volume_left  = playing_sound->volume.current_volume[0];
+            f32 volume_right = playing_sound->volume.current_volume[1];
+            v4 color = COLOR_WHITE;
+            if (volume_left < 1.0e-4f && volume_right < 1.0e-4f) {
+                color = COLOR_GREY;
+            }
+            layout_print_line(&sound_log, color, "Sound %.*s: Samples played: %u, Volume: { %g, %g }", PRINTF_STRING(asset->name), playing_sound->samples_played, volume_left, volume_right);
         }
         sound_log.depth--;
     }
@@ -1365,7 +1312,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     sound_log.depth++;
     for (PlayingMidi* playing_midi = game_state->first_playing_midi; playing_midi; playing_midi = playing_midi->next) {
         MidiTrack* track = playing_midi->track;
-        layout_print_line(&sound_log, COLOR_WHITE, "Track from SoundtrackID { %u }: bpm: %g, %u events, tick timer: %u, event_index: %u", track->beats_per_minute, playing_midi->source_soundtrack.value, track->event_count, playing_midi->tick_timer, playing_midi->event_index);
+        v4 color = playing_midi->source_soundtrack_player->can_be_heard_by_player ? COLOR_WHITE : COLOR_GREY;
+        layout_print_line(&sound_log, color, "Track from SoundtrackID { %u }: bpm: %g, %u events, tick timer: %u, event_index: %u", playing_midi->source_soundtrack_player->soundtrack_id.value, track->beats_per_minute, track->event_count, playing_midi->tick_timer, playing_midi->event_index);
     }
     sound_log.depth--;
 

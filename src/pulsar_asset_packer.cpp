@@ -407,13 +407,19 @@ internal AssetDescription* add_font(char* asset_name, char* file_name, u32 size)
     return desc;
 }
 
-internal AssetDescription* add_midi_track(char* asset_name, char* file_name, f32 bpm) {
+internal AssetDescription* add_midi_track(char* asset_name, char* file_name, f32 bpm, u32 flags = 0) {
     AssetDescription* desc = add_asset(asset_name, file_name);
     desc->bpm = bpm;
+    desc->packed.midi.flags = flags;
     return desc;
 }
 
-internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, char** midi_files, f32 bpm) {
+struct MidiSourceInfo {
+    char* file_name;
+    u32 flags;
+};
+
+internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u32 midi_file_count, MidiSourceInfo* midi_sources, f32 bpm) {
     AssetDescription* desc = add_asset(asset_name, 0);
     desc->data_type = AssetDataType_Soundtrack;
     desc->bpm = bpm;
@@ -422,7 +428,8 @@ internal AssetDescription* add_soundtrack(char* asset_name, char* audio_file, u3
     desc->packed.soundtrack.midi_track_count = midi_file_count;
     desc->midi_tracks = push_array(&global_arena, midi_file_count, MidiID, no_clear());
     for (u32 midi_index = 0; midi_index < midi_file_count; midi_index++) {
-        desc->midi_tracks[midi_index] = { add_midi_track(0, midi_files[midi_index], bpm)->asset_index };
+        MidiSourceInfo* midi_source = midi_sources + midi_index;
+        desc->midi_tracks[midi_index] = { add_midi_track(0, midi_source->file_name, bpm, midi_source->flags)->asset_index };
     }
     return desc;
 }
@@ -438,16 +445,16 @@ int main(int argument_count, char** arguments) {
     allocate_array(&asset_descriptions, 64, allocator(arena_allocator, &global_arena));
 
     {
-        char* midi_files[] = { "assets/pulsar_kicktrack_1.mid" };
+        MidiSourceInfo midi_files[] = { "assets/pulsar_kicktrack_1.mid", 0 };
         add_soundtrack("pulsar_kicktrack_1", "assets/pulsar_kicktrack_1.wav", ARRAY_COUNT(midi_files), midi_files, 95);
     }
 
     {
-        char* midi_files[] = { "assets/demo_level_loop_1.mid" };
+        MidiSourceInfo midi_files[] = { "assets/demo_level_loop_1.mid", 0 };
         add_soundtrack("demo_level_loop_1", "assets/demo_level_loop_1_drums.wav", ARRAY_COUNT(midi_files), midi_files, 95);
         add_soundtrack("demo_level_loop_1_pad", "assets/demo_level_loop_1_pad.wav", 0, 0, 95);
 
-        char* bells_midi_files[] = { "assets/demo_level_loop_1_bells.mid" };
+        MidiSourceInfo bells_midi_files[] = { "assets/demo_level_loop_1_bells.mid", MidiFlag_IgnoreExtremes };
         add_soundtrack("demo_level_loop_1_bells", "assets/demo_level_loop_1_bells.wav", ARRAY_COUNT(bells_midi_files), bells_midi_files, 95);
     }
 
@@ -580,6 +587,7 @@ int main(int argument_count, char** arguments) {
                         s32 ascent, descent, line_gap;
                         stbtt_GetFontVMetrics(&font_info, &ascent, &descent, &line_gap);
 
+                        // @TODO: Why am I not getting good fun happy results using these values?
                         f32 scaled_ascent = (rcp_oversample_amount*font_scale) * cast(f32) ascent;
                         f32 scaled_descent = (rcp_oversample_amount*font_scale) * cast(f32) descent;
                         f32 scaled_line_gap = (rcp_oversample_amount*font_scale) * cast(f32) line_gap;
