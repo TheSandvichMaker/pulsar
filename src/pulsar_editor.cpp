@@ -994,66 +994,64 @@ inline v2 snap_to_grid(EditorState* editor, v2 p) {
 
 inline EditorWidget drag_region_widget(GameState* game_state, EditorState* editor, v2 p, EntityData<v2> target) {
     EditorWidget widget = {};
-    widget.type = Widget_DragRegion;
     widget.guid = &widget;
+    widget.type = Widget_DragRegion;
     widget.description = "Drag Region";
-
-    EditorWidgetDragRegion* drag_region = &widget.drag_region;
 
     Entity* entity = get_entity_from_guid(editor, target.guid);
 
-    v2 zone = *get_data(editor, target);
-    drag_region->original = zone;
-    drag_region->original_p = entity->p;
+    v2* region = get_data(editor, target);
+    v2  region_value = *region;
 
-    drag_region->target = target;
+    widget.drag_region.original   = region_value;
+    widget.drag_region.original_p = entity->p;
+    widget.drag_region.target     = target;
 
+    v2 corner_box_size = vec2(0.25f, 0.25f) / editor->zoom;
     v4 corner_color = is_hot(editor, widget) || is_active(editor, widget) ? COLOR_RED : COLOR_YELLOW;
 
     Transform2D t = transform2d(p);
 
-    v2 corner_box_size = vec2(0.25f, 0.25f) / editor->zoom;
-
     {
-        v2 corner = 0.5f*vec2(-zone.x, -zone.y);
+        v2 corner = 0.5f*vec2(-region_value.x, -region_value.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_region->scaling = vec2(-1.0f, -1.0f);
+            widget.drag_region.scaling = vec2(-1.0f, -1.0f);
             editor->next_hot_widget = widget;
         }
     }
 
     {
-        v2 corner = 0.5f*vec2(zone.x, -zone.y);
+        v2 corner = 0.5f*vec2(region_value.x, -region_value.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_region->scaling = vec2(1.0f, -1.0f);
+            widget.drag_region.scaling = vec2(1.0f, -1.0f);
             editor->next_hot_widget = widget;
         }
     }
 
     {
-        v2 corner = 0.5f*vec2(zone.x, zone.y);
+        v2 corner = 0.5f*vec2(region_value.x, region_value.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_region->scaling = vec2(1.0f, 1.0f);
+            widget.drag_region.scaling = vec2(1.0f, 1.0f);
             editor->next_hot_widget = widget;
         }
     }
 
     {
-        v2 corner = 0.5f*vec2(-zone.x, zone.y);
+        v2 corner = 0.5f*vec2(-region_value.x, region_value.y);
         AxisAlignedBox2 corner_box = aab_center_dim(corner, corner_box_size);
         push_shape(&game_state->render_context, t, rectangle(corner_box), corner_color, ShapeRenderMode_Fill, 2000.0f);
 
         if (is_in_aab(offset(corner_box, t.offset), editor->world_mouse_p)) {
-            drag_region->scaling = vec2(-1.0f, 1.0f);
+            widget.drag_region.scaling = vec2(-1.0f, 1.0f);
             editor->next_hot_widget = widget;
         }
     }
@@ -1083,7 +1081,7 @@ inline b32 editor_button(EditorState* editor, UILayout* layout, GameInput* input
 
     EditorWidget button = generic_widget(title, "Button");
     if (is_active(editor, button)) {
-        color = COLOR_CYAN;
+        color = COLOR_RED;
         if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
             result = true;
             clear_active(editor);
@@ -1212,6 +1210,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     Level* level = game_state->active_level;
+
+    // @Note: It's important these come above any other widget, because any other widget should be able to override them.
+    if (input->space.is_down) {
+        editor->next_hot_widget = pan_widget;
+    } else {
+        editor->next_hot_widget = group_select;
+    }
 
 #if 0
     layout_print_line(&layout, COLOR_WHITE, "Mouse P: { %f, %f }, World Mouse P: { %f, %f }", mouse_p.x, mouse_p.y, world_mouse_p.x, world_mouse_p.y);
@@ -1380,12 +1385,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         } else if (was_pressed(get_key(input, 'R'))) {
             redo(editor);
         }
-    }
-
-    if (input->space.is_down) {
-        editor->next_hot_widget = pan_widget;
-    } else {
-        editor->next_hot_widget = group_select;
     }
 
     if (is_active(editor, pan_widget)) {
@@ -1619,37 +1618,30 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->show_all_move_widgets = !editor->show_all_move_widgets;
     }
 
-    if (editor->show_all_move_widgets) {
-        // @TODO: Get a for_entity_type in the editor
-        // @TODO: Restore selected entity behaviour
-        u32 shown_entity_count = level->entity_count;
-        u32 entity_index = 0;
-        Entity* entity = level->entities;
-        while (entity) {
+    if (editor->selected_entity_count || editor->show_all_move_widgets) {
+        u32 entity_count = editor->selected_entity_count ? editor->selected_entity_count : level->entity_count;
+
+        for (u32 entity_index = 0; entity_index < entity_count; entity_index++) {
+            Entity* entity = 0;
+
+            if (editor->selected_entity_count) {
+                entity = get_entity_from_guid(editor, editor->selected_entities[entity_index]);
+            } else {
+                entity = level->entities + entity_index;
+            }
+
+            // @TODO: Get a for_entity_type in the editor?
             if (entity->type == EntityType_Wall && entity->behaviour == WallBehaviour_Move) {
-                EditorWidget widget;
+                EditorWidget widget = {};
                 widget.guid = entity;
                 widget.type = Widget_DragP;
-                widget.drag_p.original_p = entity->end_p;
+                widget.description = "Drag Position";
+
+                widget.drag_p.original_p  = entity->end_p;
                 widget.drag_p.drag_offset = world_mouse_p - entity->end_p;
-                widget.drag_p.target = wrap_entity_data(entity, &entity->end_p);
+                widget.drag_p.target      = wrap_entity_data(entity, &entity->end_p);
 
-                if (is_active(editor, widget)) {
-                    v2* target = get_data(editor, editor->active_widget.drag_p.target);
-                    v2 original_p = editor->active_widget.drag_p.original_p;
-                    v2 drag_offset = editor->active_widget.drag_p.drag_offset;
-                    *target = original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                    if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                        clear_active(editor);
-                    }
-                } else if (is_hot(editor, widget)) {
-                    if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-                        add_entity_data_undo_history(editor, editor->hot_widget.drag_p.target);
-                        set_active(editor, editor->hot_widget);
-                    }
-                }
-
-                v3 fill_color = is_active(editor, widget) ? COLOR_RED.rgb : entity->color.rgb;
+                v3 fill_color    = is_active(editor, widget) ? COLOR_RED.rgb : entity->color.rgb;
                 v3 outline_color = is_active(editor, widget) || is_hot(editor, widget) ? COLOR_RED.rgb : entity->color.rgb;
 
                 push_rect(&game_state->render_context, aab_center_dim(entity->end_p, entity->collision), vec4(fill_color, 0.25f));
@@ -1659,13 +1651,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 if (is_in_region(entity->collision, world_mouse_p - entity->end_p)) {
                     editor->next_hot_widget = widget;
                 }
-            }
-
-            entity_index++;
-            if (entity_index < shown_entity_count) {
-                entity = level->entities + entity_index;
-            } else {
-                entity = 0;
             }
         }
     }
@@ -1816,52 +1801,9 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (editor->active_widget.type) {
         switch (editor->active_widget.type) {
-#if 0
-            case Widget_ManipulateEntity: {
-                EditorWidget* widget = &editor->active_widget;
-                Entity* entity = get_entity_from_guid(editor, widget->manipulate.guid); // @WidgetEntityData
-                editor->selected_entity_count = 1;
-                editor->selected_entities[0] = entity->guid;
-                switch (widget->manipulate.type) {
-                    case Manipulate_Default: {
-                        f32 drag_distance = length(mouse_p - editor->mouse_p_on_active);
-                        if (input->mouse_buttons[PlatformMouseButton_Left].is_down && drag_distance > 5.0f) {
-                            editor->selected_entity = widget->manipulate.guid;
-                            widget->manipulate.type = Manipulate_DragEntity;
-                            widget->manipulate.original_p = entity->p;
-                            add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p));
-                        } else if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                            if (moused_over) {
-                                editor->selected_entity = moused_over->guid;
-                            }
-                            clear_active(editor);
-                        }
-                    } break;
-
-                    case Manipulate_DragEntity: {
-                        entity->p = widget->manipulate.original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
-                        if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
-                            editor->selected_entity = { 0 };
-                            clear_active(editor);
-                        } else if (was_released(input->mouse_buttons[PlatformMouseButton_Right])) {
-                            editor->selected_entity = { 0 };
-                            clear_active(editor);
-                            undo(editor);
-                        }
-                    } break;
-
-                    case Manipulate_DeleteEntity: {
-                        delete_entity(editor, widget->manipulate.guid);
-                        editor->selected_entity_count = 0;
-                        clear_active(editor);
-                    } break;
-                }
-            } break;
-#endif
-
             case Widget_DragRegion: {
                 EditorWidgetDragRegion* drag_region = &editor->active_widget.drag_region;
-                Entity* entity = get_entity_from_guid(editor, drag_region->target.guid);
+                Entity* entity = get_entity_from_guid(editor, drag_region->target.guid); // @WidgetEntityData
                 v2* target = get_data(editor, drag_region->target);
 
                 v2 mouse_delta = world_mouse_p - editor->world_mouse_p_on_active;
@@ -1871,6 +1813,17 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     target->x = aspect_ratio*target->y;
                 }
                 entity->p = drag_region->original_p + 0.5f*snap_to_grid(editor, mouse_delta);
+
+                if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    clear_active(editor);
+                }
+            } break;
+
+            case Widget_DragP: {
+                v2* target = get_data(editor, editor->active_widget.drag_p.target);
+                v2 original_p = editor->active_widget.drag_p.original_p;
+                v2 drag_offset = editor->active_widget.drag_p.drag_offset;
+                *target = original_p + snap_to_grid(editor, world_mouse_p - editor->world_mouse_p_on_active);
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
                     clear_active(editor);
                 }
@@ -1878,20 +1831,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     } else if (editor->hot_widget.type) {
         switch (editor->hot_widget.type) {
-#if 0
-            case Widget_ManipulateEntity: {
-                EditorWidget widget = editor->hot_widget;
-                if (input->del.is_down && input->mouse_buttons[PlatformMouseButton_Left].is_down) {
-                    widget.manipulate.type = Manipulate_DeleteEntity;
-                    set_active(editor, widget);
-                } else if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
-                    Entity* entity = get_entity_from_guid(editor, widget.manipulate.guid); // @WidgetEntityData
-                    widget.manipulate.drag_offset = world_mouse_p - entity->p;
-                    set_active(editor, widget);
-                }
-            } break;
-#endif
-
             case Widget_DragRegion: {
                 EditorWidgetDragRegion* drag_region = &editor->hot_widget.drag_region;
                 if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
@@ -1903,10 +1842,15 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     set_active(editor, editor->hot_widget);
                 }
             } break;
+
+            case Widget_DragP: {
+                if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    add_entity_data_undo_history(editor, editor->hot_widget.drag_p.target);
+                    set_active(editor, editor->hot_widget);
+                }
+            } break;
         }
     }
-
-    layout_print_line(&layout, COLOR_WHITE, "Next Hot Widget: %s, guid: 0x%x, desc: %s", widget_name(editor->next_hot_widget), cast(uintptr_t) editor->next_hot_widget.guid, editor->next_hot_widget.description);
 
     editor->hot_widget = editor->next_hot_widget;
     editor->next_hot_widget = {};
