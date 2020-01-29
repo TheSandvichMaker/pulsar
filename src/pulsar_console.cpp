@@ -26,8 +26,10 @@ internal CONSOLE_COMMAND(cc_save_level) {
 
 internal CONSOLE_COMMAND(cc_repair_entity_guids) {
     Level* level = game_state->active_level;
+
     b32 had_to_do_something = false;
     b32 first_available_guid_was_adjusted = false;
+
     for (u32 outer_entity_index = 1; outer_entity_index < level->entity_count; outer_entity_index++) {
         Entity* outer = level->entities + outer_entity_index;
 
@@ -87,14 +89,21 @@ internal CONSOLE_COMMAND(cc_find_entity) {
 
 internal CONSOLE_COMMAND(cc_set_soundtrack) {
     if (editor->selected_entity_count) {
+        begin_undo_batch(editor);
         for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
             Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
             if (entity) {
                 SoundtrackID soundtrack_id = get_soundtrack_id_by_name(editor->assets, arguments);
                 if (soundtrack_id.value) {
                     switch (entity->type) {
-                        case EntityType_SoundtrackPlayer: { entity->soundtrack_id = soundtrack_id; } break;
-                        case EntityType_Wall: { entity->listening_to = soundtrack_id; } break;
+                        case EntityType_SoundtrackPlayer: {
+                            add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->soundtrack_id), "Set Soundtrack");
+                            entity->soundtrack_id = soundtrack_id;
+                        } break;
+                        case EntityType_Wall: {
+                            add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->listening_to), "Set Soundtrack");
+                            entity->listening_to = soundtrack_id;
+                        } break;
                         default: { log_print(LogLevel_Error, "Selected entity of type %s does not have any set_soundtrack behaviour", enum_name(EntityType, entity->type)); } break;
                     }
                 } else {
@@ -102,21 +111,42 @@ internal CONSOLE_COMMAND(cc_set_soundtrack) {
                 }
             }
         }
+        end_undo_batch(editor);
     } else {
         log_print(LogLevel_Error, "No entity selected");
     }
 }
 
-internal CONSOLE_COMMAND(cc_switch_gamemode) {
+internal CONSOLE_COMMAND(cc_toggle_invisible) {
+    if (editor->selected_entity_count) {
+        begin_undo_batch(editor);
+        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+            Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+            if (entity) {
+                add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->flags), "Toggle Visibility");
+                if (entity->flags & EntityFlag_Invisible) {
+                    entity->flags &= ~EntityFlag_Invisible;
+                } else {
+                    entity->flags |=  EntityFlag_Invisible;
+                }
+            }
+        }
+        end_undo_batch(editor);
+    } else {
+        log_print(LogLevel_Error, "No entity selected");
+    }
+}
+
+internal CONSOLE_COMMAND(cc_switch_game_mode) {
     for (u32 mode_index = 0; mode_index < GameMode_Count; mode_index++) {
         GameMode mode = cast(GameMode) mode_index;
-        char* mode_name = enum_name(GameMode, mode);
+        String mode_name = wrap_cstr(enum_name(GameMode, mode));
 
-        if (mode_name &&
+        if (mode_name.len &&
             (strings_are_equal(arguments, mode_name, StringMatch_CaseInsenitive) ||
-             strings_are_equal(arguments, mode_name + sizeof("GameMode_") - 1, StringMatch_CaseInsenitive))
+             strings_are_equal(arguments, tail(mode_name, sizeof("GameMode_") - 1), StringMatch_CaseInsenitive))
         ) {
-            switch_gamemode(game_state, cast(GameMode) mode_index);
+            switch_game_mode(game_state, cast(GameMode) mode_index);
         }
     }
 }
@@ -211,7 +241,8 @@ global ConsoleCommand console_commands[] = {
     console_command(repair_entity_guids),
     console_command(find_entity),
     console_command(set_soundtrack),
-    console_command(switch_gamemode),
+    console_command(toggle_invisible),
+    console_command(switch_game_mode),
     console_command(set),
     console_command(dump_config),
     console_command(kill_player),
@@ -227,7 +258,7 @@ inline void execute_console_command(GameState* game_state, GameInput* input, Str
     if (in_buffer.data[0] != '/') {
         String command = advance_word(&in_buffer);
         if (command.len > 0) {
-            if (strings_are_equal(command, "?") || strings_are_equal(command, "help")) {
+            if (strings_are_equal(command, string_literal("?")) || strings_are_equal(command, string_literal("help"))) {
                 log_print(LogLevel_Info, "Available commands:");
                 for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
                     ConsoleCommand candidate = console_commands[command_index];

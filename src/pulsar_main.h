@@ -105,7 +105,7 @@ struct CameraView {
 };
 
 struct MenuState {
-    GameMode source_gamemode;
+    GameMode source_game_mode;
 
     Font* font;
     Font* big_font;
@@ -171,6 +171,7 @@ struct GameState {
     Level* active_level;
 
     f32 level_intro_timer;
+    f32 level_outro_timer;
 
     b32 midi_paused;
     PlayingMidi* first_playing_midi;
@@ -208,7 +209,7 @@ inline Entity* get_entities_for_type(GameState* game_state, EntityType type, u32
 
 inline PlayingSound* play_soundtrack(GameState* game_state, Entity* soundtrack_player, u32 flags = 0);
 
-inline void switch_gamemode(GameState* game_state, GameMode game_mode);
+inline void switch_game_mode(GameState* game_state, GameMode game_mode);
 internal void write_level_to_disk(GameState* game_state, Level* level, String level_name);
 internal b32 load_level_from_disk(GameState* game_state, Level* level, String level_name);
 internal void load_level(GameState* game_state, String level_name);

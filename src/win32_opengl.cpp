@@ -110,7 +110,7 @@ internal void wgl_load_extensions(WglInfo* info) {
                     size_t count = end - at;
 
                     String substr = wrap_string(count, at);
-#define GL_CHECK_EXTENSION(name) (strings_are_equal(substr, #name)) { info->name = true; }
+#define GL_CHECK_EXTENSION(name) (strings_are_equal(substr, string_literal(#name))) { info->name = true; }
                     if      GL_CHECK_EXTENSION(WGL_EXT_framebuffer_sRGB)
                     else if GL_CHECK_EXTENSION(WGL_ARB_multisample)
 #undef GL_CHECK_EXTENSION

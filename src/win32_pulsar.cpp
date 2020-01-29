@@ -634,7 +634,9 @@ inline b32 parse_config(GameConfig* config, String in_file) {
             MemberDefinition* member = members_of(GameConfig) + member_index;
             void** member_ptr = member_ptr(config, member);
 
-            if (strings_are_equal(member->name, key)) {
+            String member_name = wrap_string(member->name_length, member->name);
+
+            if (strings_are_equal(member_name, key)) {
                 found_matching_member = true;
                 b32 successful_parse = true;
 
@@ -644,9 +646,9 @@ inline b32 parse_config(GameConfig* config, String in_file) {
 
                 switch (member->type) {
                     case meta_type(b32): {
-                        if (strings_are_equal(value, "true", StringMatch_CaseInsenitive) || strings_are_equal(value, "1")) {
+                        if (strings_are_equal(value, string_literal("true"), StringMatch_CaseInsenitive) || strings_are_equal(value, string_literal("1"))) {
                             *(cast(b32*) member_ptr) = true;
-                        } else if (strings_are_equal(value, "false", StringMatch_CaseInsenitive) || strings_are_equal(value, "0")) {
+                        } else if (strings_are_equal(value, string_literal("false"), StringMatch_CaseInsenitive) || strings_are_equal(value, string_literal("0"))) {
                             *(cast(b32*) member_ptr) = false;
                         } else {
                             successful_parse = false;
@@ -671,7 +673,6 @@ inline b32 parse_config(GameConfig* config, String in_file) {
                         }
                     } break;
 
-                    case meta_type(char):
                     case meta_type(u8):
                     case meta_type(u16):
                     case meta_type(u32):
@@ -812,6 +813,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 win32_toggle_fullscreen(window);
             }
 
+            SetCursor(arrow_cursor);
             ShowWindow(window, show_code);
 
             HDC window_dc = GetDC(window);
@@ -921,7 +923,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 // @Note: sound_overdraw_frames defines (@TODO: should define - I haven't tested it properly) the number of frames you can miss before the game starts having audible
                 // audio glitches.
                 u32 sound_safety_frames = win32_state.config.directsound_safety_frames;
-                u32 max_directsound_byte_overdraw = sound_output.bytes_per_sample*cast(u32) (sound_output.sample_rate*((1 + cast(f32) sound_safety_frames)*(1.0f / game_update_rate)));
+                u32 max_dsound_byte_overdraw = sound_output.bytes_per_sample*cast(u32) (sound_output.sample_rate*((1 + cast(f32) sound_safety_frames)*(1.0f / game_update_rate)));
 
                 //
                 // Rendering setup
@@ -1005,8 +1007,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 GetKeyboardState(keyboard_state);
                 win32_handle_remaining_messages(new_input, keyboard_state);
 
-                GameController* keyboard_controller = &new_input->controllers[0];
-
                 if (win32_state.xinput_valid) {
                     for (u32 controller_index = 0; controller_index < XUSER_MAX_COUNT; controller_index++) {
                         GameController* old_controller = &old_input->controllers[1 + controller_index];
@@ -1078,7 +1078,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                                 unwrapped_play_cursor += sound_output.buffer_size;
                             }
 
-                            bytes_to_write = MIN(unwrapped_play_cursor - padded_write_cursor, max_directsound_byte_overdraw);
+                            bytes_to_write = MIN(unwrapped_play_cursor - padded_write_cursor, max_dsound_byte_overdraw);
                         }
 
                         DWORD samples_committed;
@@ -1110,6 +1110,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 //
 
                 win32_output_image(&render_commands, window_dc);
+
                 game_post_render(&game_memory, new_input, &render_commands);
 
                 win32_state.config = game_memory.config;

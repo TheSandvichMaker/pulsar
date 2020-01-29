@@ -24,6 +24,7 @@ enum MetaType {
     MetaType_EntityFlag,
     MetaType_EntityType,
     MetaType_WallBehaviour,
+    MetaType_TriggerBehaviour,
     MetaType_GameMode,
     MetaType_GameConfig,
     MetaType_b32,
@@ -120,6 +121,7 @@ enum MetaType {
     f32 player_respawn_speed; \
     f32 player_walk_cycle_length; \
     f32 level_intro_speed; \
+    f32 level_outro_speed; \
     f32 background_pulse_intensity; \
     f32 background_pulse_world_shake_intensity; \
     f32 background_pulse_spring_force; \

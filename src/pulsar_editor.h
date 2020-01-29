@@ -65,6 +65,7 @@ enum EditableType {
     Editable_EntityFlag,
     Editable_EntityPtr,
     Editable_WallBehaviour,
+    Editable_TriggerBehaviour,
 };
 
 struct EditableParameter {
@@ -137,6 +138,7 @@ inline EditorWidget stateless_widget(void* guid, char* description) {
 struct EntityHash {
     EntityID guid;
     u32 index;
+    u32 gamestate_index;
 };
 
 introspect() enum EntityPrefab {
@@ -162,6 +164,7 @@ struct EditorState {
     ImageID camera_icon;
     ImageID speaker_icon;
     ImageID checkpoint_icon;
+    ImageID trigger_icon;
 
     Font* font;
 
@@ -195,6 +198,7 @@ struct EditorState {
     b32 show_camera_zones;
     b32 show_soundtrack_player_zones;
     b32 show_checkpoint_zones;
+    b32 show_trigger_zones;
 
     EditorWidget next_hot_widget;
     EditorWidget hot_widget;

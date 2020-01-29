@@ -46,18 +46,16 @@ typedef SERIALIZE_CALLBACK(SerializeCallback);
 struct Serializable {
     SerializeCallback* callback;
 
-    char* name;
-    u32 name_length;
+    String name;
     s32 type; // @Note: Why does the compiler want EntityType to be signed? @TODO: could use C++11 enum type specifiers if I made the code generator not barf on them
     u32 offset;
     u32 size;
 };
 
-inline Serializable create_serializable(u32 name_length, char* name, s32 type, u32 offset, u32 size, SerializeCallback* callback = 0) {
+inline Serializable create_serializable(String name, s32 type, u32 offset, u32 size, SerializeCallback* callback = 0) {
     Serializable result;
     result.callback = callback;
     result.name = name;
-    result.name_length = name_length;
     result.type = type;
     result.offset = offset;
     result.size = size;
@@ -65,7 +63,7 @@ inline Serializable create_serializable(u32 name_length, char* name, s32 type, u
 }
 
 #define SERIALIZABLE(struct_type, identifying_type, member, ...) \
-    create_serializable(sizeof(#member) - 1, #member, identifying_type, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
+    create_serializable(string_literal(#member), identifying_type, offsetof(struct_type, member), sizeof(cast(struct_type*) 0)->member, ##__VA_ARGS__)
 
 internal SERIALIZE_CALLBACK(serialize_AssetID) {
     SerializeResult result;
@@ -105,7 +103,7 @@ global Serializable entity_serializables[] = {
     // @Note: Player
     // ...
     // @Note: Wall
-    SERIALIZABLE(Entity, EntityType_Wall, behaviour),
+    SERIALIZABLE(Entity, EntityType_Wall, wall_behaviour),
     SERIALIZABLE(Entity, EntityType_Wall, midi_note),
     SERIALIZABLE(Entity, EntityType_Wall, end_p),
     SERIALIZABLE(Entity, EntityType_Wall, movement_speed_ms),
@@ -123,7 +121,11 @@ global Serializable entity_serializables[] = {
     SERIALIZABLE(Entity, EntityType_CameraZone, camera_rotation_arm),
     // @Note: Checkpoint
     SERIALIZABLE(Entity, EntityType_Checkpoint, checkpoint_zone),
-    // SERIALIZABLE(Entity, EntityType_Checkpoint, respawn_p), // @TODO: Why was this here in the first place?
+    // @Note: Trigger Zone
+    SERIALIZABLE(Entity, EntityType_TriggerZone, trigger_touch_behaviour),
+    SERIALIZABLE(Entity, EntityType_TriggerZone, trigger_envelop_behaviour),
+    SERIALIZABLE(Entity, EntityType_TriggerZone, trigger_leave_behaviour),
+    SERIALIZABLE(Entity, EntityType_TriggerZone, trigger_zone),
 };
 
 /* Lev file layout:
@@ -142,7 +144,7 @@ struct LevFileHeader {
     struct {
         char magic[4];
 
-#define LEV_VERSION 1
+#define LEV_VERSION 2
         u32 version;
 
         u32 header_size;
@@ -199,8 +201,8 @@ internal void write_level_to_disk(GameState* game_state, Level* level, String le
                 if (ser_data.size > 0) {
                     member_count++;
 
-                    write_stream(sizeof(u32), &ser->name_length);
-                    write_stream(ser->name_length, ser->name);
+                    write_stream(sizeof(u32), &ser->name.len);
+                    write_stream(ser->name.len, ser->name.data);
 
                     if (ser_data.data_is_ptr) {
                         write_stream(sizeof(u32), &ser_data.size);
@@ -228,12 +230,12 @@ internal void write_level_to_disk(GameState* game_state, Level* level, String le
     end_temporary_memory(temp);
 }
 
-inline Serializable* find_serializable_by_name(u32 serializable_count, Serializable* serializables, u32 name_length, char* name) {
+inline Serializable* find_serializable_by_name(u32 serializable_count, Serializable* serializables, String name) {
     Serializable* result = 0;
 
     for (u32 ser_index = 0; ser_index < serializable_count; ser_index++) {
         Serializable* ser = serializables + ser_index;
-        if (strings_are_equal(wrap_string(name_length, name), wrap_string(ser->name_length, ser->name))) {
+        if (strings_are_equal(name, ser->name)) {
             result = ser;
             break;
         }
@@ -288,12 +290,21 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
                 for (u32 member_index = 0; member_index < member_count; member_index++) {
                     u32 member_name_length = *(cast(u32*) read_stream(sizeof(u32)));
                     assert(member_name_length);
-                    char* member_name = cast(char*) read_stream(member_name_length);
+                    char* member_name_c = cast(char*) read_stream(member_name_length);
+
+                    String member_name = wrap_string(member_name_length, member_name_c);
+
+                    // @Note: Remap renamed entity data
+                    if (header->prelude.version < 2) {
+                        if (strings_are_equal(member_name, string_literal("behaviour"))) {
+                            member_name = string_literal("wall_behaviour");
+                        }
+                    }
 
                     u32 data_size = *(cast(u32*) read_stream(sizeof(u32)));
                     void* data_source = read_stream(data_size);
 
-                    Serializable* ser = find_serializable_by_name(ARRAY_COUNT(entity_serializables), entity_serializables, member_name_length, member_name);
+                    Serializable* ser = find_serializable_by_name(ARRAY_COUNT(entity_serializables), entity_serializables, member_name);
                     if (ser) {
                         void** data_dest = cast(void**) (cast(u8*) entity + ser->offset);
 
@@ -314,7 +325,7 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
                                 copy(ser_data.size, &ser_data.data_value, data_dest);
                             }
 
-                            if (strings_are_equal(ser->name, "guid")) {
+                            if (strings_are_equal(ser->name, string_literal("guid"))) {
                                 if (entity->guid.value >= level->first_available_guid) {
                                     level->first_available_guid = entity->guid.value + 1;
                                 }
@@ -471,6 +482,8 @@ internal void play_level(GameState* game_state, Level* level) {
 
     radix_sort(level->entity_count, sorted_entities, sort_temp);
 
+    game_state->player = 0;
+
     u32 current_type_count = 0;
     EntityType current_type = EntityType_Null;
     game_state->entity_type_offsets[current_type] = 0;
@@ -481,6 +494,11 @@ internal void play_level(GameState* game_state, Level* level) {
         Entity* dest = game_state->entities + entity_index;
 
         *dest = *source;
+
+        EntityHash* hash = get_entity_hash_slot(game_state->editor_state, dest->guid);
+        if (hash) {
+            hash->gamestate_index = entity_index;
+        }
 
         if (dest->type != current_type) {
             game_state->entity_type_counts[current_type] = current_type_count;
@@ -515,8 +533,11 @@ internal void play_level(GameState* game_state, Level* level) {
 
     Entity* player = game_state->player;
 
-    game_state->last_activated_checkpoint = 0;
     f32 best_checkpoint_distance_sq = FLT_MAX;
+    game_state->last_activated_checkpoint = 0;
+
+    f32 best_camera_zone_distance_sq = FLT_MAX;
+    Entity* nearest_camera_zone = 0;
 
     game_state->active_camera_zone = 0;
 
@@ -526,6 +547,7 @@ internal void play_level(GameState* game_state, Level* level) {
         if (entity->type == EntityType_Wall) {
             entity->start_p = entity->p;
         } else if (entity->type == EntityType_Checkpoint) {
+            // @TODO: This distance should be distance from the checkpoint region, not the entity itself
             f32 distance_sq = length_sq(entity->p - player->p);
             if (distance_sq < best_checkpoint_distance_sq) {
                 best_checkpoint_distance_sq = distance_sq;
@@ -533,6 +555,7 @@ internal void play_level(GameState* game_state, Level* level) {
                 game_state->last_activated_checkpoint->respawn_p = entity->p;
             }
         } else if (entity->type == EntityType_CameraZone) {
+            // @TODO: Is there really a point to primary_camera_zone?
             if (entity->primary_camera_zone) {
                 if (!game_state->active_camera_zone) {
                     game_state->active_camera_zone = entity;
@@ -540,7 +563,18 @@ internal void play_level(GameState* game_state, Level* level) {
                     log_print(LogLevel_Warn, "More than one Camera Zone was selected as primary. Ignoring Camera Zone %u", entity->guid.value);
                 }
             }
+
+            // @TODO: This distance should be distance from the active region, not the entity itself
+            f32 distance_sq = length_sq(entity->p - player->p);
+            if (distance_sq < best_camera_zone_distance_sq) {
+                best_camera_zone_distance_sq = distance_sq;
+                nearest_camera_zone = entity;
+            }
         }
+    }
+
+    if (!game_state->active_camera_zone) {
+        game_state->active_camera_zone = nearest_camera_zone;
     }
 
     game_state->level_intro_timer = 1.0f;
@@ -548,12 +582,14 @@ internal void play_level(GameState* game_state, Level* level) {
     game_state->background_pulse_dt = 0.0f;
 }
 
-inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
-    if (game_mode != game_state->game_mode) {
-        if (game_state->game_mode == GameMode_Editor) {
+inline void switch_game_mode(GameState* game_state, GameMode game_mode) {
+    GameMode prev_game_mode = game_state->game_mode;
+
+    if (game_mode != prev_game_mode) {
+        if (prev_game_mode == GameMode_Editor) {
             EditorState* editor = game_state->editor_state;
             editor->camera_p_on_exit = game_state->render_context.camera_p;
-        } else if (game_state->game_mode == GameMode_Menu) {
+        } else if (prev_game_mode == GameMode_Menu) {
             pause_group(&game_state->ui_audio, 1.0f);
         }
     }
@@ -562,7 +598,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 
     switch (game_mode) {
         case GameMode_Menu: {
-            menu->source_gamemode = game_state->game_mode;
+            menu->source_game_mode = prev_game_mode;
 
             if (!menu->music) {
                 menu->music = play_sound(&game_state->ui_audio, get_sound_by_name(&game_state->assets, string_literal("menu_ambient")), vec2(0.0f, 0.0f), Playback_Looping);
@@ -571,13 +607,13 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
 
             unpause_group(&game_state->ui_audio, 1.0f);
 
-            if (menu->source_gamemode == GameMode_Menu) {
+            if (menu->source_game_mode == GameMode_Menu) {
                 menu->fade_in_timer = 1.0f;
             } else {
                 menu->fade_in_timer = 0.0f;
             }
 
-            if (game_state->game_mode == GameMode_Ingame) {
+            if (prev_game_mode == GameMode_Ingame) {
                 pause_group(&game_state->game_audio, 1.0f);
                 game_state->midi_paused = true;
             }
@@ -587,7 +623,7 @@ inline void switch_gamemode(GameState* game_state, GameMode game_mode) {
             if (!strings_are_equal(game_state->desired_level, level_name(game_state->active_level))) {
                 load_level(game_state, game_state->desired_level);
                 play_level(game_state, game_state->active_level);
-            } else if (menu->source_gamemode != GameMode_Ingame || game_state->game_mode == GameMode_Editor) {
+            } else if (menu->source_game_mode != GameMode_Ingame || prev_game_mode == GameMode_Editor) {
                 play_level(game_state, game_state->active_level);
             }
 
@@ -696,7 +732,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         {
             MenuState* menu = game_state->menu_state = push_struct(&game_state->permanent_arena, MenuState);
 
-            menu->source_gamemode = GameMode_Menu;
+            menu->source_game_mode = GameMode_Menu;
             menu->font          = get_font_by_name(&game_state->assets, string_literal("menu_font"));
             menu->big_font      = get_font_by_name(&game_state->assets, string_literal("big_menu_font"));
             menu->select_sound  = get_sound_by_name(&game_state->assets, string_literal("menu_select"));
@@ -730,7 +766,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         }
 #endif
 
-        switch_gamemode(game_state, GameMode_Menu);
+        switch_game_mode(game_state, GameMode_Menu);
 
         memory->initialized = true;
     }
@@ -744,7 +780,9 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
     game_state->ui_audio.mix_volume[0] = game_config->ui_volume;
     game_state->ui_audio.mix_volume[1] = game_config->ui_volume;
 
-    input->show_cursor = (game_state->game_mode == GameMode_Editor) || game_state->console_state->open;
+    EditorState* editor = game_state->editor_state;
+
+    input->show_cursor = (game_state->game_mode != GameMode_Menu && editor->shown) || game_state->console_state->open;
 
     f32 frame_dt = input->frame_dt;
     v2 mouse_p = vec2(input->mouse_x, input->mouse_y);
@@ -756,8 +794,18 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
     execute_console(game_state, game_state->console_state, input);
 
+    if (was_pressed(input->debug_fkeys[2])) {
+        editor->shown = !editor->shown;
+    }
+
+    if (was_pressed(input->debug_fkeys[3])) {
+        editor->show_statistics = !editor->show_statistics;
+    }
+
     if (game_state->game_mode == GameMode_Menu) {
         MenuState* menu = game_state->menu_state;
+
+        execute_editor(game_state, editor, input); // @Note: Just to show stats
 
         render_screenspace(render_context);
         push_clear(render_context, game_state->background_color);
@@ -771,8 +819,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         char* menu_items[32]; // @Note: Oversized array
         u32 item_index = 0;
-        u32 start_game    = (menu_items[item_index] = menu->source_gamemode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
-        u32 enter_editor  = (menu_items[item_index] = menu->source_gamemode == GameMode_Editor ? "Resume Editing" : "Enter Editor", item_index++);
+        u32 start_game    = (menu_items[item_index] = menu->source_game_mode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
+        u32 enter_editor  = (menu_items[item_index] = menu->source_game_mode == GameMode_Editor ? "Resume Editing" : "Enter Editor", item_index++);
         u32 options       = (menu_items[item_index] = "Options", item_index++);
         u32 quit          = (menu_items[item_index] = menu->asking_for_quit_confirmation ? "Really Quit?" : "Quit", item_index++);
 
@@ -833,10 +881,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             b32 play_the_sound = true;
 
             if (menu->selected_item == start_game) {
-                game_state->editor_state->shown = false;
-                switch_gamemode(game_state, GameMode_Ingame);
+                editor->shown = false;
+                switch_game_mode(game_state, GameMode_Ingame);
             } else if (menu->selected_item == enter_editor) {
-                switch_gamemode(game_state, GameMode_Editor);
+                switch_game_mode(game_state, GameMode_Editor);
             } else if (menu->selected_item == options) {
                 /* there's no options for now */
             } else if (menu->selected_item == quit) {
@@ -858,8 +906,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         }
 
         if (was_pressed(input->controller.start)) {
-            if (menu->source_gamemode != GameMode_Menu) {
-                switch_gamemode(game_state, menu->source_gamemode);
+            if (menu->source_game_mode != GameMode_Menu) {
+                switch_game_mode(game_state, menu->source_game_mode);
             }
         }
 
@@ -868,10 +916,13 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             if (menu->quit_timer <= 0.0f) {
                 input->quit_requested = true;
             }
-            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, 1.0f - menu->quit_timer));
-        } else if (menu->fade_in_timer > 0.0f) {
+            f32 alpha = smoothstep(square_root(clamp01(1.1f*(1.0f - menu->quit_timer))));
+            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, alpha));
+        }
+        if (menu->fade_in_timer > 0.0f) {
             menu->fade_in_timer -= frame_dt / game_config->menu_fade_in_speed;
-            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, smoothstep(clamp01(1.1f*menu->fade_in_timer))));
+            f32 alpha = smoothstep(clamp01(1.1f*menu->fade_in_timer));
+            push_shape(render_context, default_transform2d(), rectangle(aab_min_dim(vec2(0, 0), screen_dim)), vec4(0.0f, 0.0f, 0.0f, alpha));
         }
     } else {
         //
@@ -926,11 +977,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             simulate_entities(game_state, input, frame_dt);
 
             if (was_pressed(input->debug_fkeys[1])) {
-                switch_gamemode(game_state, GameMode_Editor);
+                switch_game_mode(game_state, GameMode_Editor);
             }
         } else if (game_state->game_mode == GameMode_Editor) {
             if (was_pressed(input->debug_fkeys[1])) {
-                switch_gamemode(game_state, GameMode_Ingame);
+                switch_game_mode(game_state, GameMode_Ingame);
             }
         }
 
@@ -945,13 +996,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
             Entity* camera_target = game_state->camera_target;
             Entity* camera_zone = game_state->active_camera_zone;
-#if 0
-            if (camera_target && camera_zone) {
-                if (!is_in_region(camera_zone->active_region + camera_target->collision, camera_target->p - camera_zone->p)) {
-                    camera_zone = game_state->active_camera_zone = 0;
-                }
-            }
-#endif
 
             if (camera_zone && camera_target) {
                 CameraView view = get_camera_view(game_state, camera_zone, camera_target->p);
@@ -966,9 +1010,9 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         game_state->death_cam_start = get_camera_view(game_state, camera_zone, player->p);
 
                         Entity* end_camera_zone = camera_zone;
-                        for_entity_type (game_state, EntityType_CameraZone, entity) {
-                            if (is_in_region(entity->active_region, checkpoint->respawn_p - entity->p)) {
-                                end_camera_zone = entity;
+                        for_entity_type (game_state, EntityType_CameraZone, test_camera_zone) {
+                            if (is_in_entity_local_region(test_camera_zone, test_camera_zone->active_region, checkpoint->respawn_p)) {
+                                end_camera_zone = test_camera_zone;
                                 break;
                             }
                         }
@@ -984,18 +1028,18 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                 if (!in_death_cam) {
                     Entity* prev_camera_zone = game_state->previous_camera_zone;
-                    if (prev_camera_zone && game_state->camera_transition_t < 1.0f) {
+                    if (prev_camera_zone && game_state->camera_transition_t > 0.0f) {
                         game_state->mid_camera_transition = true;
 
                         CameraView prev_view = get_camera_view(game_state, prev_camera_zone, camera_target->p);
                         CameraView next_view = get_camera_view(game_state, camera_zone, camera_target->p);
 
-                        f32 t = smootherstep(game_state->camera_transition_t);
+                        f32 t = smootherstep(1.0f - game_state->camera_transition_t);
                         view = lerp_camera_views(prev_view, next_view, t);
 
-                        game_state->camera_transition_t += frame_dt / game_config->camera_transition_speed;
-                        if (game_state->camera_transition_t > 1.0f) {
-                            game_state->camera_transition_t = 1.0f;
+                        game_state->camera_transition_t -= frame_dt / game_config->camera_transition_speed;
+                        if (game_state->camera_transition_t < 0.0f) {
+                            game_state->camera_transition_t = 0.0f;
                         }
                     } else {
                         game_state->mid_camera_transition = false;
@@ -1005,16 +1049,6 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
                 set_camera_view(render_context, view);
             }
-        }
-
-        EditorState* editor = game_state->editor_state;
-
-        if (was_pressed(input->debug_fkeys[2])) {
-            editor->shown = !editor->shown;
-        }
-
-        if (was_pressed(input->debug_fkeys[3])) {
-            editor->show_statistics = !editor->show_statistics;
         }
 
         execute_editor(game_state, editor, input);
@@ -1049,10 +1083,15 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
 
             if (should_draw) {
+                f32 old_sort_bias = render_context->sort_key_bias;
+                if (entity->flags & EntityFlag_Invisible) {
+                    render_context->sort_key_bias += 100.0f;
+                }
+
                 Transform2D transform = transform2d(entity->p + vec2(0.0f, -game_config->background_pulse_world_shake_intensity*game_state->background_pulse_t));
                 if (entity->type == EntityType_Player) {
                     // @Hack: Making the player just slightly oversized to avoid seeing a tiny gap between it and touching entities
-                    transform.scale *= 1.05f;
+                    transform.scale *= 1.02f;
                 }
                 switch (entity->type) {
                     case EntityType_Wall: {
@@ -1100,7 +1139,27 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                             push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone + vec2(entity->horz_fade_region, entity->vert_fade_region))), vec4(COLOR_GREEN.rgb, 0.5f), ShapeRenderMode_Outline, 1000.0f);
                             push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->audible_zone)), COLOR_RED, ShapeRenderMode_Outline, 1000.0f);
                         }
-                    }
+                    } break;
+
+                    case EntityType_TriggerZone: {
+                        Image* sprite = get_image(&game_state->assets, entity->sprite);
+                        if (sprite) {
+                            push_image(render_context, transform, sprite, entity->color);
+                        } else {
+                            INVALID_CODE_PATH;
+                        }
+                        if (editor->show_trigger_zones) {
+                            v4 color = COLOR_WHITE;
+                            if (entity->touching_player && entity->enveloping_player) {
+                                color = COLOR_PINK;
+                            } else if (entity->touching_player) {
+                                color = COLOR_GREEN;
+                            } else if (entity->enveloping_player) {
+                                color = COLOR_BLUE;
+                            }
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->trigger_zone)), color, ShapeRenderMode_Outline, 1000.0f);
+                        }
+                    } break;
 
                     default: {
                         if (entity->sprite.value) {
@@ -1115,6 +1174,8 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         }
                     } break;
                 }
+
+                render_context->sort_key_bias = old_sort_bias;
             }
 
             if (entity->sprite.value) {
@@ -1127,17 +1188,59 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        if (game_state->game_mode == GameMode_Ingame && game_state->level_intro_timer > 0.0f) {
-            game_state->level_intro_timer -= frame_dt / game_config->level_intro_speed;
-            if (game_state->level_intro_timer < 0.0f) {
-                game_state->level_intro_timer = 0.0f;
+        if (game_state->game_mode == GameMode_Ingame) {
+            if (game_state->level_intro_timer > 0.0f) {
+                game_state->level_intro_timer -= frame_dt / game_config->level_intro_speed;
+                if (game_state->level_intro_timer < 0.0f) {
+                    game_state->level_intro_timer = 0.0f;
+                }
+                // @TODO: AAAA!!!!!!! (Translation: Because setting render_screenspace sets the render context's camera p,
+                // this breaks some stuff where the editor restores your camera position, or something. Bummer.)
+                RenderContext rc_backup = *render_context;
+                render_screenspace(render_context);
+                push_rect(render_context, aab_min_dim(vec2(0, 0), screen_dim), vec4(0, 0, 0, game_state->level_intro_timer));
+                *render_context = rc_backup;
             }
-            // @TODO: AAAA!!!!!!! (Translation: Because setting render_screenspace sets the render context's camera p, this breaks some stuff where the editor restores your camera
-            // position, or something. Bummer.)
-            RenderContext rc_backup = *render_context;
-            render_screenspace(render_context);
-            push_rect(render_context, aab_min_dim(vec2(0, 0), screen_dim), vec4(0, 0, 0, game_state->level_intro_timer));
-            *render_context = rc_backup;
+
+            if (game_state->level_outro_timer > 0.0f) {
+                game_state->level_outro_timer -= frame_dt / game_config->level_outro_speed;
+                if (game_state->level_outro_timer < 0.0f) {
+                    game_state->level_outro_timer = 0.0f;
+                    stop_all_midi_tracks(game_state);
+                    stop_all_sounds(&game_state->game_audio);
+                    change_volume(&game_state->game_audio, 0.0f, vec2(1, 1));
+                    if (editor->shown) {
+                        switch_game_mode(game_state, GameMode_Editor);
+                    } else {
+                        // @Hack: Double switch to menu to reset to the menu completely
+                        switch_game_mode(game_state, GameMode_Menu);
+                        switch_game_mode(game_state, GameMode_Menu);
+                    }
+                }
+
+                f32 fade_to_black_t = clamp01_map_to_range(game_state->level_outro_timer, 1.0f, 0.7f);
+                f32 text_fade_in_t  = clamp01_map_to_range(game_state->level_outro_timer, 0.6f, 0.5f);
+                f32 text_fade_out_t = clamp01_map_to_range(game_state->level_outro_timer, 0.2f, 0.1f);
+
+                f32 text_alpha = smoothstep(clamp01(text_fade_in_t - text_fade_out_t));
+
+                // @TODO: AAAA!!!!!!! (Translation: Because setting render_screenspace sets the render context's camera p,
+                // this breaks some stuff where the editor restores your camera position, or something. Bummer.)
+                RenderContext rc_backup = *render_context;
+
+                render_screenspace(render_context);
+                push_rect(render_context, aab_min_dim(vec2(0, 0), screen_dim), vec4(0, 0, 0, smoothstep(fade_to_black_t)));
+
+                UILayoutContext layout_context;
+                layout_context.rc = render_context;
+                layout_context.assets = &game_state->assets;
+                layout_context.temp_arena = &game_state->transient_arena;
+
+                UILayout outro_text = make_layout(layout_context, game_state->menu_state->big_font, 0.5f*screen_dim, Layout_CenterAlign);
+                layout_print_line(&outro_text, vec4(COLOR_WHITE.rgb, text_alpha), "Thanks for playing!");
+
+                *render_context = rc_backup;
+            }
         }
 
         if (game_state->player && game_state->player->killed_this_frame) {
@@ -1146,7 +1249,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         }
 
         if (was_pressed(input->controller.start)) {
-            switch_gamemode(game_state, GameMode_Menu);
+            switch_game_mode(game_state, GameMode_Menu);
         }
     }
 }

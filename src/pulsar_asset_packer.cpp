@@ -350,20 +350,22 @@ global u32 packed_asset_count = 1; // @Note: Reserving the 0th index for the nul
 internal AssetDescription* add_asset(char* asset_name = 0, char* file_name = 0) {
     AssetDataType data_type = AssetDataType_Unknown;
     if (file_name) {
-        char* extension = file_name;
+        char* c_extension = file_name;
         for (char* at = file_name; at[0]; at++) {
             if (at[0] && at[-1] == '.') {
-                extension = at;
+                c_extension = at;
             }
         }
 
-        if (strings_are_equal(extension, "wav")) {
+        String extension = wrap_cstr(c_extension);
+
+        if (strings_are_equal(extension, string_literal("wav"))) {
             data_type = AssetDataType_Wav;
-        } else if (strings_are_equal(extension, "bmp")) {
+        } else if (strings_are_equal(extension, string_literal("bmp"))) {
             data_type = AssetDataType_Bmp;
-        } else if (strings_are_equal(extension, "ttf")) {
+        } else if (strings_are_equal(extension, string_literal("ttf"))) {
             data_type = AssetDataType_Ttf;
-        } else if (strings_are_equal(extension, "mid")) {
+        } else if (strings_are_equal(extension, string_literal("mid"))) {
             data_type = AssetDataType_Midi;
         } else {
             assert(!"Unknown extension for asset file.");
@@ -456,6 +458,9 @@ int main(int argument_count, char** arguments) {
 
         MidiSourceInfo bells_midi_files[] = { "assets/demo_level_loop_1_bells.mid", MidiFlag_IgnoreExtremes };
         add_soundtrack("demo_level_loop_1_bells", "assets/demo_level_loop_1_bells.wav", ARRAY_COUNT(bells_midi_files), bells_midi_files, 95);
+
+        MidiSourceInfo arp_midi_files[] = { "assets/demo_level_loop_1_arp.mid", 0 };
+        add_soundtrack("demo_level_loop_1_arp", "assets/demo_level_loop_1_arp.wav", ARRAY_COUNT(arp_midi_files), arp_midi_files, 95);
     }
 
     add_sound("menu_ambient", "assets/menu_ambient.wav");
@@ -465,6 +470,7 @@ int main(int argument_count, char** arguments) {
     add_image("camera_icon", "assets/camera_icon.bmp");
     add_image("speaker_icon", "assets/speaker_icon.bmp");
     add_image("checkpoint_icon", "assets/checkpoint_icon.bmp");
+    add_image("trigger_icon", "assets/trigger_icon.bmp");
 
     add_font("console_font", "C:/Windows/Fonts/consola.ttf", 16);
     add_font("editor_font", "C:/Windows/Fonts/SourceSerifPro-Regular.ttf", 24);

@@ -62,6 +62,7 @@ player_walk_cycle_length       2.0
 
 # level
 level_intro_speed                        1.0
+level_outro_speed                        8.0
 background_pulse_intensity               0.15
 background_pulse_world_shake_intensity   0.25
 background_pulse_spring_force            24.0
@@ -75,7 +76,7 @@ camera_stop_smoothness    1.0
 menu_bob_speed       0.2
 menu_bob_magnitude   4.0
 menu_fade_in_speed   2.0
-menu_quit_speed      1.0
+menu_quit_speed      2.0
 
 # debug
 simulation_rate       1.0

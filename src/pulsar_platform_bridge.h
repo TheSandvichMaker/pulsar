@@ -152,6 +152,7 @@ introspect() struct GameConfig {
 
     // Level
     f32 level_intro_speed                      = 1.0f;
+    f32 level_outro_speed                      = 8.0f;
     f32 background_pulse_intensity             = 1.0f;
     f32 background_pulse_world_shake_intensity = 0.25f;
     f32 background_pulse_spring_force          = 16.0f;
@@ -164,8 +165,8 @@ introspect() struct GameConfig {
     // Menu
     f32 menu_bob_speed     = 0.2f;
     f32 menu_bob_magnitude = 4.0f;
-    f32 menu_fade_in_speed = 0.8f;
-    f32 menu_quit_speed    = 0.4f;
+    f32 menu_fade_in_speed = 2.0f;
+    f32 menu_quit_speed    = 2.0f;
 
     // Debug
     f32 simulation_rate     = 1.0f;

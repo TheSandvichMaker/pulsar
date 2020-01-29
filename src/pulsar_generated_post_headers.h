@@ -23,6 +23,7 @@ char* GetMetaTypeName(MetaType value) {
         case MetaType_EntityFlag: return "EntityFlag";
         case MetaType_EntityType: return "EntityType";
         case MetaType_WallBehaviour: return "WallBehaviour";
+        case MetaType_TriggerBehaviour: return "TriggerBehaviour";
         case MetaType_GameMode: return "GameMode";
         case MetaType_GameConfig: return "GameConfig";
         case MetaType_b32: return "b32";
@@ -99,6 +100,7 @@ char* GetEnumNameOf_EntityType(int value) {
         case EntityType_SoundtrackPlayer: return "EntityType_SoundtrackPlayer";
         case EntityType_CameraZone: return "EntityType_CameraZone";
         case EntityType_Checkpoint: return "EntityType_Checkpoint";
+        case EntityType_TriggerZone: return "EntityType_TriggerZone";
         case EntityType_Count: return "EntityType_Count";
         default: return 0;
     }
@@ -110,6 +112,15 @@ char* GetEnumNameOf_WallBehaviour(int value) {
         case WallBehaviour_Move: return "WallBehaviour_Move";
         case WallBehaviour_Toggle: return "WallBehaviour_Toggle";
         case WallBehaviour_Count: return "WallBehaviour_Count";
+        default: return 0;
+    }
+}
+
+char* GetEnumNameOf_TriggerBehaviour(int value) {
+    switch (value) {
+        case TriggerBehaviour_None: return "TriggerBehaviour_None";
+        case TriggerBehaviour_EndLevel: return "TriggerBehaviour_EndLevel";
+        case TriggerBehaviour_Count: return "TriggerBehaviour_Count";
         default: return 0;
     }
 }
@@ -212,6 +223,7 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 20, "player_respawn_speed", (unsigned int)&((GameConfig*)0)->player_respawn_speed, sizeof(f32) },
     { 0, MetaType_f32, 24, "player_walk_cycle_length", (unsigned int)&((GameConfig*)0)->player_walk_cycle_length, sizeof(f32) },
     { 0, MetaType_f32, 17, "level_intro_speed", (unsigned int)&((GameConfig*)0)->level_intro_speed, sizeof(f32) },
+    { 0, MetaType_f32, 17, "level_outro_speed", (unsigned int)&((GameConfig*)0)->level_outro_speed, sizeof(f32) },
     { 0, MetaType_f32, 26, "background_pulse_intensity", (unsigned int)&((GameConfig*)0)->background_pulse_intensity, sizeof(f32) },
     { 0, MetaType_f32, 38, "background_pulse_world_shake_intensity", (unsigned int)&((GameConfig*)0)->background_pulse_world_shake_intensity, sizeof(f32) },
     { 0, MetaType_f32, 29, "background_pulse_spring_force", (unsigned int)&((GameConfig*)0)->background_pulse_spring_force, sizeof(f32) },

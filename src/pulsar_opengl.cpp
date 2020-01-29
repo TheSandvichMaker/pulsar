@@ -90,7 +90,7 @@ internal void opengl_unload_texture(GLuint handle) {
 }
 
 inline void opengl_check_extension(OpenGLInfo* info, String extension) {
-#define GL_CHECK_EXTENSION(name) (strings_are_equal(extension, #name)) { info->name = true; }
+#define GL_CHECK_EXTENSION(name) (strings_are_equal(extension, string_literal(#name))) { info->name = true; }
     if      GL_CHECK_EXTENSION(GL_EXT_texture_sRGB)
     else if GL_CHECK_EXTENSION(GL_EXT_framebuffer_sRGB)
     else if GL_CHECK_EXTENSION(GL_ARB_framebuffer_sRGB)

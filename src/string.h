@@ -163,34 +163,24 @@ inline b32 strings_are_equal(String a, String b, u32 flags = 0) {
     return result;
 }
 
-// @Speed? Getting the cstr length with wrap_cstr first and doing the
-// comparison second is probably wasteful.
-inline b32 strings_are_equal(String a, char* b, u32 flags = 0) {
-    b32 result = strings_are_equal(a, wrap_cstr(b), flags);
-    return result;
-}
-
-inline b32 strings_are_equal(char* a, String b, u32 flags = 0) {
-    b32 result = strings_are_equal(wrap_cstr(a), b, flags);
-    return result;
-}
-
-inline b32 strings_are_equal(char* a, char* b, u32 flags = 0) {
-    b32 result = strings_are_equal(wrap_cstr(a), wrap_cstr(b), flags);
-    return result;
-}
-
 inline b32 in_range(String* string, char* ptr) {
     b32 result = (ptr >= string->data && ptr <= (string->data + string->len));
     return result;
 }
 
-inline String substring(String* source, size_t start, size_t end) {
+inline String substring(String source, size_t start, size_t end) {
+    // @TODO: This should not assert, are you mad!!!
     assert(end >= start);
-    assert(end < source->len);
+    assert(end < source.len);
 
-    String result = wrap_string(end - start + 1, source->data + start);
+    String result = wrap_string(end - start + 1, source.data + start);
 
+    return result;
+}
+
+inline String tail(String source, size_t start) {
+    size_t clamped_start = MIN(start, source.len);
+    String result = wrap_string(source.len - clamped_start, source.data + clamped_start);
     return result;
 }
 
@@ -410,20 +400,6 @@ inline String advance_word(String* string) {
     }
 
     String result = string_from_two_pointers(start, end);
-    return result;
-}
-
-inline b32 match_word(String* source_string, char* target, String* out_word = 0) {
-    String string = *source_string;
-    String word = advance_word(&string);
-    b32 result = false;
-    if (strings_are_equal(word, target)) {
-        result = true;
-        *source_string = string;
-    }
-    if (out_word) {
-        *out_word = word;
-    }
     return result;
 }
 

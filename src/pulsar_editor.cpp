@@ -30,9 +30,8 @@ inline T* get_data(EditorState* editor, EntityData<T> data) {
 inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
     EntityHash* result = 0;
 
-    // @TODO: Use some kind of not totally superbly made-uppy hash? Who knows, maybe this is fine. Let's be honest, you're not gonna notice the difference.
-    u32 hash_constant = cast(u32) (1.6180339f*ARRAY_COUNT(editor->entity_hash)); // ...Whatever this is. Wrap by golden ratio, or something.
-    u32 hash_value = (guid.value * hash_constant) % ARRAY_COUNT(editor->entity_hash);
+    // @Note: Knuth
+    u32 hash_value = (guid.value*(guid.value + 3)) % ARRAY_COUNT(editor->entity_hash);
 
     if (hash_value) {
         for (u32 search = 0; search < ARRAY_COUNT(editor->entity_hash); search++) {
@@ -52,11 +51,17 @@ inline EntityHash* get_entity_hash_slot(EditorState* editor, EntityID guid) {
 }
 
 inline Entity* get_entity_from_guid(EditorState* editor, EntityID guid) {
+    GameState* game_state = editor->game_state; // @DisentangleGameStateFromEditor
+
     Entity* result = 0;
     EntityHash* hash_slot = get_entity_hash_slot(editor, guid);
     if (hash_slot) {
         if (hash_slot->index && hash_slot->index < ARRAY_COUNT(editor->game_state->active_level->entities)) {
-            result = editor->game_state->active_level->entities + hash_slot->index;
+            if (game_state->game_mode == GameMode_Ingame) {
+                result = game_state->entities + hash_slot->gamestate_index;
+            } else {
+                result = game_state->active_level->entities + hash_slot->index;
+            }
         }
     }
     return result;
@@ -78,6 +83,7 @@ inline AddEntityResult add_entity(EditorState* editor, EntityType type, EntityID
     }
 
     entity->type = type;
+    entity->color = COLOR_WHITE;
 
     AddEntityResult result;
     result.guid = entity->guid;
@@ -93,11 +99,10 @@ inline AddEntityResult add_player(EditorState* editor, v2 starting_p) {
     AddEntityResult result = add_entity(editor, EntityType_Player);
     Entity* entity = result.ptr;
 
-    entity->p = starting_p;
-    entity->collision = vec2(0.4f, 1.0f);
-    entity->color = vec4(1, 1, 1, 1);
+    entity->p         = starting_p;
 
-    entity->flags |= EntityFlag_Physical|EntityFlag_Collides;
+    entity->collision = vec2(0.4f, 1.0f);
+    entity->flags    |= EntityFlag_Physical|EntityFlag_Collides;
 
     return result;
 }
@@ -106,16 +111,16 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, Soundt
     AddEntityResult result = add_entity(editor, EntityType_Wall);
     Entity* entity = result.ptr;
 
-    entity->p = get_center(aab);
-    entity->color = vec4(1, 1, 1, 1);
-    entity->end_p = vec2(0, 5);
+    entity->p                 = get_center(aab);
+
+    entity->listening_to      = listening_to;
     entity->movement_speed_ms = 200.0f;
-    entity->movement_t = 1.0f;
-    entity->listening_to = listening_to;
+    entity->end_p             = vec2(0, 5);
 
-    entity->flags |= EntityFlag_Collides;
+    entity->movement_t        = 1.0f;
 
-    entity->collision = get_dim(aab);
+    entity->collision         = get_dim(aab);
+    entity->flags            |= EntityFlag_Collides;
 
     return result;
 }
@@ -124,15 +129,15 @@ inline AddEntityResult add_soundtrack_player(EditorState* editor, AxisAlignedBox
     AddEntityResult result = add_entity(editor, EntityType_SoundtrackPlayer);
     Entity* entity = result.ptr;
 
-    entity->p = get_center(inner_zone);
-    entity->audible_zone = get_dim(inner_zone);
+    entity->p              = get_center(inner_zone);
     entity->soundtrack_id  = soundtrack_id;
     entity->playback_flags = playback_flags;
-    entity->sprite = editor->speaker_icon;
 
-    entity->collision = editor->default_collision;
+    entity->audible_zone   = get_dim(inner_zone);
 
-    entity->flags |= EntityFlag_Invisible;
+    entity->sprite         = editor->speaker_icon;
+    entity->collision      = editor->default_collision;
+    entity->flags         |= EntityFlag_Invisible;
 
     return result;
 }
@@ -141,17 +146,15 @@ inline AddEntityResult add_camera_zone(EditorState* editor, AxisAlignedBox2 acti
     AddEntityResult result = add_entity(editor, EntityType_CameraZone);
     Entity* entity = result.ptr;
 
-    entity->p = get_center(active_region);
-    entity->active_region = get_dim(active_region);
-    entity->view_region_height = view_region_height;
+    entity->p                   = get_center(active_region);
 
-    entity->sprite = editor->camera_icon;
-
+    entity->active_region       = get_dim(active_region);
+    entity->view_region_height  = view_region_height;
     entity->camera_rotation_arm = arm2(rotation);
 
-    entity->collision = editor->default_collision;
-
-    entity->flags |= EntityFlag_Invisible;
+    entity->sprite              = editor->camera_icon;
+    entity->collision           = editor->default_collision;
+    entity->flags              |= EntityFlag_Invisible;
 
     return result;
 }
@@ -160,14 +163,28 @@ inline AddEntityResult add_checkpoint(EditorState* editor, AxisAlignedBox2 zone)
     AddEntityResult result = add_entity(editor, EntityType_Checkpoint);
     Entity* entity = result.ptr;
 
-    entity->p = get_center(zone);
+    entity->p               = get_center(zone);
+
     entity->checkpoint_zone = get_dim(zone);
 
-    entity->sprite = editor->checkpoint_icon;
+    entity->sprite          = editor->checkpoint_icon;
+    entity->collision       = editor->default_collision;
+    entity->flags          |= EntityFlag_Invisible;
 
-    entity->collision = editor->default_collision;
+    return result;
+}
 
-    entity->flags |= EntityFlag_Invisible;
+inline AddEntityResult add_trigger_zone(EditorState* editor, AxisAlignedBox2 zone) {
+    AddEntityResult result = add_entity(editor, EntityType_TriggerZone);
+    Entity* entity = result.ptr;
+
+    entity->p               = get_center(zone);
+
+    entity->trigger_zone = get_dim(zone);
+
+    entity->sprite          = editor->trigger_icon;
+    entity->collision       = editor->default_collision;
+    entity->flags          |= EntityFlag_Invisible;
 
     return result;
 }
@@ -182,12 +199,14 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
         assert(hash_slot->index < ARRAY_COUNT(level->entities));
         Entity* entity = level->entities + hash_slot->index;
 
+#if 0
         for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
             EntityID selected = editor->selected_entities[selected_index];
             if (selected.value == guid.value) {
                 editor->selected_entities[selected_index] = editor->selected_entities[--editor->selected_entity_count];
             }
         }
+#endif
 
         if (with_undo_history) {
             add_undo_history(editor, Undo_DeleteEntity, sizeof(*entity), entity, 0);
@@ -202,6 +221,8 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
         } else {
             level->entity_count--;
         }
+    } else {
+        log_print(LogLevel_Error, "Tried to delete non-existent EntityID { %u }", guid.value);
     }
 }
 
@@ -215,7 +236,7 @@ inline UndoFooter* get_undo_footer(EditorState* editor, u32 offset) {
     return result;
 }
 
-// @Note: This is more complicated and hard to understand than I would like
+// @TODO: This is more complicated and hard to understand than I would like
 inline UndoFooter* add_undo_footer(EditorState* editor, u32 data_size) {
     UndoFooter* prev_footer = 0;
     u32 data_index = 0;
@@ -474,7 +495,7 @@ inline void create_debug_level(EditorState* editor) {
 
     for (s32 i = 0; i < 13; i++) {
         Entity* wall = add_wall(editor, aab_center_dim(vec2(3.0f + 2.0f*i, 0.0f), vec2(2.0f, 2.0f))).ptr;
-        wall->behaviour = WallBehaviour_Move;
+        wall->wall_behaviour = WallBehaviour_Move;
         wall->midi_note = 60 + i;
         wall->end_p = vec2(0, 1 + i);
         if (i % 2 == 1) {
@@ -514,24 +535,27 @@ internal u32 parse_utf8_codepoint(char* input_string, u32* out_codepoint) {
         } else if ((u8)(*at & ~utf8_mask[3]) == utf8_matching_value[3]) {
             num_bytes = 4;
         } else {
-            INVALID_CODE_PATH;
+            /* This is some nonsense input */
+            num_bytes = 0;
         }
 
-        u32 offset = 6 * (num_bytes - 1);
-        for (u32 byte_index = 0; byte_index < num_bytes; byte_index++) {
-            if (byte_index == 0) {
-                codepoint = (*at & utf8_mask[num_bytes-1]) << offset;
-            } else {
-                if (*at != 0) {
-                    codepoint |= (*at & ((1 << 6) - 1)) << offset;
+        if (num_bytes) {
+            u32 offset = 6 * (num_bytes - 1);
+            for (u32 byte_index = 0; byte_index < num_bytes; byte_index++) {
+                if (byte_index == 0) {
+                    codepoint = (*at & utf8_mask[num_bytes-1]) << offset;
                 } else {
-                    // @Note: You don't really want to  assert on a gibberish
-                    // bit of unicode, but it's here to draw my attention.
-                    INVALID_CODE_PATH;
+                    if (*at != 0) {
+                        codepoint |= (*at & ((1 << 6) - 1)) << offset;
+                    } else {
+                        /* This is some nonsense input */
+                        codepoint = 0;
+                        break;
+                    }
                 }
+                offset -= 6;
+                at++;
             }
-            offset -= 6;
-            at++;
         }
     }
 
@@ -699,6 +723,7 @@ DECLARE_EDITABLE_TYPE_INFERENCER(SoundtrackID)
 typedef Entity* EntityPtr;
 DECLARE_EDITABLE_TYPE_INFERENCER(EntityPtr)
 DECLARE_EDITABLE_TYPE_INFERENCER(WallBehaviour)
+DECLARE_EDITABLE_TYPE_INFERENCER(TriggerBehaviour)
 
 #define add_editable(editables, struct_type, member, ...) \
     add_editable_(editables, infer_editable_type(&(cast(struct_type*) 0)->member), #member, offsetof(struct_type, member), sizeof_member(struct_type, member), ##__VA_ARGS__)
@@ -735,16 +760,20 @@ inline void end_editables(EditorState* editor, LinearBuffer<EditableParameter>* 
     editor->current_editable_type = EntityType_Null;
 }
 
+inline void default_editables(LinearBuffer<EditableParameter>* editables) {
+    add_viewable(editables, Entity, guid);
+    EditableParameter* editable = add_viewable(editables, Entity, flags);
+    editable->type = Editable_EntityFlag;
+    add_viewable(editables, Entity, p);
+}
+
 internal void set_up_editable_parameters(EditorState* editor) {
     EditableParameter* editable = 0;
     LinearBuffer<EditableParameter>* editables = 0;
 
     editables = begin_editables(editor, EntityType_Player);
     {
-        add_viewable(editables, Entity, guid);
-        editable = add_viewable(editables, Entity, flags);
-        editable->type = Editable_EntityFlag;
-        add_viewable(editables, Entity, p);
+        default_editables(editables);
         add_viewable(editables, Entity, dp);
         add_viewable(editables, Entity, ddp);
         add_viewable(editables, Entity, gravity);
@@ -757,12 +786,9 @@ internal void set_up_editable_parameters(EditorState* editor) {
 
     editables = begin_editables(editor, EntityType_Wall);
     {
-        add_viewable(editables, Entity, guid);
-        editable = add_viewable(editables, Entity, flags);
-        editable->type = Editable_EntityFlag;
-        add_viewable(editables, Entity, p);
+        default_editables(editables);
         add_viewable(editables, Entity, collision);
-        add_editable(editables, Entity, behaviour);
+        add_editable(editables, Entity, wall_behaviour);
         add_viewable(editables, Entity, listening_to);
         editable = add_editable(editables, Entity, movement_speed_ms, Editable_RangeLimited);
         editable->e_f32.min_value = 10.0f;
@@ -791,10 +817,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
 
     editables = begin_editables(editor, EntityType_CameraZone);
     {
-        add_viewable(editables, Entity, guid);
-        editable = add_viewable(editables, Entity, flags);
-        editable->type = Editable_EntityFlag;
-        add_viewable(editables, Entity, p);
+        default_editables(editables);
         add_viewable(editables, Entity, active_region);
         add_editable(editables, Entity, view_region_height);
         add_editable(editables, Entity, primary_camera_zone, Editable_IsBool);
@@ -803,12 +826,21 @@ internal void set_up_editable_parameters(EditorState* editor) {
 
     editables = begin_editables(editor, EntityType_Checkpoint);
     {
-        add_viewable(editables, Entity, guid);
-        editable = add_viewable(editables, Entity, flags);
-        editable->type = Editable_EntityFlag;
-        add_viewable(editables, Entity, p);
+        default_editables(editables);
         add_viewable(editables, Entity, checkpoint_zone);
         add_viewable(editables, Entity, respawn_p);
+    }
+    end_editables(editor, editables);
+
+    editables = begin_editables(editor, EntityType_TriggerZone);
+    {
+        default_editables(editables);
+        add_editable(editables, Entity, trigger_touch_behaviour);
+        add_editable(editables, Entity, trigger_envelop_behaviour);
+        add_editable(editables, Entity, trigger_leave_behaviour);
+        add_viewable(editables, Entity, trigger_zone);
+        add_viewable(editables, Entity, touching_player, Editable_IsBool);
+        add_viewable(editables, Entity, enveloping_player, Editable_IsBool);
     }
     end_editables(editor, editables);
 
@@ -823,7 +855,7 @@ internal void set_up_editable_parameters(EditorState* editor) {
     end_linear_buffer(prefabs);
 }
 
-inline void print_editable(GameState* game_state, UILayout* layout, EditableParameter* editable, void** editable_ptr, v4 color, EditorWidget* widget = 0) {
+inline void print_editable(GameState* game_state, UILayout* layout, EditableParameter* editable, void** editable_ptr, v4 color) {
     switch (editable->type) {
         case Editable_u32: {
             u32 value = *(cast(u32*) editable_ptr);
@@ -898,7 +930,12 @@ inline void print_editable(GameState* game_state, UILayout* layout, EditablePara
 
         case Editable_WallBehaviour: {
             WallBehaviour value = *(cast(WallBehaviour*) editable_ptr);
-            layout_print(layout, color, enum_name(WallBehaviour, value));
+            layout_print(layout, color, enum_name_safe(WallBehaviour, value));
+        } break;
+
+        case Editable_TriggerBehaviour: {
+            TriggerBehaviour value = *(cast(TriggerBehaviour*) editable_ptr);
+            layout_print(layout, color, enum_name_safe(TriggerBehaviour, value));
         } break;
     }
 
@@ -1042,6 +1079,13 @@ inline void activate_drag_entities(EditorState* editor) {
     set_active(editor, drag_entities);
 }
 
+inline void deselect_entities(EditorState* editor) {
+    editor->selected_entity_count = 0;
+    if (editor->active_widget.type == Widget_ManipulateEditable) {
+        clear_active(editor);
+    }
+}
+
 // @TODO: I'm sick of passing around things like GameInput
 inline b32 editor_button(EditorState* editor, UILayout* layout, GameInput* input, char* title) {
     b32 result = false;
@@ -1087,6 +1131,7 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->camera_icon     = get_image_id_by_name(editor->assets, string_literal("camera_icon"));
     editor->speaker_icon    = get_image_id_by_name(editor->assets, string_literal("speaker_icon"));
     editor->checkpoint_icon = get_image_id_by_name(editor->assets, string_literal("checkpoint_icon"));
+    editor->trigger_icon    = get_image_id_by_name(editor->assets, string_literal("trigger_icon"));
 
     editor->font = get_font_by_name(editor->assets, string_literal("editor_font"));
 
@@ -1098,9 +1143,10 @@ inline EditorState* allocate_editor(GameState* game_state, GameRenderCommands* r
     editor->grid_snapping_enabled = true;
     editor->grid_size = vec2(0.5f, 0.5f);
 
-    editor->show_camera_zones = true;
+    editor->show_camera_zones            = true;
     editor->show_soundtrack_player_zones = true;
-    editor->show_checkpoint_zones = true;
+    editor->show_checkpoint_zones        = true;
+    editor->show_trigger_zones           = true;
     editor->zoom = 1.0f;
 
     set_up_editable_parameters(editor);
@@ -1216,6 +1262,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->show_checkpoint_zones = !editor->show_checkpoint_zones;
     }
 
+    if (editor_button(editor, &layout, input, editor->show_trigger_zones ? "Hide Trigger Zones" : "Show Trigger Zones")) {
+        editor->show_trigger_zones = !editor->show_trigger_zones;
+    }
+
     if (editor_button(editor, &layout, input, editor->show_all_move_widgets ? "Hide Move Widgets" : "Show Move Widgets") || was_pressed(get_key(input, 'M'))) {
         editor->show_all_move_widgets = !editor->show_all_move_widgets;
     }
@@ -1252,17 +1302,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 layout_print(&undo_log, color, "[%04u] %s: ", footer_index, enum_name_safe(UndoType, footer->type));
                 switch (footer->type) {
                     case Undo_SetEntityData: {
-                        layout_print(&undo_log, color, "EntityID { %u } ", footer->entity_guid.value);
-                        if (footer->description) {
-                            layout_print(&undo_log, color, "-> %s", footer->description);
-                        }
+                        layout_print(&undo_log, color, "EntityID { %u }", footer->entity_guid.value);
                     } break;
                     case Undo_SetData: {
-                        if (footer->description) {
-                            layout_print(&undo_log, color, "%s", footer->description);
-                        } else {
-                            layout_print(&undo_log, color, "0x%I64x", cast(u64) footer->data_ptr);
-                        }
+                        layout_print(&undo_log, color, "0x%I64x", cast(u64) footer->data_ptr);
                     } break;
                     case Undo_CreateEntity:
                     case Undo_DeleteEntity: {
@@ -1270,6 +1313,11 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                         layout_print(&undo_log, color, "EntityID { %d }", id.value);
                     } break;
                 }
+
+                if (footer->description) {
+                    layout_print(&undo_log, color, " [%s]", footer->description);
+                }
+
                 if (footer->batch_id) {
                     // layout_print(&undo_log, color, " batch id: %u", footer->batch_id);
                     last_seen_batch_id = footer->batch_id;
@@ -1341,7 +1389,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             Entity* entity = game_state->entities + entity_index;
 
             if (editor->shown || !(entity->flags & EntityFlag_Invisible)) {
-                if (is_in_region(entity->collision, world_mouse_p - entity->p)) {
+                if (is_in_entity_local_region(entity, entity->collision, world_mouse_p)) {
                     moused_over = entity;
                 }
             }
@@ -1352,7 +1400,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
             Entity* entity = level->entities + entity_index;
 
-            if (is_in_region(entity->collision, world_mouse_p - entity->p)) {
+            if (is_in_entity_local_region(entity, entity->collision, world_mouse_p)) {
                 moused_over = entity;
             }
         }
@@ -1384,30 +1432,19 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         AxisAlignedBox2 selection_box = correct_aab_winding(aab_min_max(editor->world_mouse_p_on_active, world_mouse_p));
         v2 selection_dim = get_dim(selection_box);
 
-        b32 is_a_group_selection = false;
-        if (max(selection_dim.x, selection_dim.y) > 0.1f) {
-            is_a_group_selection = true;
-            push_rect(&game_state->render_context, selection_box, vec4(0.3f, 0.3f, 0.5f, 0.2f), ShapeRenderMode_Fill);
-            push_rect(&game_state->render_context, selection_box, vec4(0.5f, 0.5f, 0.8f, 0.8f), ShapeRenderMode_Outline);
-        }
+        push_rect(&game_state->render_context, selection_box, vec4(0.3f, 0.3f, 0.5f, 0.2f), ShapeRenderMode_Fill);
+        push_rect(&game_state->render_context, selection_box, vec4(0.5f, 0.5f, 0.8f, 0.8f), ShapeRenderMode_Outline);
 
         if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
             selection_box = correct_aab_winding(selection_box);
 
-            // @Note: If the area of the selection box is too small, we just treat this as a regular click and will select
-            // only one entity. This is important because otherwise it becomes impossible to separate two entities that overlap.
-            if (is_a_group_selection) {
-                for (u32 entity_index = 1; entity_index < level->entity_count; entity_index++) {
-                    Entity* entity = level->entities + entity_index;
-                    AxisAlignedBox2 test_box = grow_by_diameter(selection_box, entity->collision);
-                    if (is_in_aab(test_box, entity->p)) {
-                        editor->selected_entities[editor->selected_entity_count++] = entity->guid;
-                    }
-                }
-            } else {
-                if (moused_over) {
-                    editor->selected_entity_count = 1;
-                    editor->selected_entities[0] = moused_over->guid;
+            u32 entity_count = game_state->game_mode == GameMode_Ingame ? game_state->entity_count : level->entity_count;
+            Entity* entities = game_state->game_mode == GameMode_Ingame ? game_state->entities     : level->entities;
+            for (u32 entity_index = 1; entity_index < entity_count; entity_index++) {
+                Entity* entity = entities + entity_index;
+                AxisAlignedBox2 test_box = grow_by_diameter(selection_box, entity->collision);
+                if (is_in_aab(test_box, entity->p)) {
+                    editor->selected_entities[editor->selected_entity_count++] = entity->guid;
                 }
             }
 
@@ -1415,13 +1452,13 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     } else if (is_hot(editor, select_entities)) {
         if (was_pressed(input->mouse_buttons[PlatformMouseButton_Left])) {
+            deselect_entities(editor);
             if (moused_over) {
                 editor->selected_entity_count = 1;
                 editor->selected_entities[0] = moused_over->guid;
                 activate_drag_entities(editor);
             } else {
-                editor->selected_entity_count = 0;
-                set_active(editor, editor->hot_widget);
+                set_active(editor, select_entities);
             }
         }
     }
@@ -1452,7 +1489,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             if (manipulated) {
                 activate_drag_entities(editor);
             } else {
-                editor->selected_entity_count = 0;
+                deselect_entities(editor);
             }
         }
     }
@@ -1466,7 +1503,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 delete_entity(editor, editor->selected_entities[selected_index], true);
             }
             end_undo_batch(editor);
-            editor->selected_entity_count = 0;
+            deselect_entities(editor);
         }
 
         if (moused_over) {
@@ -1492,9 +1529,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     AddEntityResult duplicate = add_entity(editor, EntityType_Null);
                     copy(sizeof(*duplicate.ptr), source_entity, duplicate.ptr);
                     duplicate.ptr->guid = duplicate.guid;
+                    duplicate.ptr->p += vec2(0.5f, 0.5f);
                     editor->selected_entities[selected_index] = duplicate.guid;
 
-                    add_undo_history(editor, Undo_CreateEntity, sizeof(*duplicate.ptr), duplicate.ptr);
+                    add_undo_history(editor, Undo_CreateEntity, sizeof(*duplicate.ptr), duplicate.ptr, "Duplicate");
                 }
             }
             end_undo_batch(editor);
@@ -1577,6 +1615,10 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             case EntityType_SoundtrackPlayer: {
                 created_entity = add_soundtrack_player(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(20.0f, 10.0f)), SoundtrackID { 0 }).ptr;
             } break;
+
+            case EntityType_TriggerZone: {
+                created_entity = add_trigger_zone(editor, aab_center_dim(snap_to_grid(editor, world_mouse_p), vec2(4.0f, 6.0f))).ptr;
+            } break;
         }
 
         if (created_entity) {
@@ -1587,19 +1629,19 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     if (editor->selected_entity_count || editor->show_all_move_widgets) {
-        u32 entity_count = editor->selected_entity_count ? editor->selected_entity_count : level->entity_count;
+        u32 entity_count = editor->show_all_move_widgets ? level->entity_count : editor->selected_entity_count;
 
         for (u32 entity_index = 0; entity_index < entity_count; entity_index++) {
             Entity* entity = 0;
 
-            if (editor->selected_entity_count) {
-                entity = get_entity_from_guid(editor, editor->selected_entities[entity_index]);
-            } else {
+            if (editor->show_all_move_widgets) {
                 entity = level->entities + entity_index;
+            } else {
+                entity = get_entity_from_guid(editor, editor->selected_entities[entity_index]);
             }
 
             // @TODO: Get a for_entity_type in the editor?
-            if (entity->type == EntityType_Wall && entity->behaviour == WallBehaviour_Move) {
+            if (entity->type == EntityType_Wall && entity->wall_behaviour == WallBehaviour_Move) {
                 EditorWidget widget = {};
                 widget.guid = entity;
                 widget.type = Widget_DragP;
@@ -1640,6 +1682,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->collision));
             } else if (editor->show_soundtrack_player_zones && selected->type == EntityType_SoundtrackPlayer) {
                 drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->audible_zone));
+            } else if (editor->show_trigger_zones && selected->type == EntityType_TriggerZone) {
+                drag_region_widget(game_state, editor, selected->p, wrap_entity_data(selected, &selected->trigger_zone));
             }
         }
 
@@ -1667,7 +1711,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 }
 
                 layout_print(&layout, color, "%s: ", editable->name);
-                print_editable(game_state, &layout, editable, editable_ptr, color, &widget);
+                print_editable(game_state, &layout, editable, editable_ptr, color);
 
                 if (is_active(editor, widget)) {
                     v2 start_mouse_p = editor->mouse_p_on_active;
@@ -1711,6 +1755,15 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                                 *(cast(WallBehaviour*) editable_ptr) = value;
                             } break;
 
+                            case Editable_TriggerBehaviour: {
+                                TriggerBehaviour value = *(cast(TriggerBehaviour*) editable_ptr);
+                                value = cast(TriggerBehaviour) (cast(u32) value + 1);
+                                if (value >= TriggerBehaviour_Count) {
+                                    value = TriggerBehaviour_None;
+                                }
+                                *(cast(TriggerBehaviour*) editable_ptr) = value;
+                            } break;
+
                             case Editable_s32: {
                                 if (editable->flags & Editable_IsBool) {
                                     *(cast(b32*) editable_ptr) = !*(cast(b32*) editable_ptr);
@@ -1732,7 +1785,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                     }
                 }
 
-                if (is_in_aab(layout.last_print_bounds, mouse_p)) {
+                if (is_selected && is_in_aab(layout.last_print_bounds, mouse_p)) {
                     editor->next_hot_widget = widget;
                 }
 
@@ -1741,17 +1794,15 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    if (game_state->game_mode == GameMode_Editor) {
-        if (moused_over) {
-            push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), COLOR_PINK, ShapeRenderMode_Outline, 100.0f);
-        }
+    if (moused_over) {
+        push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), COLOR_PINK, ShapeRenderMode_Outline, 100.0f);
+    }
 
-        if (editor->selected_entity_count) {
-            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-                Entity* this_selected = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-                if (this_selected) {
-                    push_shape(&game_state->render_context, transform2d(this_selected->p), rectangle(this_selected->collision), this_selected == moused_over ? COLOR_YELLOW : COLOR_GREEN, ShapeRenderMode_Outline, 100.0f);
-                }
+    if (editor->selected_entity_count) {
+        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+            Entity* this_selected = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+            if (this_selected) {
+                push_shape(&game_state->render_context, transform2d(this_selected->p), rectangle(this_selected->collision), this_selected == moused_over ? COLOR_YELLOW : COLOR_GREEN, ShapeRenderMode_Outline, 100.0f);
             }
         }
     }
