@@ -324,7 +324,7 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
 
                     glBegin(GL_TRIANGLES);
                     glColor4fv(color.e);
-                    // NOTE: Lower triangle
+
                     // glTexCoord2f(min_uv.x, min_uv.y);
                     glVertex2f(min_p.x, min_p.y);
                     // glTexCoord2f(max_uv.x, min_uv.y);
@@ -332,13 +332,13 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                     // glTexCoord2f(max_uv.x, max_uv.y);
                     glVertex2f(max_p.x, max_p.y);
 
-                    // NOTE: Upper triangle
                     // glTexCoord2f(min_uv.x, min_uv.y);
                     glVertex2f(min_p.x, min_p.y);
                     // glTexCoord2f(max_uv.x, max_uv.y);
                     glVertex2f(max_p.x, max_p.y);
                     // glTexCoord2f(min_uv.x, max_uv.y);
                     glVertex2f(min_p.x, max_p.y);
+
                     glEnd();
                 }
             } break;

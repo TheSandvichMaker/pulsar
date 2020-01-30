@@ -1,49 +1,82 @@
 #ifndef PULSAR_MAIN_H
 #define PULSAR_MAIN_H
 
-/* RESOURCES:
- * Sounds and Music:
- *     all created by me
- * Images:
- *     camera icon: Google images
- *     speaker icon: Google images
+/* The Special Handmade Hero credits section:
+ * Handmade Hero has been a big influence on my coding style and is the source of a large amount of my game programming knowledge,
+ * so I opted to use that knowledge (and some of the code directly) from Handmade Hero in place of using something like a library.
+ * The upshot is that I've coded along 300 episodes of Handmade Hero by hand, trying to understand each line and debugging all my own
+ * bugs along the way, as well as making my own minor changes, improvements, and fixes as I came across them. This means that unlike
+ * if I used libraries, I am totally familiar with the code in question and why + how it works.
  *
- * REFERENCES:
- * Handmade Hero (@TODO: List the stuff directly used from handmade hero):
- *     https://handmadehero.org/
- *     A lot of the (win32) platform layer
- *     DirectSound setup - I rewrote the way the DS buffer is actually written into to reduce latency, make midi sync better, and stop audio glitches on frame drops
- *     A lot of the audio mixer - I rewrote the relevant parts to handle the change to DS, as well as my own needs (sample-perfect looping, midi sync)
- *     Input handling (@TODO: Start using raw input - set up an input thread?)
- *     Sorting (pulsar_sort.cpp is a direct copy of handmade_sort.cpp)
- * OpenGL:
- *     Handmade Hero for OpenGL setup and basic rendering (@TODO: be more specific)
- *     OpenGL wiki for everything else (@TODO: be more specific)
- * General Knowledge and Insight from watching Jonathan Blow streams:
+ * What follows is a list, as complete as I could make it from the top of my head, of things partially or entirely adopted from Handmade Hero.
+ * Often, I haven't actually copied the code from Handmade Hero directly, but I've reimplemented the same ideas / techniques from scratch
+ * using just my knowledge and understanding of them. But then the end result often looked so close to the original Handmade Hero code that
+ * I wouldn't dare claim ownership of it.
+ *
+ * Memory Arenas, Temporary Memory (minor changes, although LinearBuffer is my own)
+ * You'll also find that AllocateParams in pulsar_memory.h comes from Handmade Hero's ArenaPushParams which I made more general.
+ *
+ * Win32 window setup (with minor changes?)
+ * OpenGL setup (with minor changes)
+ * WGL setup (with minor changes)
+ * XInput loading (with minor changes)
+ * DirectSound setup (virtually unchanged)
+ * Platform Layer style API design (with minor changes, I actually don't like the way this turned out so far and I'd redo it if I had time)
+ * Win32 file reading and writing (straight copy)
+ * Various Win32 setup things like initializing the perf counter, getting the refresh rate, understanding how the Win32 API works in general.
+ * GameButtonState, GameController, and surrounding functionality (straight copy, except for of course the actual buttons used)
+ * Various Win32 input handling things, like mouse buttons and the way input messages are handled in win32_handle_remaining_messages (not event mode though, that's my own)
+ * XInput usage (minor changes)
+ *
+ * Sorting (no changes)
+ *
+ * Basic code generator framework (but I built upon it a lot and have written more complex parsers before,
+ *   so using the handmade hero code generator as a base isn't really much of a leg up. Mostly seeing Casey
+ *   do it just gave me confidence to pursue the idea. The Handmade Hero code generator was only covered in
+ *   two episodes and isn't actually in use in Handmade Hero, it only did very basic struct introspection)
+ *
+ * Initial framework for the mixer and output_playing_sounds (I've overhauled output_playing_sounds a good bit, and have made some additions to the mixer)
+ *
+ * Most of math.h (although a lot of it I would've written myself just as happily anyway)
+ *
+ * load_bitmap and load_wav (and related RIFF stuff) in pulsar_asset_packer
+ * General idea and broad design of the asset pack file (but the actual asset packer and pack format is my own)
+ *
+ * UILayout idea and broad design (implemented the same idea from memory)
+ * EditorWidget... kind of. It's not entirely like in Handmade Hero and the design of is still in quite a lot of flux,
+ * but the general ImGUI ideas are definitely from Casey's examples and influence.
+ *
+ * Renderer design (GameRenderCommands, RenderContexts are modelled after Handmade Hero's RenderGroups)
+ * OpenGL functions (various opengl helper functions and opengl_render_commands will look very familiar, although my own render commands are a bit different)
+ */
+
+/* Other references:
+ * General Knowledge and Insight from watching Jonathan Blow streams (my console and main menu vaguely pulled from streams I've watched of him implementing such things):
  *     https://www.youtube.com/user/jblow888
- * Equations of motion:
- *     Handmade Hero (https://www.youtube.com/watch?v=LoTRzRFEk5I)
- *     Various wikipedia pages (e.g. https://en.wikipedia.org/wiki/Classical_mechanics)
- * Immediate mode GUIs:
- *     Handmade Hero Debug System
- *     https://www.youtube.com/watch?v=Z1qyvQsjK5Y
- * GJK, EPA:
+ * GJK, EPA (not that I actually used these in the end result, but the code is there and works):
  *     https://caseymuratori.com/blog_0003
  *     http://www.dyn4j.org/2010/04/gjk-gilbert-johnson-keerthi/
  *     http://www.dyn4j.org/2010/05/epa-expanding-polytope-algorithm/
  * Computing the winding of a polygon:
  *     http://paulbourke.net/geometry/polygonmesh/
- * MIDI:
- *     https://www.midi.org/specifications-old/item/the-midi-1-0-specification
  * Framerate Independence / Timing
  *     https://www.youtube.com/watch?v=fdAOPHgW7qM
  *     https://www.youtube.com/watch?v=jTzIDmjkLQo
- * Ring buffers (not used for reference in the actual codebase yet, but my idea for simplifying the undo system was sparked by reading this post):
- *     https://fgiesen.wordpress.com/2010/12/14/ring-buffers-and-queues/
- * Pan Laws:
- *     http://www.cs.cmu.edu/~music/icm-online/readings/panlaws/panlaws.pdf
+ * Immediate mode GUIs:
+ *     Handmade Hero Debug System
+ *     https://www.youtube.com/watch?v=Z1qyvQsjK5Y
+ * MIDI:
+ *     https://www.midi.org/specifications-old/item/the-midi-1-0-specification
  * Various things I've learned over time and useful functions like smooth_min:
  *     https://www.iquilezles.org/www/index.htm
+ */
+
+/* Resources:
+ * Sounds and Music:
+ *     all created by me (clearance on some of the samples used is fuzzy)
+ * Images:
+ *     camera icon: Random google images
+ *     speaker icon: Random google images
  */
 
 #include <stdarg.h>
