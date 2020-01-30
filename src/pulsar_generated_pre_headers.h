@@ -97,12 +97,14 @@ enum MetaType {
     u8 right; \
     u8 jump; \
     u8 interact; \
+    u8 reset; \
     u8 alternate_up; \
     u8 alternate_left; \
     u8 alternate_down; \
     u8 alternate_right; \
     u8 alternate_jump; \
     u8 alternate_interact; \
+    u8 alternate_reset; \
     u32 max_collision_iterations; \
     f32 gravity; \
     f32 downward_gravity_multiplier; \
@@ -118,6 +120,7 @@ enum MetaType {
     f32 early_jump_window; \
     f32 late_jump_window; \
     f32 player_respawn_speed; \
+    f32 player_self_destruct_speed; \
     f32 player_airtime_loudest_landing_point; \
     f32 player_walk_cycle_length; \
     f32 level_intro_speed; \

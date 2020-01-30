@@ -581,6 +581,7 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                     if (vk_code == config->right    || vk_code == config->alternate_right   ) win32_process_keyboard_message(&keyboard_controller->move_right, is_down);
                     if (vk_code == config->jump     || vk_code == config->alternate_jump    ) win32_process_keyboard_message(&keyboard_controller->jump,       is_down);
                     if (vk_code == config->interact || vk_code == config->alternate_interact) win32_process_keyboard_message(&keyboard_controller->interact,   is_down);
+                    if (vk_code == config->reset    || vk_code == config->alternate_reset   ) win32_process_keyboard_message(&keyboard_controller->back,       is_down);
 
                     switch (vk_code) {
                         case VK_ESCAPE:  { win32_process_keyboard_message(&keyboard_controller->start, is_down); } break;

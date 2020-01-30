@@ -829,12 +829,12 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         char* menu_items[32]; // @Note: Oversized array
         u32 item_index = 0;
-        u32 start_game    = (menu_items[item_index] = menu->source_game_mode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
-        u32 enter_editor  = (menu_items[item_index] = menu->source_game_mode == GameMode_Editor ? "Resume Editing" : "Enter Editor", item_index++);
+        u32 start_game   = (menu_items[item_index] = menu->source_game_mode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
+        u32 enter_editor = (menu_items[item_index] = menu->source_game_mode == GameMode_Editor ? "Resume Editing" : "Enter Editor", item_index++);
 #if 0
-        u32 options       = (menu_items[item_index] = "Options", item_index++);
+        u32 options      = (menu_items[item_index] = "Options", item_index++);
 #endif
-        u32 quit          = (menu_items[item_index] = menu->asking_for_quit_confirmation ? "Really Quit?" : "Quit", item_index++);
+        u32 quit         = (menu_items[item_index] = menu->asking_for_quit_confirmation ? "Really Quit?" : "Quit", item_index++);
 
         f32 spacing = 48.0f;
 
@@ -870,7 +870,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
             }
         }
 
-        // @TODO: 0.25f*(cast(f32) num_items*row_height) doesn't make sense. But spacing for fonts / layouts is somewhat broken, so 0.25f seems to center it pretty well.
+        // @TODO: Consider the height of the title properly so I can accurately center all this without weird guesswork
         UILayout layout = make_layout(layout_context, menu->big_font, vec2(0.5f*screen_dim.x, 0.5f*screen_dim.y + 0.25f*(cast(f32) num_items*row_height)), Layout_CenterAlign);
         set_spacing(&layout, spacing);
 
@@ -958,27 +958,41 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
         if (game_state->game_mode == GameMode_Ingame) {
             Entity* player = game_state->player;
-            if (player && player->dead) {
-                Entity* checkpoint = game_state->last_activated_checkpoint;
-                assert(checkpoint);
-                if (game_state->player_respawn_timer > 0.0f) {
-                    game_state->player_respawn_timer -= frame_dt / game_config->player_respawn_speed;
-                    if (game_state->player_respawn_timer < 0.0f) {
-                        game_state->player_respawn_timer = 0.0f;
+            GameController* controller = &input->controller;
+            if (player) {
+                if (player->dead) {
+                    Entity* checkpoint = game_state->last_activated_checkpoint;
+                    assert(checkpoint);
+                    if (game_state->player_respawn_timer > 0.0f) {
+                        game_state->player_respawn_timer -= frame_dt / game_config->player_respawn_speed;
+                        if (game_state->player_respawn_timer < 0.0f) {
+                            game_state->player_respawn_timer = 0.0f;
+                        }
+                    } else {
+                        player->dead = false;
+                        player->p    = checkpoint->respawn_p;
+
+                        player->dp                  = vec2(0, 0);
+                        player->ddp                 = vec2(0, 0);
+                        player->support_dp          = vec2(0, 0);
+                        player->retained_support_dp = vec2(0, 0);
+                        player->ballistic_dp        = vec2(0, 0);
+
+                        player->was_supported             = false;
+                        player->support                   = 0;
+                        player->retained_support_dp_timer = 0.0f;
                     }
-                } else {
-                    player->dead = false;
-                    player->p    = checkpoint->respawn_p;
+                } else if (!player->killed_this_frame) {
+                    if (controller->back.is_down) {
+                        game_state->player_self_destruct_timer += frame_dt;
+                    } else {
+                        game_state->player_self_destruct_timer = 0.0f;
+                    }
 
-                    player->dp                  = vec2(0, 0);
-                    player->ddp                 = vec2(0, 0);
-                    player->support_dp          = vec2(0, 0);
-                    player->retained_support_dp = vec2(0, 0);
-                    player->ballistic_dp        = vec2(0, 0);
-
-                    player->was_supported             = false;
-                    player->support                   = 0;
-                    player->retained_support_dp_timer = 0.0f;
+                    if (game_state->player_self_destruct_timer >= game_config->player_self_destruct_speed) {
+                        game_state->player_self_destruct_timer = 0.0f;
+                        kill_player(game_state);
+                    }
                 }
             }
         }
@@ -1111,17 +1125,21 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     }
                 }
 
+                v4 color = entity->color;
+
                 Transform2D transform = transform2d(visual_p);
                 if (entity->type == EntityType_Player) {
                     // @Hack: Making the player just slightly oversized to avoid seeing a tiny gap between it and touching entities
                     transform.scale *= 1.02f;
+                    color = lerp(color, COLOR_RED, game_state->player_self_destruct_timer / game_config->player_self_destruct_speed);
                 }
+
                 switch (entity->type) {
                     case EntityType_Wall: {
                         if (entity->type == EntityType_Wall && !(entity->flags & EntityFlag_Collides)) {
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->collision)), vec4(entity->color.rgb, entity->color.a*0.5f), ShapeRenderMode_Outline);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->collision)), vec4(color.rgb, color.a*0.5f), ShapeRenderMode_Outline);
                         } else {
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->collision)), entity->color);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->collision)), color);
                         }
                     } break;
 
@@ -1129,20 +1147,20 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         transform.rotation_arm = entity->camera_rotation_arm;
                         Image* sprite = get_image(&game_state->assets, entity->sprite);
                         if (sprite) {
-                            push_image(render_context, transform, sprite, entity->color);
+                            push_image(render_context, transform, sprite, color);
                         } else {
                             INVALID_CODE_PATH;
                         }
                         if (editor->show_camera_zones) {
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), entity->color, ShapeRenderMode_Outline, 1000.0f);
-                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), entity->color*vec4(1, 1, 1, 0.25f), ShapeRenderMode_Outline, 1000.0f);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), entity->active_region)), color, ShapeRenderMode_Outline, 1000.0f);
+                            push_shape(render_context, transform, rectangle(aab_center_dim(vec2(0, 0), vec2(aspect_ratio*entity->view_region_height, entity->view_region_height))), color*vec4(1, 1, 1, 0.25f), ShapeRenderMode_Outline, 1000.0f);
                         }
                     } break;
 
                     case EntityType_Checkpoint: {
                         Image* sprite = get_image(&game_state->assets, entity->sprite);
                         if (sprite) {
-                            push_image(render_context, transform, sprite, entity->color);
+                            push_image(render_context, transform, sprite, color);
                         } else {
                             INVALID_CODE_PATH;
                         }
@@ -1154,7 +1172,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     case EntityType_SoundtrackPlayer: {
                         Image* sprite = get_image(&game_state->assets, entity->sprite);
                         if (sprite) {
-                            push_image(render_context, transform, sprite, entity->color);
+                            push_image(render_context, transform, sprite, color);
                         } else {
                             INVALID_CODE_PATH;
                         }
@@ -1167,12 +1185,12 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     case EntityType_TriggerZone: {
                         Image* sprite = get_image(&game_state->assets, entity->sprite);
                         if (sprite) {
-                            push_image(render_context, transform, sprite, entity->color);
+                            push_image(render_context, transform, sprite, color);
                         } else {
                             INVALID_CODE_PATH;
                         }
                         if (editor->show_trigger_zones) {
-                            v4 color = COLOR_GREEN;
+                            color = COLOR_GREEN;
                             if (entity->touching_player && entity->enveloping_player) {
                                 color = COLOR_PINK;
                             } else if (entity->touching_player) {
@@ -1188,12 +1206,12 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                         if (entity->sprite.value) {
                             Image* sprite = get_image(&game_state->assets, entity->sprite);
                             if (sprite) {
-                                push_image(render_context, transform, sprite, entity->color);
+                                push_image(render_context, transform, sprite, color);
                             } else {
                                 INVALID_CODE_PATH;
                             }
                         } else {
-                            push_shape(render_context, transform, rectangle(entity->collision), entity->color);
+                            push_shape(render_context, transform, rectangle(entity->collision), color);
                         }
                     } break;
                 }

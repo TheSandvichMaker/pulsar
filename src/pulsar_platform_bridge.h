@@ -116,6 +116,7 @@ introspect() struct GameConfig {
     u8 right    = 'D';
     u8 jump     = 'W';
     u8 interact = 'F';
+    u8 reset    = 'R';
 
     // Alternate Binds
     u8 alternate_up       = 0x26;
@@ -124,6 +125,7 @@ introspect() struct GameConfig {
     u8 alternate_right    = 0x27;
     u8 alternate_jump     = 0x20;
     u8 alternate_interact = 0xD;
+    u8 alternate_reset    = 0x8;
 
     // Player Movement
     u32 max_collision_iterations    = 8;
@@ -146,6 +148,7 @@ introspect() struct GameConfig {
     f32 late_jump_window            = 0.1f;
 
     f32 player_respawn_speed        = 1.0f;
+    f32 player_self_destruct_speed  = 1.0f;
 
     f32 player_airtime_loudest_landing_point = 1.0f;
     f32 player_walk_cycle_length             = 2.0f;

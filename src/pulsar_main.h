@@ -157,6 +157,7 @@ struct GameState {
     ParticleSystem background_particles;
 
     f32 player_respawn_timer;
+    f32 player_self_destruct_timer;
 
     Entity* player;
     Entity* last_activated_checkpoint;
