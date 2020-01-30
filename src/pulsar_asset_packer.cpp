@@ -467,6 +467,17 @@ int main(int argument_count, char** arguments) {
     add_sound("menu_select", "assets/menu_select.wav");
     add_sound("menu_confirm", "assets/menu_confirm.wav");
 
+    add_sound("player_jump_1", "assets/player_jump_1.wav");
+    add_sound("player_jump_2", "assets/player_jump_2.wav");
+    add_sound("player_jump_3", "assets/player_jump_3.wav");
+    add_sound("player_high_jump", "assets/player_high_jump.wav");
+
+    add_sound("player_land", "assets/player_land.wav");
+
+    add_sound("player_footstep_1", "assets/player_footstep_1.wav");
+    add_sound("player_footstep_2", "assets/player_footstep_2.wav");
+    add_sound("player_footstep_3", "assets/player_footstep_3.wav");
+
     add_image("camera_icon", "assets/camera_icon.bmp");
     add_image("speaker_icon", "assets/speaker_icon.bmp");
     add_image("checkpoint_icon", "assets/checkpoint_icon.bmp");

@@ -714,7 +714,17 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         // @TODO: Make the load_assets routine ignorant of the platform's file system
         load_assets(&game_state->assets, &game_state->transient_arena, "assets.pla");
 
-        game_state->player_footstep_sound = get_sound_by_name(&game_state->assets, string_literal("menu_select"));
+        game_state->sounds.player_footsteps[0] = get_sound_by_name(&game_state->assets, string_literal("player_footstep_1"));
+        game_state->sounds.player_footsteps[1] = get_sound_by_name(&game_state->assets, string_literal("player_footstep_2"));
+        game_state->sounds.player_footsteps[2] = get_sound_by_name(&game_state->assets, string_literal("player_footstep_3"));
+
+        game_state->sounds.player_jump[0] = get_sound_by_name(&game_state->assets, string_literal("player_jump_1"));
+        game_state->sounds.player_jump[1] = get_sound_by_name(&game_state->assets, string_literal("player_jump_2"));
+        game_state->sounds.player_jump[2] = get_sound_by_name(&game_state->assets, string_literal("player_jump_3"));
+
+        game_state->sounds.player_high_jump = get_sound_by_name(&game_state->assets, string_literal("player_high_jump"));
+
+        game_state->sounds.player_land = get_sound_by_name(&game_state->assets, string_literal("player_land"));
 
         initialize_audio_mixer(&game_state->audio_mixer, &game_state->permanent_arena);
         initialize_audio_group(&game_state->game_audio, &game_state->audio_mixer);
@@ -821,7 +831,9 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
         u32 item_index = 0;
         u32 start_game    = (menu_items[item_index] = menu->source_game_mode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
         u32 enter_editor  = (menu_items[item_index] = menu->source_game_mode == GameMode_Editor ? "Resume Editing" : "Enter Editor", item_index++);
+#if 0
         u32 options       = (menu_items[item_index] = "Options", item_index++);
+#endif
         u32 quit          = (menu_items[item_index] = menu->asking_for_quit_confirmation ? "Really Quit?" : "Quit", item_index++);
 
         f32 spacing = 48.0f;
@@ -885,8 +897,10 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 switch_game_mode(game_state, GameMode_Ingame);
             } else if (menu->selected_item == enter_editor) {
                 switch_game_mode(game_state, GameMode_Editor);
+#if 0
             } else if (menu->selected_item == options) {
                 /* there's no options for now */
+#endif
             } else if (menu->selected_item == quit) {
                 if (menu->asking_for_quit_confirmation) {
                     if (menu->quit_timer <= 0.0f) {
@@ -1088,7 +1102,16 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                     render_context->sort_key_bias += 100.0f;
                 }
 
-                Transform2D transform = transform2d(entity->p + vec2(0.0f, -game_config->background_pulse_world_shake_intensity*game_state->background_pulse_t));
+                v2 visual_p = entity->p;
+
+                Entity* camera_zone = game_state->active_camera_zone;
+                if (camera_zone) {
+                    if (is_in_entity_local_region(camera_zone, camera_zone->active_region + entity->collision, visual_p)) {
+                        visual_p += vec2(0.0f, -game_config->background_pulse_world_shake_intensity*game_state->background_pulse_t);
+                    }
+                }
+
+                Transform2D transform = transform2d(visual_p);
                 if (entity->type == EntityType_Player) {
                     // @Hack: Making the player just slightly oversized to avoid seeing a tiny gap between it and touching entities
                     transform.scale *= 1.02f;
@@ -1149,11 +1172,11 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                             INVALID_CODE_PATH;
                         }
                         if (editor->show_trigger_zones) {
-                            v4 color = COLOR_WHITE;
+                            v4 color = COLOR_GREEN;
                             if (entity->touching_player && entity->enveloping_player) {
                                 color = COLOR_PINK;
                             } else if (entity->touching_player) {
-                                color = COLOR_GREEN;
+                                color = COLOR_CYAN;
                             } else if (entity->enveloping_player) {
                                 color = COLOR_BLUE;
                             }
@@ -1237,7 +1260,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
                 layout_context.temp_arena = &game_state->transient_arena;
 
                 UILayout outro_text = make_layout(layout_context, game_state->menu_state->big_font, 0.5f*screen_dim, Layout_CenterAlign);
-                layout_print_line(&outro_text, vec4(COLOR_WHITE.rgb, text_alpha), "Thanks for playing!");
+                layout_print_line(&outro_text, vec4(COLOR_WHITE.rgb, text_alpha), "fin.");
 
                 *render_context = rc_backup;
             }

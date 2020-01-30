@@ -1,5 +1,5 @@
 # startup
-start_fullscreen   false
+start_fullscreen   true
 startup_level      levels/demo_level.plv
 
 # memory
@@ -41,8 +41,7 @@ max_collision_iterations       8
 gravity                       -20.0
 downward_gravity_multiplier    2.0
 moon_time_duration             0.5
-death_by_crushing_threshold    0.25
-support_dp_retention_time      0.15
+support_dp_retention_time      0.25
 
 movement_speed                 30.0
 max_x_vel                      10.0
@@ -58,7 +57,8 @@ late_jump_window               0.1
 
 player_respawn_speed           1.0
 
-player_walk_cycle_length       2.0
+player_airtime_loudest_landing_point   1.0
+player_walk_cycle_length               2.0
 
 # level
 level_intro_speed                        1.0
@@ -76,7 +76,7 @@ camera_stop_smoothness    1.0
 menu_bob_speed       0.2
 menu_bob_magnitude   4.0
 menu_fade_in_speed   2.0
-menu_quit_speed      2.0
+menu_quit_speed      1.0
 
 # debug
 simulation_rate       1.0

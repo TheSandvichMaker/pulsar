@@ -4,11 +4,12 @@
 struct EntityID { u32 value; };
 
 introspect(flags: true) enum EntityFlag {
-    EntityFlag_Physical  = 0x1,
-    EntityFlag_Collides  = 0x2,
-    EntityFlag_OnGround  = 0x4,
-    EntityFlag_Invisible = 0x8,
-    EntityFlag_Hazard    = 0x10,
+    EntityFlag_Physical            = 0x1,
+    EntityFlag_Collides            = 0x2,
+    EntityFlag_OnGround            = 0x4,
+    EntityFlag_Invisible           = 0x8,
+    EntityFlag_Hazard              = 0x10,
+    EntityFlag_TransfersRetainedDp = 0x20,
 };
 
 introspect() enum EntityType {
@@ -84,7 +85,11 @@ struct Entity {
             v2 ballistic_dp;
             v2 contact_move;
 
+            b32 jumped_this_frame;
+            f32 air_time;
             f32 walk_cycle;
+            u32 footstep_index;
+            u32 jump_index;
         };
 
         struct /* Wall */ {

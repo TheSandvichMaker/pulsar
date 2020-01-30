@@ -1,5 +1,25 @@
 // @TODO: Ponder the desirableness of EntityData<T>
 
+/*
+ * Editor controls:
+ * Space + LMB     : Pan
+ * Shift + W/D     : Zoom in / out
+ * Shift + Q/E     : Increase / decrease grid size
+ * S               : Toggle grip snapping
+ * Ctrl + D        : Duplicate selected entities
+ * Delete          : Delete selected entities
+ * Shift (Hold)    : Show spawn menu
+ * Shift (Release) : Spawn selected entity
+ * Ctrl + Z        : Undo
+ * Ctrl + R        : Redo
+ * Ctrl + S        : Save level
+ * M               : Toggle showing all move widgets
+ *
+ * Some editor actions you will want to undertake are only available as console commands:
+ *     toggle_flag [flag]                     : Toggle the given flag on the selected entities
+ *     set_soundtrack [soundtrack asset name] : Set soundtrack_id on selected SoundtrackPlayers and listening_to on selected Walls
+ */
+
 template <typename T>
 inline EntityData<T> wrap_entity_data(Entity* entity, T* member_ptr) {
     assert(cast(void*) member_ptr >= cast(void*) entity && cast(void*) (member_ptr + 1) <= cast(void*) (entity + 1));
@@ -120,7 +140,7 @@ inline AddEntityResult add_wall(EditorState* editor, AxisAlignedBox2 aab, Soundt
     entity->movement_t        = 1.0f;
 
     entity->collision         = get_dim(aab);
-    entity->flags            |= EntityFlag_Collides;
+    entity->flags            |= EntityFlag_Collides|EntityFlag_TransfersRetainedDp;
 
     return result;
 }
@@ -1064,18 +1084,13 @@ inline EditorWidget drag_region_widget(GameState* game_state, EditorState* edito
     return widget;
 }
 
-global EditorWidget pan_widget   = stateless_widget(&pan_widget, "Pan");
+global EditorWidget pan_widget      = stateless_widget(&pan_widget, "Pan");
 global EditorWidget select_entities = stateless_widget(&select_entities, "Entity Select");
 global EditorWidget drag_entities   = stateless_widget(&drag_entities, "Entity Drag");
 
 inline void activate_drag_entities(EditorState* editor) {
     editor->drag_entities_anchor = editor->world_mouse_p;
-    begin_undo_batch(editor);
-    for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-        Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-        add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Entity Drag");
-    }
-    end_undo_batch(editor);
+    editor->added_drag_entites_undo_history = false;
     set_active(editor, drag_entities);
 }
 
@@ -1238,6 +1253,60 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         editor->next_hot_widget = select_entities;
     }
 
+    UILayout sound_log = make_layout(editor, vec2(width - 700.0f, editor->top_margin));
+    layout_print_line(&sound_log, COLOR_WHITE, "Playing Sounds:");
+    sound_log.depth++;
+    for (AudioGroup* group = game_state->audio_mixer.first_audio_group; group; group = group->next_audio_group) {
+        if (group->first_playing_sound) {
+            layout_print_line(&sound_log, COLOR_WHITE, "Audio Group%s, volume { %g, %g }:",
+                group->paused ? " (paused)" : "",
+                group->volume.current_volume[0], group->volume.current_volume[1]
+            );
+        }
+        sound_log.depth++;
+        for (PlayingSound* playing_sound = group->first_playing_sound; playing_sound; playing_sound = playing_sound->next) {
+            Sound* sound = playing_sound->sound;
+            Asset* asset = cast(Asset*) sound;
+
+            f32 volume_left  = playing_sound->volume.current_volume[0];
+            f32 volume_right = playing_sound->volume.current_volume[1];
+
+            v4 color = COLOR_WHITE;
+            if (volume_left < 1.0e-4f && volume_right < 1.0e-4f) {
+                color = COLOR_GREY;
+            }
+
+            layout_print_line(&sound_log, color, "Sound %.*s: Samples played: %u, Volume: { %g, %g }",
+                PRINTF_STRING(asset->name),
+                playing_sound->samples_played,
+                volume_left, volume_right
+            );
+        }
+        sound_log.depth--;
+    }
+    sound_log.depth--;
+
+    layout_print_line(&sound_log, COLOR_WHITE, "Playing Midi:");
+    sound_log.depth++;
+    for (PlayingMidi* playing_midi = game_state->first_playing_midi; playing_midi; playing_midi = playing_midi->next) {
+        MidiTrack* track = playing_midi->track;
+
+        v4 color = playing_midi->source_soundtrack_player->can_be_heard_by_player ? COLOR_WHITE : COLOR_GREY;
+
+        layout_print_line(&sound_log, color, "Track from SoundtrackID { %u }: bpm: %g, %u events, tick timer: %u, event_index: %u",
+            playing_midi->source_soundtrack_player->soundtrack_id.value,
+            track->beats_per_minute,
+            track->event_count,
+            playing_midi->tick_timer,
+            playing_midi->event_index
+        );
+    }
+    sound_log.depth--;
+
+    if (game_state->game_mode == GameMode_Menu) {
+        return;
+    }
+
     layout_print(&layout, COLOR_WHITE, "Editing level '%.*s'", cast(int) level->name_length, level->name);
     if (editor->level_saved_timer > 0.0f) {
         layout_print(&layout, vec4(1.0f, 1.0f, 1.0f, clamp01(editor->level_saved_timer)), "  (Saved...)");
@@ -1333,56 +1402,6 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
         }
     }
 
-    UILayout sound_log = make_layout(editor, vec2(1200.0f, editor->top_margin));
-    layout_print_line(&sound_log, COLOR_WHITE, "Playing Sounds:");
-    sound_log.depth++;
-    for (AudioGroup* group = game_state->audio_mixer.first_audio_group; group; group = group->next_audio_group) {
-        if (group->first_playing_sound) {
-            layout_print_line(&sound_log, COLOR_WHITE, "Audio Group%s, volume { %g, %g }:",
-                group->paused ? " (paused)" : "",
-                group->volume.current_volume[0], group->volume.current_volume[1]
-            );
-        }
-        sound_log.depth++;
-        for (PlayingSound* playing_sound = group->first_playing_sound; playing_sound; playing_sound = playing_sound->next) {
-            Sound* sound = playing_sound->sound;
-            Asset* asset = cast(Asset*) sound;
-
-            f32 volume_left  = playing_sound->volume.current_volume[0];
-            f32 volume_right = playing_sound->volume.current_volume[1];
-
-            v4 color = COLOR_WHITE;
-            if (volume_left < 1.0e-4f && volume_right < 1.0e-4f) {
-                color = COLOR_GREY;
-            }
-
-            layout_print_line(&sound_log, color, "Sound %.*s: Samples played: %u, Volume: { %g, %g }",
-                PRINTF_STRING(asset->name),
-                playing_sound->samples_played,
-                volume_left, volume_right
-            );
-        }
-        sound_log.depth--;
-    }
-    sound_log.depth--;
-
-    layout_print_line(&sound_log, COLOR_WHITE, "Playing Midi:");
-    sound_log.depth++;
-    for (PlayingMidi* playing_midi = game_state->first_playing_midi; playing_midi; playing_midi = playing_midi->next) {
-        MidiTrack* track = playing_midi->track;
-
-        v4 color = playing_midi->source_soundtrack_player->can_be_heard_by_player ? COLOR_WHITE : COLOR_GREY;
-
-        layout_print_line(&sound_log, color, "Track from SoundtrackID { %u }: bpm: %g, %u events, tick timer: %u, event_index: %u",
-            playing_midi->source_soundtrack_player->soundtrack_id.value,
-            track->beats_per_minute,
-            track->event_count,
-            playing_midi->tick_timer,
-            playing_midi->event_index
-        );
-    }
-    sound_log.depth--;
-
     Entity* moused_over = 0;
     if (game_state->game_mode == GameMode_Ingame) {
         for (u32 entity_index = 1; entity_index < game_state->entity_count; entity_index++) {
@@ -1466,6 +1485,17 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     if (is_active(editor, drag_entities)) {
         v2 relative_world_mouse_p = world_mouse_p - editor->drag_entities_anchor;
         v2 delta = snap_to_grid(editor, relative_world_mouse_p);
+
+        if (!editor->added_drag_entites_undo_history && length_sq(delta) > 0.0f) {
+            begin_undo_batch(editor);
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->p), "Entity Drag");
+            }
+            end_undo_batch(editor);
+            editor->added_drag_entites_undo_history = true;
+        }
+
         for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
             Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
             entity->p += delta;
@@ -1823,6 +1853,8 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
                 entity->p = drag_region->original_p + 0.5f*snap_to_grid(editor, mouse_delta);
 
                 if (was_released(input->mouse_buttons[PlatformMouseButton_Left])) {
+                    target->x = abs(target->x);
+                    target->y = abs(target->y);
                     clear_active(editor);
                 }
             } break;

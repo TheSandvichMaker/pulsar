@@ -107,7 +107,6 @@ enum MetaType {
     f32 gravity; \
     f32 downward_gravity_multiplier; \
     f32 moon_time_duration; \
-    f32 death_by_crushing_threshold; \
     f32 support_dp_retention_time; \
     f32 movement_speed; \
     f32 max_x_vel; \
@@ -119,6 +118,7 @@ enum MetaType {
     f32 early_jump_window; \
     f32 late_jump_window; \
     f32 player_respawn_speed; \
+    f32 player_airtime_loudest_landing_point; \
     f32 player_walk_cycle_length; \
     f32 level_intro_speed; \
     f32 level_outro_speed; \

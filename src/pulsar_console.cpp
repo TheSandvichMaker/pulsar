@@ -117,21 +117,44 @@ internal CONSOLE_COMMAND(cc_set_soundtrack) {
     }
 }
 
-internal CONSOLE_COMMAND(cc_toggle_invisible) {
+internal CONSOLE_COMMAND(cc_toggle_flag) {
+    String flag_name = advance_word(&arguments);
+
     if (editor->selected_entity_count) {
-        begin_undo_batch(editor);
-        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
-            Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
-            if (entity) {
-                add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->flags), "Toggle Visibility");
-                if (entity->flags & EntityFlag_Invisible) {
-                    entity->flags &= ~EntityFlag_Invisible;
-                } else {
-                    entity->flags |=  EntityFlag_Invisible;
+        u32 flag = 0;
+
+        {
+            u32 dummy_flags = 0xFFFFFFFF;
+            u32 dummy_flags_compare = 0xFFFFFFFF;
+            char* test_name = 0;
+            while (enum_flag_name(EntityFlag, &dummy_flags, &test_name)) {
+                if (strings_are_equal(flag_name, wrap_cstr(test_name))) {
+                    // @Note: enum_flag_name takes out the flag we just got the name for from dummy_flags, so by comparing it with its previous value we can find out
+                    // the value of the flag we're talking about.
+                    flag = dummy_flags_compare & ~dummy_flags;
+                    break;
                 }
+                dummy_flags_compare = dummy_flags;
             }
         }
-        end_undo_batch(editor);
+
+        if (flag) {
+            begin_undo_batch(editor);
+            for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+                Entity* entity = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
+                if (entity) {
+                    add_entity_data_undo_history(editor, wrap_entity_data(entity, &entity->flags), "Toggle Flag");
+                    if (entity->flags & flag) {
+                        entity->flags &= ~flag;
+                    } else {
+                        entity->flags |= flag;
+                    }
+                }
+            }
+            end_undo_batch(editor);
+        } else {
+            log_print(LogLevel_Error, "Unknown flag %.*s", PRINTF_STRING(flag_name));
+        }
     } else {
         log_print(LogLevel_Error, "No entity selected");
     }
@@ -241,7 +264,7 @@ global ConsoleCommand console_commands[] = {
     console_command(repair_entity_guids),
     console_command(find_entity),
     console_command(set_soundtrack),
-    console_command(toggle_invisible),
+    console_command(toggle_flag),
     console_command(switch_game_mode),
     console_command(set),
     console_command(dump_config),

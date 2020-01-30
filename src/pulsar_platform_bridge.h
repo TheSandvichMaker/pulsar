@@ -89,7 +89,7 @@ global PlatformDebugInfo global_debug_info;
 
 introspect() struct GameConfig {
     // Startup
-    b32 start_fullscreen = false;
+    b32 start_fullscreen = true;
     String startup_level = string_literal("levels/demo_level.plv");
 
     // Memory
@@ -130,8 +130,7 @@ introspect() struct GameConfig {
 
     f32 gravity                     = -20.0f;
     f32 downward_gravity_multiplier = 2.0f;
-    f32 moon_time_duration          = 1.0f;
-    f32 death_by_crushing_threshold = 0.5f; // @Unused
+    f32 moon_time_duration          = 0.5f;
     f32 support_dp_retention_time   = 0.15f;
 
     f32 movement_speed              = 30.0f;
@@ -139,24 +138,25 @@ introspect() struct GameConfig {
     f32 min_y_vel                   = -40.0f;
     f32 max_y_vel                   = 40.0f;
     f32 max_ballistic_x_vel         = 20.0f;
-    f32 max_ballistic_y_vel         = 20.0f;
+    f32 max_ballistic_y_vel         = 10.0f;
 
     f32 jump_force                  = 10.0f;
 
     f32 early_jump_window           = 0.075f;
-    f32 late_jump_window            = 0.15f;
+    f32 late_jump_window            = 0.1f;
 
-    f32 player_respawn_speed        = 2.0f;
+    f32 player_respawn_speed        = 1.0f;
 
-    f32 player_walk_cycle_length    = 2.0f;
+    f32 player_airtime_loudest_landing_point = 1.0f;
+    f32 player_walk_cycle_length             = 2.0f;
 
     // Level
     f32 level_intro_speed                      = 1.0f;
     f32 level_outro_speed                      = 8.0f;
-    f32 background_pulse_intensity             = 1.0f;
+    f32 background_pulse_intensity             = 0.15f;
     f32 background_pulse_world_shake_intensity = 0.25f;
-    f32 background_pulse_spring_force          = 16.0f;
-    f32 background_pulse_spring_dampen         = 0.5f;
+    f32 background_pulse_spring_force          = 24.0f;
+    f32 background_pulse_spring_dampen         = 4.0f;
 
     // Camera
     f32 camera_transition_speed = 0.4f;
@@ -166,7 +166,7 @@ introspect() struct GameConfig {
     f32 menu_bob_speed     = 0.2f;
     f32 menu_bob_magnitude = 4.0f;
     f32 menu_fade_in_speed = 2.0f;
-    f32 menu_quit_speed    = 2.0f;
+    f32 menu_quit_speed    = 1.0f;
 
     // Debug
     f32 simulation_rate     = 1.0f;

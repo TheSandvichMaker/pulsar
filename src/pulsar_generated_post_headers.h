@@ -89,6 +89,7 @@ int GetNextEnumFlagNameOf_EntityFlag(unsigned int* value, char** name) {
     else if (*value & EntityFlag_OnGround) { *name = "EntityFlag_OnGround"; *value &= ~EntityFlag_OnGround; return 1; }
     else if (*value & EntityFlag_Invisible) { *name = "EntityFlag_Invisible"; *value &= ~EntityFlag_Invisible; return 1; }
     else if (*value & EntityFlag_Hazard) { *name = "EntityFlag_Hazard"; *value &= ~EntityFlag_Hazard; return 1; }
+    else if (*value & EntityFlag_TransfersRetainedDp) { *name = "EntityFlag_TransfersRetainedDp"; *value &= ~EntityFlag_TransfersRetainedDp; return 1; }
     else { *name = 0; return 0; }
 }
 
@@ -209,7 +210,6 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 7, "gravity", (unsigned int)&((GameConfig*)0)->gravity, sizeof(f32) },
     { 0, MetaType_f32, 27, "downward_gravity_multiplier", (unsigned int)&((GameConfig*)0)->downward_gravity_multiplier, sizeof(f32) },
     { 0, MetaType_f32, 18, "moon_time_duration", (unsigned int)&((GameConfig*)0)->moon_time_duration, sizeof(f32) },
-    { 0, MetaType_f32, 27, "death_by_crushing_threshold", (unsigned int)&((GameConfig*)0)->death_by_crushing_threshold, sizeof(f32) },
     { 0, MetaType_f32, 25, "support_dp_retention_time", (unsigned int)&((GameConfig*)0)->support_dp_retention_time, sizeof(f32) },
     { 0, MetaType_f32, 14, "movement_speed", (unsigned int)&((GameConfig*)0)->movement_speed, sizeof(f32) },
     { 0, MetaType_f32, 9, "max_x_vel", (unsigned int)&((GameConfig*)0)->max_x_vel, sizeof(f32) },
@@ -221,6 +221,7 @@ static MemberDefinition MembersOf_GameConfig[] = {
     { 0, MetaType_f32, 17, "early_jump_window", (unsigned int)&((GameConfig*)0)->early_jump_window, sizeof(f32) },
     { 0, MetaType_f32, 16, "late_jump_window", (unsigned int)&((GameConfig*)0)->late_jump_window, sizeof(f32) },
     { 0, MetaType_f32, 20, "player_respawn_speed", (unsigned int)&((GameConfig*)0)->player_respawn_speed, sizeof(f32) },
+    { 0, MetaType_f32, 36, "player_airtime_loudest_landing_point", (unsigned int)&((GameConfig*)0)->player_airtime_loudest_landing_point, sizeof(f32) },
     { 0, MetaType_f32, 24, "player_walk_cycle_length", (unsigned int)&((GameConfig*)0)->player_walk_cycle_length, sizeof(f32) },
     { 0, MetaType_f32, 17, "level_intro_speed", (unsigned int)&((GameConfig*)0)->level_intro_speed, sizeof(f32) },
     { 0, MetaType_f32, 17, "level_outro_speed", (unsigned int)&((GameConfig*)0)->level_outro_speed, sizeof(f32) },

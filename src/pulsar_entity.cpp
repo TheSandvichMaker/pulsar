@@ -1,31 +1,3 @@
-/* This file contains functions related to simulating entities.
- *
- * It is structured around four phases: Midi handling, pre-player simulation, player simulation, post-player simulation
- *
- * To start, all playing midi tracks put midi events that are played this frame into the midi event buffer,
- * so entities can subsequently read from this buffer to make decisions based on midi events.
- *
- * Then, in the pre-player simulation phase entities (including the player) decide on their course of action
- * for the current frame, so that the player can then be simulated with those decisions in mind. In this case,
- * we're just talking about walls. This is important for collision detection to be accurate.
- *
- * The player simulation phase goes through a fairly messy mostly framerate independent loop that's also
- * got a three phase structure:
- *  Decide the player's delta position for the given timestep based on factors like player velocity,
- *   acceleration, whether the player's supported by an entity, and whether the player has added
- *   velocity from external factors like when they jump off a moving platform.
- *  Then there's a collision loop which goes through and checks the player's move against all the EntityType_Wall
- *   entities in the level, checking whether the player is stuck inside one (and getting them unstuck), or otherwise
- *   checking for the nearest collision.
- *  Finally, if there's a collision the collision is handled and the player's
- *   position, velocity, and acceleration is updated to reflect this, and the frame time left to simulate is updated
- *   based on when the collision happened. If there was a collision or unstuck, the loop continues so long as the
- *   player can still move (so hasn't been killed, for example) and the max iteration count hasn't been reached.
- *
- * In the post-player simulation phase, entities whose behaviour is linked to the position of the player post-move
- * do their thing, so that their behaviour and the player's position this frame is visually in sync.
- */
-
 struct TraceInfo {
     f32 t_min = 1.0f;
     f32 t_max = 0.0f;
@@ -247,6 +219,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     if (entity->early_jump_timer > 0.0f) {
                         do_jump = true;
                     }
+                    entity->air_time = 0.0f;
                 } else {
                     if (entity->was_supported) {
                         entity->late_jump_timer = game_config->late_jump_window;
@@ -255,9 +228,15 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     if (was_pressed(controller->jump) && entity->late_jump_timer > 0.0f) {
                         do_jump = true;
                     }
+
+                    entity->air_time += frame_dt;
                 }
 
+                entity->jumped_this_frame = do_jump;
                 if (do_jump) {
+                    play_sound(&game_state->game_audio, game_state->sounds.player_jump[(entity->jump_index*(3 + entity->jump_index)) % ARRAY_COUNT(game_state->sounds.player_jump)]);
+                    entity->jump_index++;
+
                     entity->early_jump_timer = 0.0f;
                     entity->late_jump_timer = 0.0f;
 
@@ -289,7 +268,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
                 if (entity->walk_cycle > game_config->player_walk_cycle_length) {
                     entity->walk_cycle -= game_config->player_walk_cycle_length;
-                    // play_sound(&game_state->game_audio, game_state->player_footstep_sound);
+                    play_sound(&game_state->game_audio, game_state->sounds.player_footsteps[(entity->footstep_index*(3 + entity->footstep_index)) % ARRAY_COUNT(game_state->sounds.player_footsteps)]);
+                    entity->footstep_index++;
                 }
             } break;
 
@@ -382,12 +362,17 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 if (!player->was_supported) {
                     player->dp += grazing_reflect(player->ballistic_dp, player->support_normal);
                     player->ballistic_dp = vec2(0, 0);
+                    play_sound(&game_state->game_audio, game_state->sounds.player_land, clamp01(player->air_time / game_config->player_airtime_loudest_landing_point)*vec2(0.5f, 0.5f));
                 }
                 player->was_supported = true;
                 player->support_dp = player->support->dp;
-                if (length_sq(player->support_dp) > length_sq(player->retained_support_dp)) {
-                    player->retained_support_dp = player->support_dp;
-                    player->retained_support_dp_timer = game_config->support_dp_retention_time;
+                if (player->support->flags & EntityFlag_TransfersRetainedDp) {
+                    if (length_sq(player->support_dp) > length_sq(player->retained_support_dp)) {
+                        player->retained_support_dp = player->support_dp;
+                        player->retained_support_dp_timer = game_config->support_dp_retention_time;
+                    }
+                } else {
+                    player->retained_support_dp = vec2(0, 0);
                 }
                 transient_dp += player->support->dp;
             } else {
@@ -397,6 +382,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                         player->support_dp = player->retained_support_dp;
                         player->retained_support_dp = vec2(0, 0);
                     }
+
                     player->ballistic_dp.x = clamp(player->ballistic_dp.x + player->support_dp.x, -game_config->max_ballistic_x_vel, game_config->max_ballistic_x_vel);
                     player->dp.y += clamp(player->support_dp.y, -game_config->max_ballistic_y_vel, game_config->max_ballistic_y_vel);
                     if (length_sq(player->support_dp) > 0.0f) {
