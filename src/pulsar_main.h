@@ -1,8 +1,47 @@
 #ifndef PULSAR_MAIN_H
 #define PULSAR_MAIN_H
 
+/* General Info:
+ * The idea of this game was to interpret the theme "waves" rather cheesily as pertaining to soundwaves, but
+ * less cheesily to embody the cyclical repetitive nature of rhythms. The hope was that you'd get a platformer
+ * where you kind of ride the wave of the soundtrack, getting into a flow navigating the obstacles based on musical
+ * queues. In the end, I don't think what I've got now is very fun or embodies that idea that strongly, in terms
+ * of design challenges and in the gameplay features and editor capabilities I think there's still a lot more to be
+ * gained. But for the work I've put in over the past two months, I'm satisfied with the result.
+ *
+ * pulsar_config.pcf contains various settings (it hotloads, so these settings can mostly be changed at runtime),
+ * and things such as the keyboard controls. Controls for gamepad aren't rebindable, and are left stick or dpad to move,
+ * A to jump, back to respawn and start for menu.
+ *
+ * Editor controls:
+ * Space + LMB     : Pan
+ * Shift + W/D     : Zoom in / out
+ * Shift + Q/E     : Increase / decrease grid size
+ * S               : Toggle grip snapping
+ * Ctrl + D        : Duplicate selected entities
+ * Delete          : Delete selected entities
+ * Shift (Hold)    : Show spawn menu
+ * Shift (Release) : Spawn selected entity
+ * Ctrl + Z        : Undo
+ * Ctrl + R        : Redo
+ * Ctrl + S        : Save level
+ * M               : Toggle showing all move widgets
+ *
+ * Some editor actions you will want to undertake are only available as console commands:
+ *     toggle_flag [flag]                     : Toggle the given flag on the selected entities
+ *     set_soundtrack [soundtrack asset name] : Set soundtrack_id on selected SoundtrackPlayers and listening_to on selected Walls
+ *     save_level [level_name]                : If you want to save the current level with a different name
+ *     load_level [level_name]                : Loads another level, but is sort of broken. Use startup_level instead.
+ *
+ * Right now there sort of isn't good support for making a new level or loading it properly, I didn't get around to fixing that since
+ * it was low priority for getting my demo level done. You can save the current level as a new level with the save_level console command,
+ * and then set this new level as the startup_level in pulsar_config.pcf instead.
+ */
+
 /* The Special Handmade Hero credits section:
- * Handmade Hero has been a big influence on my coding style and is the source of a large amount of my game programming knowledge,
+ * On Youtube: https://www.youtube.com/user/handmadeheroarchive
+ * Handmade Hero is an ongoing tutorial series by Casey Muratori which covers how to program a game from scratch in C++ without using
+ * any libraries whatsoever. It has been a big influence on my coding style and is the source of a large amount of my game programming knowledge,
  * so I opted to use that knowledge (and some of the code directly) from Handmade Hero in place of using something like a library.
  * The upshot is that I've coded along 300 episodes of Handmade Hero by hand, trying to understand each line and debugging all my own
  * bugs along the way, as well as making my own minor changes, improvements, and fixes as I came across them. This means that unlike
@@ -35,7 +74,8 @@
  *   do it just gave me confidence to pursue the idea. The Handmade Hero code generator was only covered in
  *   two episodes and isn't actually in use in Handmade Hero, it only did very basic struct introspection)
  *
- * Initial framework for the mixer and output_playing_sounds (I've overhauled output_playing_sounds a good bit, and have made some additions to the mixer)
+ * Initial framework for the mixer and output_playing_sounds (I've overhauled output_playing_sounds a good bit,
+ *   and have made some additions to the mixer, as well as redoing how the game interfaces with DirectSound)
  *
  * Most of math.h (although a lot of it I would've written myself just as happily anyway)
  *
