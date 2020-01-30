@@ -193,7 +193,11 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                 GLuint render_mode = GL_POLYGON;
                 switch (command->render_mode) {
                     case ShapeRenderMode_Fill: {
-                        render_mode = GL_POLYGON;
+                        if (shape->type == Shape_Rectangle) {
+                            render_mode = GL_TRIANGLES;
+                        } else {
+                            render_mode = GL_POLYGON;
+                        }
                     } break;
                     case ShapeRenderMode_Outline: {
                         render_mode = GL_LINE_LOOP;
@@ -266,10 +270,20 @@ internal void opengl_render_commands(GameRenderCommands* commands) {
                         glBegin(render_mode);
                         glColor4fv(command->color.e);
 
-                        glVertex2fv(p00.e);
-                        glVertex2fv(p10.e);
-                        glVertex2fv(p11.e);
-                        glVertex2fv(p01.e);
+                        if (command->render_mode == ShapeRenderMode_Outline) {
+                            glVertex2fv(p00.e);
+                            glVertex2fv(p10.e);
+                            glVertex2fv(p11.e);
+                            glVertex2fv(p01.e);
+                        } else {
+                            glVertex2fv(p00.e);
+                            glVertex2fv(p10.e);
+                            glVertex2fv(p11.e);
+
+                            glVertex2fv(p00.e);
+                            glVertex2fv(p11.e);
+                            glVertex2fv(p01.e);
+                        }
 
                         glEnd();
                     } break;
