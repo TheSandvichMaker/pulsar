@@ -360,8 +360,6 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
 
             if (player->support) {
                 if (!player->was_supported) {
-                    player->dp += grazing_reflect(player->ballistic_dp, player->support_normal);
-                    player->ballistic_dp = vec2(0, 0);
                     play_sound(&game_state->game_audio, game_state->sounds.player_land, clamp01(player->air_time / game_config->player_airtime_loudest_landing_point)*vec2(0.5f, 0.5f));
                 }
                 player->was_supported = true;
@@ -509,7 +507,9 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 }
 
                 player->ddp = grazing_reflect(player->ddp, collision.hit_normal);
-                player->dp  = grazing_reflect(player->dp, collision.hit_normal);
+                player->dp  = grazing_reflect(player->dp + player->ballistic_dp, collision.hit_normal);
+                player->ballistic_dp = vec2(0, 0);
+
 
                 if (dot(collision.hit_normal, gravity) < 0) {
                     // if (dot(delta, gravity) >= 0.0f) {

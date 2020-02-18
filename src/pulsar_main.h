@@ -9,6 +9,17 @@
  * of design challenges and in the gameplay features and editor capabilities I think there's still a lot more to be
  * gained. But for the work I've put in over the past two months, I'm satisfied with the result.
  *
+ * In terms of building the project, you'll need to use vcvarsall.bat or the visual studio developer prompt or whatever
+ * to make sure you've got the visual C++ environment variables set up. Other than that, there aren't any external
+ * dependencies, all libraries used are in source code form in the src folder, and DirectSound and XInput are linked
+ * at runtime.
+ *
+ * Before you use build.bat to build the game, you'll have to make sure the code generator is built, you can use
+ * build_code_generator.bat for this. build.bat will accept the argument "release" to build a release build.
+ * Inside the misc folder, you will find ctime.exe, a small program written by Casey Muratori which helps you
+ * track your compile times. If this isn't added to PATH or placed next to build.bat, you'll see build.bat complain
+ * that it can't find it. This shouldn't affect anything though.
+ *
  * pulsar_config.pcf contains various settings (it hotloads, so these settings can mostly be changed at runtime),
  * and things such as the keyboard controls. Controls for gamepad aren't rebindable, and are left stick or dpad to move,
  * A to jump, back to respawn and start for menu.

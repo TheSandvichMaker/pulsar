@@ -95,12 +95,13 @@ inline void change_volume(AudioGroup* group, f32 t, v2 target_volume) {
 
 inline void pause_group(AudioGroup* group, f32 t) {
     group->pause_requested = true;
-    group->volume_on_unpause[0] = group->volume.current_volume[0];
-    group->volume_on_unpause[1] = group->volume.current_volume[1];
+    group->volume_on_unpause[0] = group->volume.target_volume[0];
+    group->volume_on_unpause[1] = group->volume.target_volume[1];
     change_volume(&group->volume, t, vec2(0, 0));
 }
 
 inline void unpause_group(AudioGroup* group, f32 t) {
+    group->pause_requested = false;
     group->paused = false;
     change_volume(group, t, vec2(group->volume_on_unpause[0], group->volume_on_unpause[1]));
 }

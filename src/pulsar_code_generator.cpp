@@ -54,7 +54,7 @@ internal FoundString find_substring(String source, String substr) {
     result.end_line   = result.start_line;
     result.end_column = result.start_column;
 
-    result.containing_lines = substring(&source, distance_to_line_start, distance_to_line_start);
+    result.containing_lines = substring(source, distance_to_line_start, distance_to_line_start);
     size_t source_remaining = source.len - distance_to_line_start;
     while (source_remaining > 0) {
         if (is_newline(result.containing_lines.data[result.containing_lines.len - 1])) {
@@ -635,19 +635,19 @@ int main(int argument_count, char** arguments) {
         return -1;
     }
 
-    char* file_name = find_data.cFileName;
+    String file_name = wrap_cstr(find_data.cFileName);
 
     u32 file_count = 1;
     b32 had_error = false;
-    while (file_name && !had_error) {
-        if (!strings_are_equal(file_name, "pulsar_code_generator.h")) {
+    while (file_name.len && !had_error) {
+        if (!strings_are_equal(file_name, string_literal("pulsar_code_generator.h"))) {
             // @Note: We're not freeing any of the opened files because we're taking substrings out of them to refer to members.
             // If we want to be a little more memory efficient, we'd copy out the substrings we actually want to use, but how much
             // memory does it take to keep some source code open in 2020, and it'd be at the cost of all them copies. Whatever that matters.
-            String file = read_text_file(file_name, general_allocator);
+            String file = read_text_file(file_name.data, general_allocator);
             if (file.len > 0) {
                 Tokenizer tokenizer = {};
-                tokenizer.source_file = wrap_cstr(file_name);
+                tokenizer.source_file = file_name;
                 tokenizer.source_code = file;
                 tokenizer.at = tokenizer.source_code.data;
 
@@ -694,13 +694,13 @@ int main(int argument_count, char** arguments) {
                     }
                 }
             } else {
-                fprintf(stderr, "ERROR: Failed to open file '%s'", file_name);
+                fprintf(stderr, "ERROR: Failed to open file '%.*s'", PRINTF_STRING(file_name));
             }
         }
 
         if (FindNextFileA(find_handle, &find_data)) {
             file_count++;
-            file_name = find_data.cFileName;
+            file_name = wrap_cstr(find_data.cFileName);
         } else {
             if (!finding_source) {
 #if 0
@@ -709,10 +709,10 @@ int main(int argument_count, char** arguments) {
                 file_name = find_data.cFileName;
                 finding_source = true;
 #else
-                file_name = 0;
+                file_name.len = 0;
 #endif
             } else {
-                file_name = 0;
+                file_name.len = 0;
             }
         }
     }

@@ -503,7 +503,7 @@ internal void play_level(GameState* game_state, Level* level) {
         if (dest->type != current_type) {
             game_state->entity_type_counts[current_type] = current_type_count;
             current_type_count = 0;
-            current_type       = dest->type;
+            current_type = dest->type;
             game_state->entity_type_offsets[current_type] = entity_index;
         }
 
