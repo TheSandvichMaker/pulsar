@@ -31,18 +31,17 @@ enum PlatformLogLevel {
 struct PlatformLogMessage {
     PlatformLogMessage* next;
 
-    char* file;
-    char* function;
+    String file;
+    String function;
 
-    char* text;
-    u32 text_length;
+    String text;
 
     u32 line;
 
     PlatformLogLevel level;
 };
 
-#define PLATFORM_LOG_PRINT(name) void name(PlatformLogLevel log_level, char* file, char* function, u32 line, char* format_string, ...)
+#define PLATFORM_LOG_PRINT(name) void name(PlatformLogLevel log_level, String file, String function, u32 line, char* format_string, ...)
 typedef PLATFORM_LOG_PRINT(PlatformLogPrint);
 
 #define PLATFORM_GET_MOST_RECENT_LOG_MESSAGE(name) PlatformLogMessage* name()
@@ -94,8 +93,8 @@ introspect() struct GameConfig {
 
     // Memory
     u32 command_buffer_size_mb    = 16;
-    u32 permanent_storage_size_mb = 512;
-    u32 transient_storage_size_mb = 1024;
+    u32 permanent_storage_size_mb = 256;
+    u32 transient_storage_size_mb = 512;
 
     // Graphics
     u32 msaa_count = 8;
@@ -212,6 +211,10 @@ struct GameRenderCommands {
     // @Note: The command buffer starts with sort_entry_count sort entries, then it contains
     // render commands starting at first_command up until command_buffer_size
     u8* command_buffer;
+
+    u32 temp_buffer_size;
+    u32 temp_buffer_used;
+    u8* temp_buffer;
 };
 
 struct GameButtonState {
@@ -430,7 +433,7 @@ typedef GAME_GET_SOUND(GameGetSound);
 typedef GAME_POST_RENDER(GamePostRender);
 
 global PlatformAPI platform;
-#define log_print(log_level, format_string, ...) platform.log_print(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
+#define log_print(log_level, format_string, ...) platform.log_print(log_level, string_literal(__FILE__), string_literal(__FUNCTION__), __LINE__, format_string, ##__VA_ARGS__)
 
 // @Note: This is here because the code generator is pretty dumb and will only generate MetaTypes for introspected structs
 introspect() struct DummyIntrospectStruct {

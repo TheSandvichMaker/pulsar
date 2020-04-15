@@ -924,7 +924,7 @@ inline void print_editable(GameState* game_state, UILayout* layout, EditablePara
                 Soundtrack* soundtrack = get_soundtrack(&game_state->assets, id);
                 if (soundtrack) {
                     Asset* asset = cast(Asset*) soundtrack;
-                    layout_print(layout, color, ": '%.*s'", PRINTF_STRING(asset->name));
+                    layout_print(layout, color, ": '%.*s'", string_expand(asset->name));
                 }
             }
         } break;
@@ -1277,7 +1277,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             }
 
             layout_print_line(&sound_log, color, "Sound %.*s: Samples played: %u, Volume: { %g, %g }",
-                PRINTF_STRING(asset->name),
+                string_expand(asset->name),
                 playing_sound->samples_played,
                 volume_left, volume_right
             );
@@ -1462,7 +1462,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
             for (u32 entity_index = 1; entity_index < entity_count; entity_index++) {
                 Entity* entity = entities + entity_index;
                 AxisAlignedBox2 test_box = grow_by_diameter(selection_box, entity->collision);
-                if (is_in_aab(test_box, entity->p)) {
+                if (editor->selected_entity_count < ARRAY_COUNT(editor->selected_entities) && is_in_aab(test_box, entity->p)) {
                     editor->selected_entities[editor->selected_entity_count++] = entity->guid;
                 }
             }

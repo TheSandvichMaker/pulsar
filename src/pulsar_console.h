@@ -50,7 +50,7 @@ inline DebugBreakMarker* add_debug_break_(String name) {
     {                                                                                                   \
         local_persist DebugBreakMarker* debug_break_##NAME = add_debug_break_(string_literal(#NAME));   \
         if (debug_break_##NAME->enabled) {                                                              \
-            log_print(LogLevel_Info, "Hit breakpoint '%.*s'", PRINTF_STRING(debug_break_##NAME->name)); \
+            log_print(LogLevel_Info, "Hit breakpoint '%.*s'", string_expand(debug_break_##NAME->name)); \
             __debugbreak();                                                                             \
             debug_break_##NAME->enabled = false;                                                        \
         }                                                                                               \

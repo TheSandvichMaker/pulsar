@@ -102,9 +102,9 @@ internal void va_print_diagnostic(
 
     b32 bold_white = (severity != Diagnostic_Note);
     if (relevant_code.len > 1) {
-        fprintf(stderr, "[%.*s:%d:%d:%d] ", PRINTF_STRING(source_file_name), line_info.start_line, line_info.start_column, line_info.end_column);
+        fprintf(stderr, "[%.*s:%d:%d:%d] ", string_expand(source_file_name), line_info.start_line, line_info.start_column, line_info.end_column);
     } else {
-        fprintf(stderr, "[%.*s:%d:%d] ", PRINTF_STRING(source_file_name), line_info.start_line, line_info.start_column);
+        fprintf(stderr, "[%.*s:%d:%d] ", string_expand(source_file_name), line_info.start_line, line_info.start_column);
     }
 
     switch (severity) {
@@ -694,7 +694,7 @@ int main(int argument_count, char** arguments) {
                     }
                 }
             } else {
-                fprintf(stderr, "ERROR: Failed to open file '%.*s'", PRINTF_STRING(file_name));
+                fprintf(stderr, "ERROR: Failed to open file '%.*s'", string_expand(file_name));
             }
         }
 

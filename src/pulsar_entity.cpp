@@ -510,7 +510,6 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 player->dp  = grazing_reflect(player->dp + player->ballistic_dp, collision.hit_normal);
                 player->ballistic_dp = vec2(0, 0);
 
-
                 if (dot(collision.hit_normal, gravity) < 0) {
                     // if (dot(delta, gravity) >= 0.0f) {
                         player->support = collision_entity;

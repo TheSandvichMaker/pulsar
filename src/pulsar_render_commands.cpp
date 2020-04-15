@@ -9,6 +9,11 @@ inline f32 get_aspect_ratio(RenderContext* render_context) {
     return result;
 }
 
+inline void render_screenspace(RenderContext* render_context) {
+    render_context->vertical_fov = cast(f32) render_context->commands->height;
+    render_context->camera_p = 0.5f*vec2(render_context->commands->width, render_context->commands->height);
+}
+
 inline void render_worldspace(RenderContext* render_context, f32 vertical_fov) {
     render_context->vertical_fov = vertical_fov;
 }
@@ -18,11 +23,6 @@ inline void initialize_render_context(RenderContext* render_context, GameRenderC
     render_worldspace(render_context, vertical_screen_percentage_to_units);
     render_context->camera_rotation_arm = vec2(1, 0);
     render_context->commands = commands;
-}
-
-inline void render_screenspace(RenderContext* render_context) {
-    render_context->vertical_fov = cast(f32) render_context->commands->height;
-    render_context->camera_p = 0.5f*vec2(render_context->commands->width, render_context->commands->height);
 }
 
 inline Transform2D world_to_screen(RenderContext* render_context, Transform2D world_t) {

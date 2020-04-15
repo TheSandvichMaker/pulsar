@@ -83,7 +83,7 @@ inline AssetID get_asset_id_by_name(Assets* assets, String name, AssetType asset
 
     if (!result.value) {
         // @TODO: Check if the asset was present, but there was a type mismatch
-        log_print(LogLevel_Error, "Could not find asset '%.*s'", PRINTF_STRING(name));
+        log_print(LogLevel_Error, "Could not find asset '%.*s'", string_expand(name));
     }
 
     return result;
@@ -129,7 +129,7 @@ inline Sound* get_sound(Assets* assets, SoundID id) {
         if (asset->type == AssetType_Sound) {
             result = &asset->sound;
         } else {
-            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Sound, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Sound, asset is of type %s", string_expand(asset->name), id.value, enum_name(AssetType, asset->type));
         }
     }
 
@@ -154,7 +154,7 @@ inline Image* get_image(Assets* assets, ImageID id) {
         if (asset->type == AssetType_Image) {
             result = &asset->image;
         } else {
-            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Image, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Image, asset is of type %s", string_expand(asset->name), id.value, enum_name(AssetType, asset->type));
         }
     }
 
@@ -180,7 +180,7 @@ inline Font* get_font(Assets* assets, FontID id) {
         if (asset->type == AssetType_Font) {
             result = &asset->font;
         } else {
-            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Font, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Font, asset is of type %s", string_expand(asset->name), id.value, enum_name(AssetType, asset->type));
         }
     }
 
@@ -249,7 +249,7 @@ inline MidiTrack* get_midi(Assets* assets, MidiID id) {
         if (asset->type == AssetType_Midi) {
             result = &asset->midi_track;
         } else {
-            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Midi, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Midi, asset is of type %s", string_expand(asset->name), id.value, enum_name(AssetType, asset->type));
         }
     }
 
@@ -274,7 +274,7 @@ inline Soundtrack* get_soundtrack(Assets* assets, SoundtrackID id) {
         if (asset->type == AssetType_Soundtrack) {
             result = &asset->soundtrack;
         } else {
-            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Soundtrack, asset is of type %s", PRINTF_STRING(asset->name), id.value, enum_name(AssetType, asset->type));
+            log_print(LogLevel_Error, "Asset type mismatch for '%.*s' (%u): Expected type AssetType_Soundtrack, asset is of type %s", string_expand(asset->name), id.value, enum_name(AssetType, asset->type));
         }
     }
 

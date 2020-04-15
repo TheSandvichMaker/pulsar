@@ -106,7 +106,7 @@ inline s32 parse_integer(char* start, char** end) {
 }
 
 #define string_literal(c_string_literal) { sizeof(c_string_literal) - 1, c_string_literal }
-#define PRINTF_STRING(string) cast(int) (string).len, (string).data
+#define string_expand(string) cast(int) (string).len, (string).data
 typedef struct String {
     size_t len;
     char* data;

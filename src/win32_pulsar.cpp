@@ -86,7 +86,7 @@ internal PLATFORM_DEALLOCATE_MEMORY(win32_deallocate_memory) {
     }
 }
 
-#define win32_log_print(log_level, format_string, ...) win32_log_print_internal(log_level, __FILE__, __FUNCTION__, __LINE__, format_string, ##__VA_ARGS__)
+#define win32_log_print(log_level, format_string, ...) win32_log_print_internal(log_level, string_literal(__FILE__), string_literal(__FUNCTION__), __LINE__, format_string, ##__VA_ARGS__)
 internal PLATFORM_LOG_PRINT(win32_log_print_internal) {
 #if ASSERT_ON_LOG_ERROR
     if (log_level == LogLevel_Error) {
@@ -124,12 +124,11 @@ internal PLATFORM_LOG_PRINT(win32_log_print_internal) {
             message->next = win32_state.most_recent_log_message;
             win32_state.most_recent_log_message = message;
 
-            message->file        = file;
-            message->function    = function;
-            message->text        = text_location;
-            message->text_length = text_size;
-            message->line        = line;
-            message->level       = log_level;
+            message->file     = file;
+            message->function = function;
+            message->text     = wrap_string(text_size, text_location);
+            message->line     = line;
+            message->level    = log_level;
 
             win32_state.unread_log_messages++;
             switch (message->level) {
@@ -719,8 +718,8 @@ inline b32 parse_config(GameConfig* config, String in_file) {
                 if (!successful_parse) {
                     no_errors = false;
                     win32_log_print(LogLevel_Error, "Could not parse value '%.*s' for key '%.*s' of type '%s'",
-                        PRINTF_STRING(value),
-                        PRINTF_STRING(key),
+                        string_expand(value),
+                        string_expand(key),
                         meta_type_name(member->type)
                     );
                 }
@@ -729,7 +728,7 @@ inline b32 parse_config(GameConfig* config, String in_file) {
 
         if (!found_matching_member) {
             no_errors = false;
-            win32_log_print(LogLevel_Error, "Found no matching config member for key '%.*s'", PRINTF_STRING(key));
+            win32_log_print(LogLevel_Error, "Found no matching config member for key '%.*s'", string_expand(key));
         }
     }
 
@@ -869,15 +868,15 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
             game_memory.transient_storage_size = transient_storage_size;
             game_memory.transient_storage = transient_storage;
 
-            game_memory.platform_api.read_entire_file = win32_read_entire_file;
-            game_memory.platform_api.write_entire_file = win32_write_entire_file;
-            game_memory.platform_api.allocate = win32_allocate_memory;
-            game_memory.platform_api.deallocate = win32_deallocate_memory;
-            game_memory.platform_api.allocate_texture = win32_allocate_texture;
-            game_memory.platform_api.deallocate_texture = win32_deallocate_texture;
-            game_memory.platform_api.log_print = win32_log_print_internal;
+            game_memory.platform_api.read_entire_file            = win32_read_entire_file;
+            game_memory.platform_api.write_entire_file           = win32_write_entire_file;
+            game_memory.platform_api.allocate                    = win32_allocate_memory;
+            game_memory.platform_api.deallocate                  = win32_deallocate_memory;
+            game_memory.platform_api.allocate_texture            = win32_allocate_texture;
+            game_memory.platform_api.deallocate_texture          = win32_deallocate_texture;
+            game_memory.platform_api.log_print                   = win32_log_print_internal;
             game_memory.platform_api.get_most_recent_log_message = win32_get_most_recent_log_message;
-            game_memory.platform_api.get_unread_log_messages = win32_get_unread_log_messages;
+            game_memory.platform_api.get_unread_log_messages     = win32_get_unread_log_messages;
 
             GameInput old_input_ = {};
             GameInput new_input_ = {};
@@ -933,13 +932,13 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 RECT window_rect;
                 GetClientRect(window, &window_rect);
 
-                u32 width = window_rect.right - window_rect.left;
+                u32 width  = window_rect.right  - window_rect.left;
                 u32 height = window_rect.bottom - window_rect.top;
 
                 render_commands.sort_entry_count = 0;
-                render_commands.first_command = render_commands.command_buffer_size;
-                render_commands.width = width;
-                render_commands.height = height;
+                render_commands.first_command    = render_commands.command_buffer_size;
+                render_commands.width            = width;
+                render_commands.height           = height;
 
                 //
                 // Input
@@ -1117,7 +1116,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 win32_state.config = game_memory.config;
 
                 b32 cursor_state_changed = (new_input->show_cursor != win32_state.cursor_shown);
-                b32 cursor_is_in_window  = (mouse_position.x >= window_rect.left && mouse_position.x < window_rect.right ) &&
+                b32 cursor_is_in_window  = (mouse_position.x >= window_rect.left && mouse_position.x < window_rect.right) &&
                                            (mouse_position.y >= window_rect.top  && mouse_position.y < window_rect.bottom);
                 cursor_state_changed |= (cursor_is_in_window != win32_state.cursor_is_in_window);
 
@@ -1127,7 +1126,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                     } else {
                         SetCursor(NULL);
                     }
-                    win32_state.cursor_shown        = new_input->show_cursor;
+                    win32_state.cursor_shown = new_input->show_cursor;
                     win32_state.cursor_is_in_window = cursor_is_in_window;
                 }
 
@@ -1141,9 +1140,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR comm
                 if (new_input->quit_requested) {
                     win32_state.running = false;
                 } else {
-                    GameInput* temp = new_input;
-                    new_input = old_input;
-                    old_input = temp;
+                    SWAP(new_input, old_input);
                 }
             }
         } else {

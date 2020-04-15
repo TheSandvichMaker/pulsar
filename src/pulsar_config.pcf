@@ -4,8 +4,8 @@ startup_level      levels/demo_level.plv
 
 # memory
 command_buffer_size_mb      16
-permanent_storage_size_mb   512
-transient_storage_size_mb   1024
+permanent_storage_size_mb   256
+transient_storage_size_mb   512
 
 # graphics
 msaa_count   8

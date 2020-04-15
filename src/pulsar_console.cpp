@@ -83,7 +83,7 @@ internal CONSOLE_COMMAND(cc_find_entity) {
             log_print(LogLevel_Error, "Could not find an entity with the guid %u", target_id);
         }
     } else {
-        log_print(LogLevel_Error, "Could not interpret argument '%.*s' as a valid number", PRINTF_STRING(arguments));
+        log_print(LogLevel_Error, "Could not interpret argument '%.*s' as a valid number", string_expand(arguments));
     }
 }
 
@@ -107,7 +107,7 @@ internal CONSOLE_COMMAND(cc_set_soundtrack) {
                         default: { log_print(LogLevel_Error, "Selected entity of type %s does not have any set_soundtrack behaviour", enum_name(EntityType, entity->type)); } break;
                     }
                 } else {
-                    log_print(LogLevel_Error, "Could not find soundtrack '%.*s'", PRINTF_STRING(arguments));
+                    log_print(LogLevel_Error, "Could not find soundtrack '%.*s'", string_expand(arguments));
                 }
             }
         }
@@ -153,7 +153,7 @@ internal CONSOLE_COMMAND(cc_toggle_flag) {
             }
             end_undo_batch(editor);
         } else {
-            log_print(LogLevel_Error, "Unknown flag %.*s", PRINTF_STRING(flag_name));
+            log_print(LogLevel_Error, "Unknown flag %.*s", string_expand(flag_name));
         }
     } else {
         log_print(LogLevel_Error, "No entity selected");
@@ -179,7 +179,7 @@ internal CONSOLE_COMMAND(cc_set) {
     if (no_errors) {
         String key = advance_word(&arguments);
         String value = trim_spaces(advance_to(&arguments, '#'));
-        log_print(LogLevel_Info, "Set '%.*s' to '%.*s'", PRINTF_STRING(key), PRINTF_STRING(value));
+        log_print(LogLevel_Info, "Set '%.*s' to '%.*s'", string_expand(key), string_expand(value));
     }
 }
 
@@ -192,31 +192,31 @@ internal CONSOLE_COMMAND(cc_dump_config) {
         String member_name = wrap_string(member->name_length, member->name);
 
         switch (member->type) {
-            case meta_type(b32): { log_print(LogLevel_Info, "    %-32.*s %s", PRINTF_STRING(member_name), *(cast(b32*) member_ptr) ? "true" : "false"); } break;
+            case meta_type(b32): { log_print(LogLevel_Info, "    %-32.*s %s", string_expand(member_name), *(cast(b32*) member_ptr) ? "true" : "false"); } break;
 
             case meta_type(u8):  {
                 u8 val = *(cast(u8*) member_ptr);
                 if (is_printable_ascii(val)) {
-                    log_print(LogLevel_Info, "    %-32.*s 0x%X (%c)", PRINTF_STRING(member_name), val, val);
+                    log_print(LogLevel_Info, "    %-32.*s 0x%X (%c)", string_expand(member_name), val, val);
                 } else {
-                    log_print(LogLevel_Info, "    %-32.*s 0x%X", PRINTF_STRING(member_name), val);
+                    log_print(LogLevel_Info, "    %-32.*s 0x%X", string_expand(member_name), val);
                 }
             } break;
-            case meta_type(u16): { log_print(LogLevel_Info, "    %-32.*s %u",    PRINTF_STRING(member_name), *(cast(u16*) member_ptr)); } break;
-            case meta_type(u32): { log_print(LogLevel_Info, "    %-32.*s %u",    PRINTF_STRING(member_name), *(cast(u32*) member_ptr)); } break;
-            case meta_type(u64): { log_print(LogLevel_Info, "    %-32.*s %I64u", PRINTF_STRING(member_name), *(cast(u64*) member_ptr)); } break;
+            case meta_type(u16): { log_print(LogLevel_Info, "    %-32.*s %u",    string_expand(member_name), *(cast(u16*) member_ptr)); } break;
+            case meta_type(u32): { log_print(LogLevel_Info, "    %-32.*s %u",    string_expand(member_name), *(cast(u32*) member_ptr)); } break;
+            case meta_type(u64): { log_print(LogLevel_Info, "    %-32.*s %I64u", string_expand(member_name), *(cast(u64*) member_ptr)); } break;
 
-            case meta_type(s8):  { log_print(LogLevel_Info, "    %-32.*s %d",    PRINTF_STRING(member_name), *(cast(s8*) member_ptr)); } break;
-            case meta_type(s16): { log_print(LogLevel_Info, "    %-32.*s %d",    PRINTF_STRING(member_name), *(cast(s16*) member_ptr)); } break;
-            case meta_type(s32): { log_print(LogLevel_Info, "    %-32.*s %d",    PRINTF_STRING(member_name), *(cast(s32*) member_ptr)); } break;
-            case meta_type(s64): { log_print(LogLevel_Info, "    %-32.*s %I64d", PRINTF_STRING(member_name), *(cast(s64*) member_ptr)); } break;
+            case meta_type(s8):  { log_print(LogLevel_Info, "    %-32.*s %d",    string_expand(member_name), *(cast(s8*) member_ptr)); } break;
+            case meta_type(s16): { log_print(LogLevel_Info, "    %-32.*s %d",    string_expand(member_name), *(cast(s16*) member_ptr)); } break;
+            case meta_type(s32): { log_print(LogLevel_Info, "    %-32.*s %d",    string_expand(member_name), *(cast(s32*) member_ptr)); } break;
+            case meta_type(s64): { log_print(LogLevel_Info, "    %-32.*s %I64d", string_expand(member_name), *(cast(s64*) member_ptr)); } break;
 
-            case meta_type(f32): { log_print(LogLevel_Info, "    %-32.*s %g", PRINTF_STRING(member_name), *(cast(f32*) member_ptr)); } break;
-            case meta_type(f64): { log_print(LogLevel_Info, "    %-32.*s %g", PRINTF_STRING(member_name), *(cast(f64*) member_ptr)); } break;
+            case meta_type(f32): { log_print(LogLevel_Info, "    %-32.*s %g", string_expand(member_name), *(cast(f32*) member_ptr)); } break;
+            case meta_type(f64): { log_print(LogLevel_Info, "    %-32.*s %g", string_expand(member_name), *(cast(f64*) member_ptr)); } break;
 
             case meta_type(String): {
                 String val = *(cast(String*) member_ptr);
-                log_print(LogLevel_Info, "    %-32.*s %.*s", PRINTF_STRING(member_name), PRINTF_STRING(val));
+                log_print(LogLevel_Info, "    %-32.*s %.*s", string_expand(member_name), string_expand(val));
             } break;
         }
     }
@@ -244,7 +244,7 @@ internal CONSOLE_COMMAND(cc_break_at) {
     for (u32 index = 0; index < debug_break_array_count; index++) {
         DebugBreakMarker* marker = debug_break_array + index;
         if (strings_are_equal(name, marker->name)) {
-            log_print(LogLevel_Info, "Enabled breakpoint '%.*s'", PRINTF_STRING(name));
+            log_print(LogLevel_Info, "Enabled breakpoint '%.*s'", string_expand(name));
             marker->enabled = true;
             found_break = true;
             break;
@@ -252,7 +252,7 @@ internal CONSOLE_COMMAND(cc_break_at) {
     }
 
     if (!found_break) {
-        log_print(LogLevel_Error, "Could not find debug break '%.*s'", PRINTF_STRING(name));
+        log_print(LogLevel_Error, "Could not find debug break '%.*s'", string_expand(name));
     }
 }
 #endif
@@ -285,7 +285,7 @@ inline void execute_console_command(GameState* game_state, GameInput* input, Str
                 log_print(LogLevel_Info, "Available commands:");
                 for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
                     ConsoleCommand candidate = console_commands[command_index];
-                    log_print(LogLevel_Info, "    %.*s", PRINTF_STRING(candidate.name));
+                    log_print(LogLevel_Info, "    %.*s", string_expand(candidate.name));
                 }
             } else {
                 b32 found_command = false;
@@ -299,7 +299,7 @@ inline void execute_console_command(GameState* game_state, GameInput* input, Str
                 }
 
                 if (!found_command) {
-                    log_print(LogLevel_Error, "Unknown command: %.*s", PRINTF_STRING(command));
+                    log_print(LogLevel_Error, "Unknown command: %.*s", string_expand(command));
                 }
             }
         }
@@ -452,9 +452,9 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                 b32 filter_match = false;
                 if (console->input_buffer_count > 1 && console->input_buffer[0] == '/') {
                     String filter_string = wrap_string(console->input_buffer_count - 1, console->input_buffer + 1);
-                    String match = find_match(wrap_string(message->text_length, message->text), filter_string, StringMatch_CaseInsenitive);
-                    if (!match.len) match = find_match(wrap_cstr(message->file), filter_string, StringMatch_CaseInsenitive);
-                    if (!match.len) match = find_match(wrap_cstr(message->function), filter_string, StringMatch_CaseInsenitive);
+                    String match = find_match(message->text, filter_string, StringMatch_CaseInsenitive);
+                    if (!match.len) match = find_match(message->file, filter_string, StringMatch_CaseInsenitive);
+                    if (!match.len) match = find_match(message->function, filter_string, StringMatch_CaseInsenitive);
 
                     if (match.len > 0) {
                         filter_match = true;
@@ -474,7 +474,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                     color.rgb = square_root(lerp(color.rgb*color.rgb, COLOR_GREEN.rgb, 0.2f));
                 }
 
-                layout_print_line(&log, color, message->text);
+                layout_print_line(&log, color, "%.*s", string_expand(message->text));
 
                 if (is_in_aab(log.last_print_bounds, mouse_p)) {
                     selected_message = message;

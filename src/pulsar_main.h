@@ -296,7 +296,7 @@ inline Entity* get_entities_for_type(GameState* game_state, EntityType type, u32
     for (Entity* it = get_entities_for_type(game_state, type),                \
                * it##_loop_end = it + (game_state)->entity_type_counts[type]; \
          it < it##_loop_end;                                                  \
-         it++)
+         ++it)
 
 inline PlayingSound* play_soundtrack(GameState* game_state, Entity* soundtrack_player, u32 flags = 0);
 
