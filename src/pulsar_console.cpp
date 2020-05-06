@@ -257,23 +257,28 @@ internal CONSOLE_COMMAND(cc_break_at) {
 }
 #endif
 
-#define console_command(name) { cc_##name, string_literal(#name) }
+internal CONSOLE_COMMAND(cc_help) {
+    // Dummy...
+}
+
+#define console_command(name, help) { cc_##name, string_literal(#name), string_literal(help) }
 global ConsoleCommand console_commands[] = {
-    console_command(load_level),
-    console_command(save_level),
-    console_command(repair_entity_guids),
-    console_command(find_entity),
-    console_command(set_soundtrack),
-    console_command(toggle_flag),
-    console_command(switch_game_mode),
-    console_command(set),
-    console_command(dump_config),
-    console_command(kill_player),
-    console_command(delete_entity),
-    console_command(quit),
+    console_command(help, "Print out this list of commands."),
+    console_command(load_level, "Load a level."),
+    console_command(save_level, "Save a level."),
+    console_command(repair_entity_guids, "Repair entity guids in the loaded level."),
+    console_command(find_entity, "Find an entity with a given GUID."),
+    console_command(set_soundtrack, "Set the soundtrack of the selected entity."),
+    console_command(toggle_flag, "Toggle a flag on the selected entity."),
+    console_command(switch_game_mode, "Switch the gamemode."),
+    console_command(set, "Set a config variable."),
+    console_command(dump_config, "Dump the current config state."),
+    console_command(kill_player, "Kill player."),
+    console_command(delete_entity, "Delete an entity with a given GUID."),
+    console_command(quit, "Quit the game."),
 
 #if PULSAR_DEBUG
-    console_command(break_at),
+    console_command(break_at, "Enable a particular breakpoint."),
 #endif
 };
 
@@ -281,29 +286,47 @@ inline void execute_console_command(GameState* game_state, GameInput* input, Str
     if (in_buffer.data[0] != '/') {
         String command = advance_word(&in_buffer);
         if (command.len > 0) {
-            if (strings_are_equal(command, string_literal("?")) || strings_are_equal(command, string_literal("help"))) {
-                log_print(LogLevel_Info, "Available commands:");
-                for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
-                    ConsoleCommand candidate = console_commands[command_index];
-                    log_print(LogLevel_Info, "    %.*s", string_expand(candidate.name));
-                }
-            } else {
-                b32 found_command = false;
-                for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
-                    ConsoleCommand candidate = console_commands[command_index];
-                    if (strings_are_equal(command, candidate.name)) {
-                        found_command = true;
-                        candidate.f(game_state, game_state->editor_state, input, trim_spaces_right(in_buffer));
-                        break;
-                    }
-                }
+            b32 print_help = false;
 
-                if (!found_command) {
-                    log_print(LogLevel_Error, "Unknown command: %.*s", string_expand(command));
+            b32 found_command = false;
+            for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
+                ConsoleCommand candidate = console_commands[command_index];
+                if (strings_are_equal(command, candidate.name)) {
+                    found_command = true;
+                    if (candidate.f == cc_help) {
+                        print_help = true;
+                    } else {
+                        candidate.f(game_state, game_state->editor_state, input, trim_spaces_right(in_buffer));
+                    }
+                    break;
+                }
+            }
+
+            if (!found_command) {
+                log_print(LogLevel_Error, "Unknown command: %.*s", string_expand(command));
+            }
+
+            if (print_help) {
+                log_print(LogLevel_Info, "Available commands:");
+                log_print(LogLevel_Info, "-------------------");
+                for (u32 command_index = 0; command_index < ARRAY_COUNT(console_commands); command_index++) {
+                    ConsoleCommand candidate = console_commands[command_index];
+                    log_print(LogLevel_Info, "%.*s: %.*s", string_expand(candidate.name), string_expand(candidate.help));
                 }
             }
         }
     }
+}
+
+internal String find_closest_matching_console_command(String query) {
+    String result = {};
+    for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
+        String candidate = console_commands[candidate_index].name;
+        if (starts_with(candidate, query, StringMatch_CaseInsenitive)) {
+            result = candidate;
+        }
+    }
+    return result;
 }
 
 internal void execute_console(GameState* game_state, ConsoleState* console, GameInput* input) {
@@ -321,6 +344,7 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
     v2 dim = get_screen_dim(rc);
     f32 width = dim.x;
     f32 height = dim.y;
+    f32 advance = get_advance_for_codepoint_pair(console->font, 'M', 'M');
 
     if (was_pressed(input->tilde)) {
         if (console->open && !console->in_focus) {
@@ -388,28 +412,56 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                         console->in_focus = false;
                     } break;
 
+                    case PKC_Left: {
+                        if (console->caret_pos > 0) {
+                            --console->caret_pos;
+                        }
+                    } break;
+
+                    case PKC_Right: {
+                        if (console->caret_pos < console->input_buffer_count) {
+                            ++console->caret_pos;
+                        }
+                    } break;
+
                     case PKC_Tab: {
-                        for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
-                            String candidate = console_commands[candidate_index].name;
-                            if (find_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
-                                console->input_buffer_count = cast(u32) candidate.len;
-                                copy(console->input_buffer_count, candidate.data, console->input_buffer);
-                                console->input_buffer[console->input_buffer_count++] = ' ';
-                                break;
-                            }
+                        String candidate = find_closest_matching_console_command(input_buffer_as_string(console));
+                        if (candidate.len) {
+                            console->input_buffer_count = cast(u32) candidate.len;
+                            copy(console->input_buffer_count, candidate.data, console->input_buffer);
+                            console->input_buffer[console->input_buffer_count++] = ' ';
+                            console->caret_pos = console->input_buffer_count;
                         }
                     } break;
 
                     case PKC_Return: {
                         if (console->input_buffer_count > 0) {
-                            execute_console_command(game_state, input, input_buffer_as_string(console));
+                            String command = input_buffer_as_string(console);
                             console->input_buffer_count = 0;
+                            console->caret_pos = 0;
+                            execute_console_command(game_state, input, command);
                         }
                     } break;
 
                     case PKC_Back: {
                         if (console->input_buffer_count > 0) {
-                            console->input_buffer_count--;
+                            if (input->ctrl.is_down) {
+                                console->input_buffer_count = 0;
+                                console->caret_pos = 0;
+                            } else {
+                                if (console->caret_pos == console->input_buffer_count) {
+                                    --console->input_buffer_count;
+                                    --console->caret_pos;
+                                } else {
+                                    if (console->caret_pos > 0) {
+                                        --console->caret_pos;
+                                    }
+                                    --console->input_buffer_count;
+                                    for (u32 i = console->caret_pos; i < console->input_buffer_count; ++i) {
+                                        console->input_buffer[i] = console->input_buffer[i + 1];
+                                    }
+                                }
+                            }
                         }
                     } break;
 
@@ -418,13 +470,27 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                     } break;
 
                     case PKC_Delete: {
-                        console->input_buffer_count = 0;
+                        if (console->input_buffer_count > console->caret_pos && console->input_buffer_count > 0) {
+                            --console->input_buffer_count;
+                            for (u32 i = console->caret_pos; i < console->input_buffer_count; ++i) {
+                                console->input_buffer[i] = console->input_buffer[i + 1];
+                            }
+                        }
                     } break;
 
                     default: {
                         if (ascii) {
-                            if (console->input_buffer_count + 1 < ARRAY_COUNT(console->input_buffer)) {
-                                console->input_buffer[console->input_buffer_count++] = ascii;
+                            if (console->input_buffer_count < ARRAY_COUNT(console->input_buffer)) {
+                                if (console->caret_pos == console->input_buffer_count) {
+                                    console->input_buffer[console->input_buffer_count++] = ascii;
+                                    ++console->caret_pos;
+                                } else {
+                                    for (u32 i = console->input_buffer_count; i > console->caret_pos; --i) {
+                                        console->input_buffer[i] = console->input_buffer[i - 1];
+                                    }
+                                    console->input_buffer[console->caret_pos++] = ascii;
+                                    ++console->input_buffer_count;
+                                }
                             }
                         }
                     } break;
@@ -452,9 +518,9 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                 b32 filter_match = false;
                 if (console->input_buffer_count > 1 && console->input_buffer[0] == '/') {
                     String filter_string = wrap_string(console->input_buffer_count - 1, console->input_buffer + 1);
-                    String match = find_match(message->text, filter_string, StringMatch_CaseInsenitive);
-                    if (!match.len) match = find_match(message->file, filter_string, StringMatch_CaseInsenitive);
-                    if (!match.len) match = find_match(message->function, filter_string, StringMatch_CaseInsenitive);
+                    String match = find_partial_match(message->text, filter_string, StringMatch_CaseInsenitive);
+                    if (!match.len) match = find_partial_match(message->file, filter_string, StringMatch_CaseInsenitive);
+                    if (!match.len) match = find_partial_match(message->function, filter_string, StringMatch_CaseInsenitive);
 
                     if (match.len > 0) {
                         filter_match = true;
@@ -488,8 +554,28 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
         AxisAlignedBox2 console_input_box = aab_min_max(input_box_min, vec2(cast(f32) width, console_log_box_height));
         push_shape(rc, default_transform2d(), rectangle(console_input_box), vec4(input_box_color.rgb, input_box_color.a*console_alpha));
 
-        UILayout input_box = make_layout(layout_context, console->font, input_box_min + vec2(4.0f, get_line_spacing(console->font) + get_baseline(console->font)));
-        layout_print_line(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
+        f32 caret_x = advance*(console->caret_pos);
+        AxisAlignedBox2 caret_box = aab_min_dim(vec2(caret_x + 4.0f, input_box_min.y - get_baseline(console->font)), vec2(2.0f, (f32)console->font->size)); 
+        push_shape(rc, default_transform2d(), rectangle(caret_box), COLOR_WHITE);
+
+        {
+            UILayout input_box = make_layout(layout_context, console->font, input_box_min + vec2(4.0f, get_line_spacing(console->font) + get_baseline(console->font)));
+            layout_print(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
+
+            String closest_command = find_closest_matching_console_command(input_buffer_as_string(console));
+            advance_by(&closest_command, console->input_buffer_count);
+            if (closest_command.len) {
+                layout_print(&input_box, vec4(1.0f, 1.0f, 1.0f, 0.5f + 0.15f*sin(console->caret_breathing)), "%.*s", string_expand(closest_command));
+            }
+            // if (console->input_buffer_count >= closest_command.len) {
+            //     layout_print(&input_box, vec4(1.0f, 1.0f, 1.0f, 0.75f + 0.25f*sin(console->caret_breathing)), " |");
+            // }
+            console->caret_breathing += 2.0f*input->frame_dt;
+            if (console->caret_breathing > TAU_32) {
+                console->caret_breathing -= TAU_32;
+            }
+            layout_finish_print(&input_box);
+        }
 
         if (selected_message) {
             UILayout log_tooltip = make_layout(layout_context, console->font, mouse_p + vec2(0.0f, 12.0f), true);

@@ -59,7 +59,7 @@ typedef int64_t  s64;
 #endif
 
 #define define_safe_truncate(big, small, min, max)             \
-    inline small safe_truncate_##big##_##small##(big source) { \
+    inline small safe_truncate_##big##_##small(big source) { \
         assert(source >= min && source <= max);                \
         small result = cast(small) source;                     \
         return result;                                         \
@@ -84,7 +84,7 @@ define_safe_truncate(f64, f32, -FLT_MAX , FLT_MAX);
 #undef define_safe_truncate
 
 #define define_saturating_cast(big, small, min, max)             \
-    inline small saturating_cast_##big##_##small##(big source) { \
+    inline small saturating_cast_##big##_##small(big source) { \
         small result = cast(small) CLAMP(source, min, max);      \
         return result;                                           \
     }

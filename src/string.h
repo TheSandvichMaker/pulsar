@@ -416,7 +416,7 @@ inline String advance_line(String* string) {
     return result;
 }
 
-inline String find_match(String source_string, String match, u32 flags = 0) {
+inline String find_partial_match(String source_string, String match, u32 flags = 0) {
     String result = {};
 
     if (match.len) {
@@ -433,6 +433,15 @@ inline String find_match(String source_string, String match, u32 flags = 0) {
         }
     }
 
+    return result;
+}
+
+inline b32 starts_with(String source_string, String prefix, u32 flags = 0) {
+    b32 result = false;
+    if (prefix.len && source_string.len >= prefix.len) {
+        String test_string = wrap_string(prefix.len, source_string.data);
+        result = strings_are_equal(test_string, prefix, flags);
+    }
     return result;
 }
 

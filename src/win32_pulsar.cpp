@@ -543,6 +543,10 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                     case VK_F10: { win32_process_keyboard_message(&input->debug_fkeys[10], is_down); } break;
                     case VK_F11: { win32_process_keyboard_message(&input->debug_fkeys[11], is_down); } break;
                     case VK_F12: { win32_process_keyboard_message(&input->debug_fkeys[12], is_down); } break;
+
+                    case VK_MENU:    { win32_process_keyboard_message(&input->alt,   is_down); } break;
+                    case VK_SHIFT:   { win32_process_keyboard_message(&input->shift, is_down); } break;
+                    case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl,  is_down); } break;
                 }
 
                 if (is_down && vk_code == VK_RETURN && alt_is_down && message.hwnd) {
@@ -583,11 +587,8 @@ internal void win32_handle_remaining_messages(GameInput* input, BYTE* keyboard_s
                     if (vk_code == config->reset    || vk_code == config->alternate_reset   ) win32_process_keyboard_message(&keyboard_controller->back,       is_down);
 
                     switch (vk_code) {
-                        case VK_ESCAPE:  { win32_process_keyboard_message(&keyboard_controller->start, is_down); } break;
                         case VK_SPACE:   { win32_process_keyboard_message(&input->space, is_down); } break;
-                        case VK_MENU:    { win32_process_keyboard_message(&input->alt,   is_down); } break;
-                        case VK_SHIFT:   { win32_process_keyboard_message(&input->shift, is_down); } break;
-                        case VK_CONTROL: { win32_process_keyboard_message(&input->ctrl,  is_down); } break;
+                        case VK_ESCAPE:  { win32_process_keyboard_message(&keyboard_controller->start, is_down); } break;
                         case VK_DELETE:  { win32_process_keyboard_message(&input->del,   is_down); } break;
                     }
                 }

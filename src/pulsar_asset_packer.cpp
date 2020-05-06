@@ -714,7 +714,7 @@ int main(int argument_count, char** arguments) {
                         packed->midi.time_signature_numerator = 4;
                         packed->midi.time_signature_denominator = 4;
 
-                        f64 samples_per_microsecond = cast(f32) packed->midi.ticks_per_second / 1000000.0f;
+                        f64 samples_per_microsecond = cast(f64) packed->midi.ticks_per_second / 1000000.0;
                         u32 ticks_per_quarter_note = 0;
                         u32 microseconds_per_quarter_note = round_f32_to_u32(1000000.0f*(60.0f / asset_desc->bpm));
 

@@ -1448,7 +1448,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     if (is_active(editor, select_entities)) {
-        AxisAlignedBox2 selection_box = correct_aab_winding(aab_min_max(editor->world_mouse_p_on_active, world_mouse_p));
+        AxisAlignedBox2 selection_box = bounding_aab(editor->world_mouse_p_on_active, world_mouse_p);
         v2 selection_dim = get_dim(selection_box);
 
         push_rect(&game_state->render_context, selection_box, vec4(0.3f, 0.3f, 0.5f, 0.2f), ShapeRenderMode_Fill);
@@ -1825,14 +1825,14 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
     }
 
     if (moused_over) {
-        push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision), COLOR_PINK, ShapeRenderMode_Outline, 100.0f);
+        push_shape(&game_state->render_context, transform2d(moused_over->p), rectangle(moused_over->collision + vec2(0.1f, 0.1f)), COLOR_PINK, ShapeRenderMode_Outline, 1000.0f);
     }
 
     if (editor->selected_entity_count) {
         for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
             Entity* this_selected = get_entity_from_guid(editor, editor->selected_entities[selected_index]);
             if (this_selected) {
-                push_shape(&game_state->render_context, transform2d(this_selected->p), rectangle(this_selected->collision), this_selected == moused_over ? COLOR_YELLOW : COLOR_GREEN, ShapeRenderMode_Outline, 100.0f);
+                push_shape(&game_state->render_context, transform2d(this_selected->p), rectangle(this_selected->collision + vec2(0.1f, 0.1f)), this_selected == moused_over ? COLOR_YELLOW : COLOR_GREEN, ShapeRenderMode_Outline, 1000.0f);
             }
         }
     }

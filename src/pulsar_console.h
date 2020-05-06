@@ -7,6 +7,7 @@ typedef CONSOLE_COMMAND(ConsoleCommandFunction);
 struct ConsoleCommand {
     ConsoleCommandFunction* f;
     String name;
+    String help;
 };
 
 struct ConsoleState {
@@ -18,10 +19,13 @@ struct ConsoleState {
     b32 wide_open;
     f32 openness_t;
 
+    f32 caret_breathing;
+
     b32 in_focus;
 
+    u32  caret_pos;
     u32  input_buffer_count;
-    char input_buffer[1024];
+    char input_buffer[255];
 };
 
 inline String input_buffer_as_string(ConsoleState* console) {

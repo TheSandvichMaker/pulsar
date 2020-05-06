@@ -306,12 +306,12 @@ internal b32 load_level_from_disk(GameState* game_state, Level* level, String le
 internal void load_level(GameState* game_state, String level_name);
 
 #define DEFINE_COLORS(MIDDLE_FIX, VALUE, COUNTER_VALUE) \
-static const v4 COLOR_##MIDDLE_FIX##RED    = { VALUE         , COUNTER_VALUE , COUNTER_VALUE , 1 }; \
-static const v4 COLOR_##MIDDLE_FIX##GREEN  = { COUNTER_VALUE , VALUE         , COUNTER_VALUE , 1 }; \
-static const v4 COLOR_##MIDDLE_FIX##BLUE   = { COUNTER_VALUE , COUNTER_VALUE , VALUE         , 1 }; \
-static const v4 COLOR_##MIDDLE_FIX##YELLOW = { VALUE         , VALUE         , COUNTER_VALUE , 1 }; \
-static const v4 COLOR_##MIDDLE_FIX##PINK   = { VALUE         , COUNTER_VALUE , VALUE         , 1 }; \
-static const v4 COLOR_##MIDDLE_FIX##CYAN   = { COUNTER_VALUE , VALUE         , VALUE         , 1 }; \
+static const v4 COLOR_##MIDDLE_FIX##RED    = vec4(VALUE         , COUNTER_VALUE , COUNTER_VALUE , 1); \
+static const v4 COLOR_##MIDDLE_FIX##GREEN  = vec4(COUNTER_VALUE , VALUE         , COUNTER_VALUE , 1); \
+static const v4 COLOR_##MIDDLE_FIX##BLUE   = vec4(COUNTER_VALUE , COUNTER_VALUE , VALUE         , 1); \
+static const v4 COLOR_##MIDDLE_FIX##YELLOW = vec4(VALUE         , VALUE         , COUNTER_VALUE , 1); \
+static const v4 COLOR_##MIDDLE_FIX##PINK   = vec4(VALUE         , COUNTER_VALUE , VALUE         , 1); \
+static const v4 COLOR_##MIDDLE_FIX##CYAN   = vec4(COUNTER_VALUE , VALUE         , VALUE         , 1); \
 
 DEFINE_COLORS(, 1.0f, 0.0f)
 DEFINE_COLORS(DARK_, 0.75f, 0.0f)
