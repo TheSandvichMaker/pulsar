@@ -99,15 +99,14 @@ internal SERIALIZE_CALLBACK(serialize_AssetID) {
 }
 
 global Serializable entity_serializables[] = {
-   // @Note: All entities (I'm using EntityType_Count to indicate all entity types)
-   SERIALIZABLE(Entity, EntityType_Count, guid),
-   SERIALIZABLE(Entity, EntityType_Count, type),
-   SERIALIZABLE(Entity, EntityType_Count, flags),
-   SERIALIZABLE(Entity, EntityType_Count, dead),
-   SERIALIZABLE(Entity, EntityType_Count, p),
-   SERIALIZABLE(Entity, EntityType_Count, collision),
-   SERIALIZABLE(Entity, EntityType_Count, sprite, serialize_AssetID),
-   SERIALIZABLE(Entity, EntityType_Count, color),
+   SERIALIZABLE(Entity, EntityType_Any, guid),
+   SERIALIZABLE(Entity, EntityType_Any, type),
+   SERIALIZABLE(Entity, EntityType_Any, flags),
+   SERIALIZABLE(Entity, EntityType_Any, dead),
+   SERIALIZABLE(Entity, EntityType_Any, p),
+   SERIALIZABLE(Entity, EntityType_Any, collision),
+   SERIALIZABLE(Entity, EntityType_Any, sprite, serialize_AssetID),
+   SERIALIZABLE(Entity, EntityType_Any, color),
    // @Note: Player
    // ...
    // @Note: Wall
@@ -194,7 +193,7 @@ internal void write_level_to_disk(GameState* game_state, Level* level, String le
        
        for (u32 ser_index = 0; ser_index < ARRAY_COUNT(entity_serializables); ser_index++) {
            Serializable* ser = entity_serializables + ser_index;
-           if (ser->type == EntityType_Count || ser->type == entity->type) {
+           if (ser->type == EntityType_Any || ser->type == entity->type) {
                void** data_ptr = cast(void**) (cast(u8*) entity + ser->offset);
                
                SerializeResult ser_data;
@@ -833,7 +832,7 @@ internal GAME_UPDATE_AND_RENDER(game_update_and_render) {
        layout_context.assets = &game_state->assets;
        layout_context.temp_arena = &game_state->transient_arena;
        
-       char* menu_items[32]; // @Note: Oversized array
+       char* menu_items[32];
        u32 item_index = 0;
        u32 start_game   = (menu_items[item_index] = menu->source_game_mode == GameMode_Ingame ? "Resume" : "Start Game", item_index++);
        u32 enter_editor = (menu_items[item_index] = menu->source_game_mode == GameMode_Editor ? "Resume Editing" : "Enter Editor", item_index++);

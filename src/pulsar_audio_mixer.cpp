@@ -187,7 +187,8 @@ internal void output_playing_sounds(AudioMixer* mixer, GameSoundOutputBuffer* so
                 playing_sound->samples_played += cast(u32) (cast(f32) sound_buffer->samples_committed*playback_rate);
 
                 for (u32 channel = 0; channel < 2; channel++) {
-                    playing_sound->volume.current_volume[channel] = get_volume_for_sample_offset(playing_sound->volume, channel, sound_buffer->sample_rate, sound_buffer->samples_committed);
+                    playing_sound->volume.current_volume[channel] =
+                        get_volume_for_sample_offset(playing_sound->volume, channel, sound_buffer->sample_rate, sound_buffer->samples_committed);
                 }
             } else {
                 playing_sound->samples_played = 0;

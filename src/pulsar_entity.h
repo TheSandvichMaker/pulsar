@@ -27,6 +27,7 @@ introspect() enum EntityType {
 
     EntityType_Count,
 };
+#define EntityType_Any EntityType_Count
 
 introspect() enum WallBehaviour {
     WallBehaviour_None,
@@ -130,7 +131,7 @@ struct Entity {
             v2 respawn_p;
         };
 
-        struct /* Trigger Zone */ {
+        struct /* TriggerZone */ {
             TriggerBehaviour trigger_touch_behaviour;
             TriggerBehaviour trigger_envelop_behaviour;
             TriggerBehaviour trigger_leave_behaviour;

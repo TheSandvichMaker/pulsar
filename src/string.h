@@ -223,16 +223,12 @@ inline char advance(String* string) {
     }
 }
 
-inline String advance_by(String* string, u32 by) {
-    if (by < string->len) {
-        String result = wrap_string(by, string->data);
-        string->data += by;
-        string->len -= by;
-        return result;
-    } else {
-        String result = {};
-        return result;
-    }
+inline String advance_by(String* string, size_t by_init) {
+    size_t by = MIN(by_init, string->len);
+    String result = wrap_string(by, string->data);
+    string->data += by;
+    string->len -= by;
+    return result;
 }
 
 inline void eat_newline(String* string) {

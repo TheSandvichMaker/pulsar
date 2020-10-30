@@ -21,7 +21,7 @@ inline void swap(SortEntry* a, SortEntry* b) {
     *a = swap;
 }
 
-inline void bubble_sort(u32 count, SortEntry* first, SortEntry* temp) {
+inline void bubble_sort(u32 count, SortEntry* first) {
     for (u32 outer = 0; outer < count; outer++) {
         b32 list_is_sorted = true;
         for (u32 inner = 0; inner < (count - 1); inner++) {

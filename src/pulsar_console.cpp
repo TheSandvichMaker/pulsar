@@ -425,11 +425,18 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
                     } break;
 
                     case PKC_Tab: {
-                        String candidate = find_closest_matching_console_command(input_buffer_as_string(console));
-                        if (candidate.len) {
-                            console->input_buffer_count = cast(u32) candidate.len;
-                            copy(console->input_buffer_count, candidate.data, console->input_buffer);
-                            console->input_buffer[console->input_buffer_count++] = ' ';
+                        String closest_command = {};
+                        for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
+                            String candidate = console_commands[candidate_index].name;
+                            if (find_partial_match(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive).len) {
+                                closest_command = candidate;
+                                break;
+                            }
+                        }
+                        if (closest_command.len) {
+                            console->input_buffer_count = cast(u32) closest_command.len;
+                            copy(console->input_buffer_count, closest_command.data, console->input_buffer);
+                            // console->input_buffer[console->input_buffer_count++] = ' ';
                             console->caret_pos = console->input_buffer_count;
                         }
                     } break;
@@ -562,7 +569,14 @@ internal void execute_console(GameState* game_state, ConsoleState* console, Game
             UILayout input_box = make_layout(layout_context, console->font, input_box_min + vec2(4.0f, get_line_spacing(console->font) + get_baseline(console->font)));
             layout_print(&input_box, COLOR_WHITE, "%.*s", console->input_buffer_count, console->input_buffer);
 
-            String closest_command = find_closest_matching_console_command(input_buffer_as_string(console));
+            String closest_command = {};
+            for (u32 candidate_index = 0; candidate_index < ARRAY_COUNT(console_commands); candidate_index++) {
+                String candidate = console_commands[candidate_index].name;
+                if (starts_with(candidate, input_buffer_as_string(console), StringMatch_CaseInsenitive)) {
+                    closest_command = candidate;
+                    break;
+                }
+            }
             advance_by(&closest_command, console->input_buffer_count);
             if (closest_command.len) {
                 layout_print(&input_box, vec4(1.0f, 1.0f, 1.0f, 0.5f + 0.15f*sin(console->caret_breathing)), "%.*s", string_expand(closest_command));

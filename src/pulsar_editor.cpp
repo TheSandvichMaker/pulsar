@@ -219,14 +219,12 @@ inline void delete_entity(EditorState* editor, EntityID guid, b32 with_undo_hist
         assert(hash_slot->index < ARRAY_COUNT(level->entities));
         Entity* entity = level->entities + hash_slot->index;
 
-#if 0
-        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; selected_index++) {
+        for (u32 selected_index = 0; selected_index < editor->selected_entity_count; ++selected_index) {
             EntityID selected = editor->selected_entities[selected_index];
             if (selected.value == guid.value) {
                 editor->selected_entities[selected_index] = editor->selected_entities[--editor->selected_entity_count];
             }
         }
-#endif
 
         if (with_undo_history) {
             add_undo_history(editor, Undo_DeleteEntity, sizeof(*entity), entity, 0);
@@ -1701,7 +1699,7 @@ internal void execute_editor(GameState* game_state, EditorState* editor, GameInp
 
     if (moused_over || editor->selected_entity_count == 1) {
         b32 is_selected = editor->selected_entity_count;
-        Entity* selected = editor->selected_entity_count ? get_entity_from_guid(editor, editor->selected_entities[0]) : moused_over;
+        Entity* selected = (editor->selected_entity_count == 1) ? get_entity_from_guid(editor, editor->selected_entities[0]) : moused_over;
 
         if (game_state->game_mode == GameMode_Editor) {
             if (editor->show_camera_zones && selected->type == EntityType_CameraZone) {

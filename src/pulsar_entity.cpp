@@ -111,8 +111,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             if (playing_midi->event_index < track->event_count) {
                 for (MidiEvent event = track->events[playing_midi->event_index];
                      playing_midi->event_index < track->event_count && event.absolute_time_in_ticks <= tick_timer_for_frame;
-                     event = track->events[++playing_midi->event_index]
-                ) {
+                     event = track->events[++playing_midi->event_index])
+                {
                     b32 should_use_event = true;
 
                     if (track->flags & MidiFlag_IgnoreExtremes) {
@@ -277,13 +277,13 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                 if (entity->wall_behaviour == WallBehaviour_Move) {
                     for (u32 event_index = 0; event_index < game_state->midi_event_buffer_count; event_index++) {
                         ActiveMidiEvent event = game_state->midi_event_buffer[event_index];
-                        if (!entity->listening_to.value || event.source_soundtrack.value == entity->listening_to.value) {
-                            if (event.note_value == entity->midi_note) {
-                                if (event.type == MidiEvent_NoteOn) {
-                                    entity->moving_to_end = true;
-                                } else if (event.type == MidiEvent_NoteOff) {
-                                    entity->moving_to_end = false;
-                                }
+                        if ((!entity->listening_to.value || event.source_soundtrack.value == entity->listening_to.value) &&
+                            (event.note_value == entity->midi_note))
+                        {
+                            if (event.type == MidiEvent_NoteOn) {
+                                entity->moving_to_end = true;
+                            } else if (event.type == MidiEvent_NoteOff) {
+                                entity->moving_to_end = false;
                             }
                         }
                     }
@@ -353,6 +353,7 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
             f32 min_y_vel = game_config->min_y_vel;
             f32 max_y_vel = game_config->max_y_vel;
 
+            // NOTE: Clamp the ddp so that it cannot push you beyond the max velocity
             ddp.x = safe_ratio_0((clamp(ddp.x*dt + player->dp.x, -max_x_vel, max_x_vel) - player->dp.x), dt);
             ddp.y = safe_ratio_0((clamp(ddp.y*dt + player->dp.y,  min_y_vel, max_y_vel) - player->dp.y), dt);
 
@@ -635,7 +636,8 @@ internal void simulate_entities(GameState* game_state, GameInput* input, f32 fra
                     if (is_in_entity_local_region(entity, entity->checkpoint_zone - player->collision, player->p)) {
                         game_state->last_activated_checkpoint = entity;
                         // @TODO: I'd rather do a trace here to find the ground but let's do that later
-                        entity->respawn_p = vec2(player->p.x, entity->p.y) + vec2(0.0f, -0.5f*entity->checkpoint_zone.y + player->collision.y*0.5f + 1.0e-3f);
+                        entity->respawn_p = player->p;
+                        entity->respawn_p.y = entity->p.y - 0.5f*entity->checkpoint_zone.y + player->collision.y*0.5f + 1.0e-3f;
                     }
                 }
             } break;

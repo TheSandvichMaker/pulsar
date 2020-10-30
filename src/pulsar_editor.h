@@ -205,7 +205,7 @@ struct EditorState {
     EditorWidget active_widget;
 
     u32 selected_entity_count;
-    EntityID selected_entities[32];
+    EntityID selected_entities[256];
 
     b32 added_drag_entites_undo_history;
     v2 drag_entities_anchor;
